@@ -19,6 +19,7 @@ from apps.runtime.api.routes.approvals import router as approvals_router
 from apps.runtime.api.routes.executions import router as executions_router
 from apps.runtime.api.routes.health import router as health_router
 from apps.runtime.api.routes.plans import router as plans_router
+from apps.runtime.api.routes.proofs import router as proofs_router
 from apps.runtime.api.routes.providers import router as providers_router
 from apps.runtime.api.routes.transactions import router as transactions_router
 from registry.transaction_registry import build_default_registry
@@ -53,6 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(executions_router, prefix="/v1")
     app.include_router(health_router)
     app.include_router(plans_router, prefix="/v1")
+    app.include_router(proofs_router, prefix="/v1")
     app.include_router(providers_router, prefix="/v1")
     app.include_router(transactions_router, prefix="/v1")
     return app

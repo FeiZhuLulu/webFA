@@ -119,3 +119,28 @@ def test_idempotency_key(monkeypatch, tmp_path: Path):
         })
 
     assert resp1.json()["id"] == resp2.json()["id"]
+
+
+def test_execution_generates_proof(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    reset_engine_for_tests()
+
+    with TestClient(create_app()) as client:
+        plan_id, approval_token = _full_flow(client)
+        exec_resp = client.post("/v1/executions", json={
+            "plan_id": plan_id,
+            "approval_token": approval_token,
+        })
+        body = exec_resp.json()
+        proof_id = body["proof_id"]
+
+        assert proof_id is not None
+        assert proof_id.startswith("proof_")
+
+        # Get proof via API
+        proof_resp = client.get(f"/v1/proofs/{proof_id}")
+        assert proof_resp.status_code == 200
+        proof = proof_resp.json()
+        assert proof["provider"] == "mock"
+        assert proof["proof"]["verification"]["passed"] is True
+        assert proof["hash"].startswith("sha256:")

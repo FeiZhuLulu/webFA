@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 
 from approvals.service import ApprovalService
 from planner.plan_hash import compute_diff_hash
+from proof.store import ProofService
 from providers.mock.adapter import MockAdapter
 from schemas.execution import ExecutionRead, ExecutionStepRead, ExecuteRequest
 from storage.models import AuditEvent, Execution, ExecutionStep, Plan, new_id
+from verification.engine import VerificationService
 
 
 # Execution state transitions
@@ -33,6 +35,8 @@ class ExecutionService:
     def __init__(self) -> None:
         self._approval_service = ApprovalService()
         self._mock_adapter = MockAdapter()
+        self._verification_service = VerificationService()
+        self._proof_service = ProofService()
 
     def execute(self, session: Session, request: ExecuteRequest) -> ExecutionRead:
         """Execute a plan with an approved approval token."""
@@ -195,6 +199,44 @@ class ExecutionService:
             event_payload_json={"execution_id": execution.id},
         ))
 
+        # Verify
+        verification = self._verification_service.verify(
+            execution_result=result_payload,
+            expected_diff_hash=expected_diff_hash,
+        )
+
+        if not verification.passed:
+            execution.status = "failed"
+            execution.error_json = {"verification": verification.model_dump()}
+            execution.finished_at = datetime.now(timezone.utc)
+            session.add(AuditEvent(
+                id=new_id("audit"),
+                workspace_id=plan.workspace_id,
+                plan_id=plan.id,
+                execution_id=execution.id,
+                event_type="execution.failed",
+                event_payload_json={"reason": "verification_failed", "checks": [c.model_dump() for c in verification.checks]},
+            ))
+            session.flush()
+            return self._to_read(session, execution)
+
+        # Generate proof
+        pr_result = step_results[2] if len(step_results) >= 3 else {}
+        proof_read = self._proof_service.create_proof(
+            session=session,
+            execution_id=execution.id,
+            provider="mock",
+            transaction_id=plan.transaction_id,
+            plan_id=plan.id,
+            resource_type="mock_pull_request",
+            resource_id=f"mock_pr_{pr_result.get('number', 0)}",
+            resource_url=pr_result.get("url"),
+            plan_hash=plan.plan_hash or "",
+            diff_hash=diff_hash,
+            verification=verification,
+            workspace_id=plan.workspace_id,
+        )
+
         # Transition to verified
         execution.status = "verified"
         execution.finished_at = datetime.now(timezone.utc)
@@ -223,6 +265,7 @@ class ExecutionService:
                 for s in execution.steps
             ],
             result=result_payload,
+            proof_id=proof_read.id,
             started_at=execution.started_at.isoformat() if execution.started_at else None,
             finished_at=execution.finished_at.isoformat() if execution.finished_at else None,
             created_at=execution.created_at.isoformat() if execution.created_at else None,
