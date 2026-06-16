@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: webfa-desktop-runtime
+Version: 0.1.0
+Summary: WebFA Desktop v0.1 local runtime skeleton
+Requires-Python: >=3.12
+Requires-Dist: fastapi>=0.111
+Requires-Dist: uvicorn[standard]>=0.30
+Requires-Dist: pydantic>=2.7
+Requires-Dist: SQLAlchemy>=2.0
+Requires-Dist: alembic>=1.13
+Requires-Dist: PyYAML>=6.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.2; extra == "dev"
+Requires-Dist: httpx>=0.27; extra == "dev"
