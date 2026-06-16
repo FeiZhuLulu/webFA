@@ -19,8 +19,8 @@ class TransactionDefinition(BaseModel):
     required_capabilities: list[str] = Field(default_factory=list)
     read_set: list[str] = Field(default_factory=list)
     write_set: list[str] = Field(default_factory=list)
-    verification_strategy: list[str] = Field(default_factory=list)
+    verification_strategy: Any = None
     proof_types: list[str] = Field(default_factory=list)
-    rollback_strategy: str = "manual"
+    rollback_strategy: Any = None
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)

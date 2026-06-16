@@ -1,0 +1,84 @@
+id: mock.patch_and_open_pr
+provider: mock
+name: Mock Patch and Open PR
+description: Simulates reading an issue, creating a patch, opening a draft PR, verifying result, and producing proof.
+risk: high
+approval_level: user
+enabled: true
+
+input_schema:
+  type: object
+  required:
+    - owner
+    - repo
+    - issue_number
+    - task_description
+  properties:
+    owner:
+      type: string
+    repo:
+      type: string
+    issue_number:
+      type: integer
+    task_description:
+      type: string
+    base_branch:
+      type: string
+      default: main
+    allowed_paths:
+      type: array
+      items:
+        type: string
+      default:
+        - src/**
+        - tests/**
+    blocked_paths:
+      type: array
+      items:
+        type: string
+      default:
+        - .github/workflows/**
+        - .env
+        - .env.*
+        - "**/*.pem"
+        - "**/*.key"
+        - "**/secrets/**"
+
+output_schema:
+  type: object
+
+read_set:
+  - mock.issue
+  - mock.repo.metadata
+  - mock.repo.tree
+  - mock.file.content
+
+write_set:
+  - mock.branch
+  - mock.commit
+  - mock.pull_request
+
+required_capabilities:
+  - mock.issue.read
+  - mock.repo.read
+  - mock.file.read
+  - mock.branch.create
+  - mock.commit.create
+  - mock.pr.create
+
+verification_strategy:
+  type: mock_resource_verification
+  checks:
+    - mock_branch_exists
+    - mock_commit_exists
+    - mock_pr_exists
+    - diff_hash_matches
+
+proof_types:
+  - transport
+  - resource
+  - state
+
+rollback_strategy:
+  type: none
+  reason: mock transaction does not mutate external resources

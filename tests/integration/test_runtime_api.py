@@ -29,7 +29,7 @@ def test_transactions_endpoint_returns_registry(monkeypatch, tmp_path: Path):
 
     assert response.status_code == 200
     ids = {item["id"] for item in response.json()["transactions"]}
-    assert ids == {"github.patch_and_open_pr", "hf.compare_and_publish"}
+    assert ids == {"github.patch_and_open_pr", "hf.compare_and_publish", "mock.patch_and_open_pr"}
 
 
 def test_providers_endpoint_returns_disconnected(monkeypatch, tmp_path: Path):
