@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.runtime.api.routes.health import router as health_router
+from apps.runtime.api.routes.plans import router as plans_router
 from apps.runtime.api.routes.providers import router as providers_router
 from apps.runtime.api.routes.transactions import router as transactions_router
 from registry.transaction_registry import build_default_registry
@@ -47,6 +48,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health_router)
+    app.include_router(plans_router, prefix="/v1")
     app.include_router(providers_router, prefix="/v1")
     app.include_router(transactions_router, prefix="/v1")
     return app
