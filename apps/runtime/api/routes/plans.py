@@ -35,3 +35,16 @@ def get_plan(plan_id: str, request: Request):
         if plan is None:
             raise HTTPException(status_code=404, detail="Plan not found")
         return plan.model_dump(mode="json")
+
+
+@router.post("/plans/{plan_id}/preview")
+def preview_plan(plan_id: str, request: Request):
+    service = _get_plan_service(request)
+    with session_scope() as session:
+        try:
+            preview = service.preview_plan(session, plan_id)
+        except ValueError as e:
+            detail = str(e)
+            status = 400 if "not found" not in detail.lower() else 404
+            raise HTTPException(status_code=status, detail=detail)
+        return preview.model_dump(mode="json")
