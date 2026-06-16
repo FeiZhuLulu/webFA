@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from planner.plan_hash import compute_plan_hash
 from schemas.approval import ApprovalApproveResult, ApprovalRead, ApprovalRejectResult
 from storage.models import Approval, AuditEvent, Plan, new_id
 
@@ -140,10 +141,20 @@ class ApprovalService:
         if approval.expires_at and approval.expires_at.replace(tzinfo=timezone.utc) < now:
             raise ValueError("Approval has expired")
 
-        # Check plan_hash
+        # Check plan_hash: recompute from current fields and compare against stored hash
         plan = session.get(Plan, plan_id)
-        if plan and plan.plan_hash != expected_plan_hash:
-            raise ValueError("Plan hash mismatch")
+        if plan:
+            recomputed_hash = compute_plan_hash(
+                transaction_id=plan.transaction_id,
+                input_json=plan.input_json,
+                target_json=plan.target_json or {},
+                steps_json=plan.steps_json or [],
+                risk=plan.risk,
+            )
+            if recomputed_hash != plan.plan_hash:
+                raise ValueError("Plan has been tampered with (plan_hash mismatch)")
+            if plan.plan_hash != expected_plan_hash:
+                raise ValueError("Plan hash mismatch")
 
         # Check diff_hash if stored
         if expected_diff_hash and plan and plan.target_json:
