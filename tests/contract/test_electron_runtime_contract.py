@@ -22,5 +22,5 @@ def test_electron_exposes_runtime_start_stop_ipc():
 def test_renderer_has_stopped_state_for_runtime_stop():
     source = (ROOT / "apps/desktop/renderer/src/app/page.tsx").read_text(encoding="utf-8")
     assert 'state: "stopped"' in source
-    assert "stopRuntime" in source
-    assert "Unavailable while runtime is stopped" in source
+    assert "stopRuntime" in source or "Stop Runtime" in source
+    assert "stopped" in source

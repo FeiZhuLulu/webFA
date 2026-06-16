@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import type { RuntimeStatus } from "../types/webfa-desktop";
+
+const API_FALLBACK = "http://127.0.0.1:8787";
 
 type HealthResponse = {
   status: "ok";
@@ -11,87 +13,110 @@ type HealthResponse = {
   mcp: { status: string; transport: string };
 };
 
-type ProviderResponse = {
-  providers: Array<{ id: string; name: string; status: string; auth_mode: string | null }>;
-};
-
-type TransactionResponse = {
-  transactions: Array<{ id: string; provider: string; name: string; risk: string; approval_level: string }>;
-};
-
-const API_FALLBACK = "http://127.0.0.1:8787";
-
 export default function DashboardPage() {
   const [runtime, setRuntime] = useState<RuntimeStatus>({ state: "stopped", apiUrl: API_FALLBACK });
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [providers, setProviders] = useState<ProviderResponse["providers"]>([]);
-  const [transactions, setTransactions] = useState<TransactionResponse["transactions"]>([]);
+  const [providers, setProviders] = useState<Array<{ id: string; name: string; status: string }>>([]);
+  const [transactions, setTransactions] = useState<Array<{ id: string; provider: string; name: string; risk: string }>>([]);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [approvals, setApprovals] = useState<Array<{ id: string; plan_id: string; status: string; expires_at: string | null }>>([]);
+  const [executions, setExecutions] = useState<Array<{ id: string; plan_id: string; status: string; proof_id: string | null }>>([]);
+  const [proofs, setProofs] = useState<Array<{ id: string; provider: string; hash: string | null }>>([]);
+  const [creating, setCreating] = useState(false);
 
   const apiUrl = useMemo(() => runtime.apiUrl || health?.api.url || API_FALLBACK, [runtime.apiUrl, health?.api.url]);
 
-  async function refreshRuntime() {
-    try {
-      if (window.webfaDesktop) {
-        const status = await window.webfaDesktop.getRuntimeStatus();
-        setRuntime(status);
-      }
-    } catch (error) {
-      setLastError(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function refreshApi() {
+  const refreshApi = useCallback(async () => {
     try {
       const healthResponse = await fetch(`${apiUrl}/health`, { cache: "no-store" });
       if (!healthResponse.ok) throw new Error(`Health failed: ${healthResponse.status}`);
       const nextHealth = (await healthResponse.json()) as HealthResponse;
       setHealth(nextHealth);
-      setRuntime((current) => ({ ...current, state: "running", apiUrl: nextHealth.api.url, dbPath: nextHealth.storage.db_path }));
+      setRuntime((c) => ({ ...c, state: "running", apiUrl: nextHealth.api.url, dbPath: nextHealth.storage.db_path }));
 
-      const [providerResponse, transactionResponse] = await Promise.all([
+      const [provResp, txnResp, approvalResp] = await Promise.all([
         fetch(`${apiUrl}/v1/providers`, { cache: "no-store" }),
-        fetch(`${apiUrl}/v1/transactions`, { cache: "no-store" })
+        fetch(`${apiUrl}/v1/transactions`, { cache: "no-store" }),
+        fetch(`${apiUrl}/v1/approvals`, { cache: "no-store" }),
       ]);
-      setProviders(((await providerResponse.json()) as ProviderResponse).providers);
-      setTransactions(((await transactionResponse.json()) as TransactionResponse).transactions);
+      setProviders(((await provResp.json()) as { providers: typeof providers }).providers);
+      setTransactions(((await txnResp.json()) as { transactions: typeof transactions }).transactions);
+      setApprovals(((await approvalResp.json()) as { items: typeof approvals }).items);
       setLastError(null);
     } catch (error) {
       setHealth(null);
-      setRuntime((current) => ({ ...current, state: current.state === "error" ? "error" : "stopped" }));
+      setRuntime((c) => ({ ...c, state: c.state === "error" ? "error" : "stopped" }));
+      setLastError(error instanceof Error ? error.message : String(error));
+    }
+  }, [apiUrl]);
+
+  useEffect(() => {
+    refreshApi();
+    const id = window.setInterval(refreshApi, 3000);
+    return () => window.clearInterval(id);
+  }, [refreshApi]);
+
+  async function createMockPlan() {
+    setCreating(true);
+    try {
+      const resp = await fetch(`${apiUrl}/v1/plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transaction_id: "mock.patch_and_open_pr",
+          input: { owner: "mock-owner", repo: "mock-repo", issue_number: 1, task_description: "Fix mock issue." },
+        }),
+      });
+      if (!resp.ok) throw new Error(`Create plan failed: ${resp.status}`);
+      const plan = await resp.json();
+
+      // Auto-preview
+      const previewResp = await fetch(`${apiUrl}/v1/plans/${plan.id}/preview`, { method: "POST" });
+      if (!previewResp.ok) throw new Error(`Preview failed: ${previewResp.status}`);
+
+      await refreshApi();
+    } catch (error) {
+      setLastError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function approveApproval(approvalId: string) {
+    try {
+      const resp = await fetch(`${apiUrl}/v1/approvals/${approvalId}/approve`, { method: "POST" });
+      if (!resp.ok) throw new Error(`Approve failed: ${resp.status}`);
+      const result = await resp.json();
+
+      // Auto-execute
+      const execResp = await fetch(`${apiUrl}/v1/executions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan_id: result.plan_id, approval_token: result.approval_token }),
+      });
+      if (!execResp.ok) throw new Error(`Execute failed: ${execResp.status}`);
+      const execution = await execResp.json();
+
+      setExecutions((prev) => [execution, ...prev]);
+      if (execution.proof_id) {
+        setProofs((prev) => [{ id: execution.proof_id, provider: "mock", hash: null }, ...prev]);
+      }
+      await refreshApi();
+    } catch (error) {
       setLastError(error instanceof Error ? error.message : String(error));
     }
   }
 
-  useEffect(() => {
-    refreshRuntime();
-    refreshApi();
-
-    const unsubscribe = window.webfaDesktop?.onRuntimeStatus((status) => {
-      setRuntime(status);
-      if (status.state === "error" && status.lastError) setLastError(status.lastError);
-      if (status.state === "stopped") setHealth(null);
-    });
-
-    const id = window.setInterval(refreshApi, 2500);
-    return () => {
-      unsubscribe?.();
-      window.clearInterval(id);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiUrl]);
-
-  async function startRuntime() {
-    const status = await window.webfaDesktop?.startRuntime();
-    if (status) setRuntime(status);
-    await refreshApi();
+  async function rejectApproval(approvalId: string) {
+    try {
+      await fetch(`${apiUrl}/v1/approvals/${approvalId}/reject`, { method: "POST" });
+      await refreshApi();
+    } catch (error) {
+      setLastError(error instanceof Error ? error.message : String(error));
+    }
   }
 
-  async function stopRuntime() {
-    const status = await window.webfaDesktop?.stopRuntime();
-    if (status) setRuntime(status);
-    setHealth(null);
-  }
+  const pendingApprovals = approvals.filter((a) => a.status === "pending");
 
   return (
     <main className="min-h-screen p-8">
@@ -100,74 +125,93 @@ export default function DashboardPage() {
           <div>
             <p className="text-sm uppercase tracking-[0.28em] text-slate-500">WebFA Desktop v0.1</p>
             <h1 className="mt-2 text-3xl font-semibold text-white">Agent Action Transaction Gateway</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-400">
-              Local console for runtime status, storage paths, provider connection placeholders, and transaction registry discovery.
-            </p>
           </div>
           <div className="flex gap-2">
-            <button className="rounded-md bg-white px-4 py-2 text-sm font-medium text-slate-950" onClick={startRuntime}>
-              Start Runtime
+            <button
+              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              onClick={createMockPlan}
+              disabled={creating || runtime.state !== "running"}
+            >
+              {creating ? "Creating..." : "Create Mock Transaction"}
             </button>
-            <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200" onClick={stopRuntime}>
+            <button className="rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200" onClick={() => window.webfaDesktop?.stopRuntime()}>
               Stop Runtime
             </button>
           </div>
         </header>
 
-        {lastError ? (
-          <div className="rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm text-red-200">
-            Runtime/UI error: {lastError}
-          </div>
-        ) : null}
+        {lastError && (
+          <div className="rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm text-red-200">{lastError}</div>
+        )}
 
         <div className="grid gap-4 md:grid-cols-3">
-          <StatusCard label="Runtime" value={runtime.state} detail={runtime.pid ? `pid ${runtime.pid}` : "process managed by Electron"} />
-          <StatusCard label="REST API" value={apiUrl} detail={health ? "health ok" : "waiting for runtime"} />
-          <StatusCard label="MCP" value="placeholder" detail={health?.mcp.status ?? "not implemented in v0.1"} />
+          <StatusCard label="Runtime" value={runtime.state} detail={runtime.pid ? `pid ${runtime.pid}` : "managed by Electron"} />
+          <StatusCard label="REST API" value={apiUrl} detail={health ? "health ok" : "waiting"} />
+          <StatusCard label="SQLite DB" value={health?.storage.db_path ?? "—"} detail="local storage" />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <Panel title="Local Storage">
-            <dl className="space-y-3 text-sm">
-              <KeyValue label="Data directory" value={health?.storage.data_dir ?? "Unavailable while runtime is stopped"} />
-              <KeyValue label="SQLite DB" value={health?.storage.db_path ?? runtime.dbPath ?? "Unavailable while runtime is stopped"} />
-              <KeyValue label="Logs" value={health?.storage.logs_dir ?? "Unavailable while runtime is stopped"} />
-            </dl>
+        {pendingApprovals.length > 0 && (
+          <Panel title={`Pending Approvals (${pendingApprovals.length})`}>
+            <div className="space-y-3">
+              {pendingApprovals.map((a) => (
+                <div key={a.id} className="flex items-center justify-between rounded-md border border-amber-800 bg-amber-950/20 p-3">
+                  <div>
+                    <div className="font-medium text-amber-200">{a.id}</div>
+                    <div className="text-xs text-amber-400">Plan: {a.plan_id}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button className="rounded bg-emerald-600 px-3 py-1 text-xs text-white hover:bg-emerald-500" onClick={() => approveApproval(a.id)}>
+                      Approve
+                    </button>
+                    <button className="rounded border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800" onClick={() => rejectApproval(a.id)}>
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </Panel>
+        )}
 
+        <div className="grid gap-4 md:grid-cols-2">
           <Panel title="Provider Connections">
             <div className="space-y-3">
-              {(providers.length ? providers : [
-                { id: "github", name: "GitHub", status: "disconnected", auth_mode: null },
-                { id: "huggingface", name: "Hugging Face", status: "disconnected", auth_mode: null }
-              ]).map((provider) => (
-                <div key={provider.id} className="flex items-center justify-between rounded-md border border-slate-800 p-3">
-                  <div>
-                    <div className="font-medium text-slate-100">{provider.name}</div>
-                    <div className="text-xs text-slate-500">{provider.id}</div>
-                  </div>
-                  <span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">{provider.status}</span>
+              {providers.map((p) => (
+                <div key={p.id} className="flex items-center justify-between rounded-md border border-slate-800 p-3">
+                  <div className="font-medium text-slate-100">{p.name}</div>
+                  <span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">{p.status}</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          <Panel title="Transaction Registry">
+            <div className="space-y-3">
+              {transactions.map((t) => (
+                <div key={t.id} className="rounded-md border border-slate-800 p-3">
+                  <div className="font-medium text-slate-100">{t.id}</div>
+                  <div className="text-xs text-slate-400">{t.provider} · {t.risk}</div>
                 </div>
               ))}
             </div>
           </Panel>
         </div>
 
-        <Panel title="Transaction Registry">
-          <div className="grid gap-3 md:grid-cols-2">
-            {transactions.map((transaction) => (
-              <div key={transaction.id} className="rounded-lg border border-slate-800 p-4">
-                <div className="font-medium text-slate-100">{transaction.id}</div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-400">
-                  <KeyValue label="Provider" value={transaction.provider} />
-                  <KeyValue label="Risk" value={transaction.risk} />
-                  <KeyValue label="Approval" value={transaction.approval_level} />
+        {executions.length > 0 && (
+          <Panel title="Recent Executions">
+            <div className="space-y-3">
+              {executions.map((e) => (
+                <div key={e.id} className="rounded-md border border-slate-800 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-slate-100">{e.id}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${e.status === "verified" ? "bg-emerald-900 text-emerald-300" : "bg-slate-800 text-slate-400"}`}>{e.status}</span>
+                  </div>
+                  {e.proof_id && <div className="mt-1 text-xs text-slate-500">Proof: {e.proof_id}</div>}
                 </div>
-              </div>
-            ))}
-            {!transactions.length ? <p className="text-sm text-slate-500">No transactions loaded while runtime is stopped.</p> : null}
-          </div>
-        </Panel>
+              ))}
+            </div>
+          </Panel>
+        )}
       </section>
     </main>
   );
@@ -189,14 +233,5 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
       <h2 className="mb-4 text-lg font-semibold text-white">{title}</h2>
       {children}
     </section>
-  );
-}
-
-function KeyValue({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase tracking-[0.14em] text-slate-600">{label}</dt>
-      <dd className="mt-1 break-all text-slate-300">{value}</dd>
-    </div>
   );
 }
