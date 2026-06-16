@@ -1,0 +1,17 @@
+blocked:
+  - .github/workflows/**
+  - .env
+  - .env.*
+  - "**/*.pem"
+  - "**/*.key"
+  - "**/secrets/**"
+high_risk:
+  - package.json
+  - package-lock.json
+  - pnpm-lock.yaml
+  - yarn.lock
+  - requirements.txt
+  - pyproject.toml
+  - poetry.lock
+  - Dockerfile
+  - docker-compose.yml

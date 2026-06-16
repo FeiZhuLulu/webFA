@@ -1,0 +1,36 @@
+{
+  "name": "webfa-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "apps/desktop/electron/dist/main.js",
+  "workspaces": [
+    "apps/desktop/renderer"
+  ],
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:runtime\" \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:runtime": "python -m uvicorn apps.runtime.main:app --host 127.0.0.1 --port 8787 --reload",
+    "dev:renderer": "next dev apps/desktop/renderer -H 127.0.0.1 -p 8788",
+    "build:electron": "tsc -p apps/desktop/electron/tsconfig.json",
+    "dev:electron": "npm run build:electron && cross-env WEBFA_DEV_RENDERER_URL=http://127.0.0.1:8788 electron .",
+    "typecheck:electron": "tsc -p apps/desktop/electron/tsconfig.json --noEmit",
+    "typecheck:renderer": "tsc -p apps/desktop/renderer/tsconfig.json --noEmit",
+    "test:runtime": "pytest",
+    "check": "npm run typecheck:electron && npm run typecheck:renderer && pytest"
+  },
+  "dependencies": {
+    "@types/node": "latest",
+    "concurrently": "latest",
+    "cross-env": "latest",
+    "electron": "latest",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "wait-on": "latest"
+  },
+  "devDependencies": {
+    "autoprefixer": "latest",
+    "postcss": "latest",
+    "tailwindcss": "latest",
+    "typescript": "latest"
+  }
+}

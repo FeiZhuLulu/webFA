@@ -1,0 +1,10 @@
+.venv/
+node_modules/
+.next/
+dist/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+webfa.db
+coverage/

@@ -1,0 +1,72 @@
+id: hf.compare_and_publish
+provider: huggingface
+name: Compare models and publish report
+description: Compare Hugging Face models and publish a structured report to a target README. Real HF execution is excluded from v0.1.
+risk: high
+approval_level: required
+required_capabilities:
+  - hf.model.search
+  - hf.model_card.read
+  - hf.file.upsert
+read_set:
+  - hf.model_metadata
+  - hf.model_card
+  - hf.target_readme
+write_set:
+  - hf.readme
+verification_strategy:
+  - revision_exists
+  - readme_exists
+  - content_hash_matches
+  - source_trace_present
+proof_types:
+  - transport
+  - resource
+  - state
+rollback_strategy: manual_revert_commit
+input_schema:
+  type: object
+  required:
+    - target_repo_id
+    - target_path
+  properties:
+    query:
+      type: string
+    repo_ids:
+      type: array
+      items:
+        type: string
+    model_limit:
+      type: integer
+      minimum: 1
+      maximum: 10
+    dimensions:
+      type: array
+      items:
+        type: string
+    target_repo_id:
+      type: string
+    target_repo_type:
+      type: string
+      enum: [model, dataset, space]
+    target_path:
+      type: string
+      default: README.md
+    publish_mode:
+      type: string
+      enum: [direct_commit]
+      default: direct_commit
+output_schema:
+  type: object
+  properties:
+    status:
+      type: string
+    provider:
+      type: string
+    transaction:
+      type: string
+    proof_id:
+      type: string
+limits:
+  model_limit_max: 10
+  require_source_trace: true

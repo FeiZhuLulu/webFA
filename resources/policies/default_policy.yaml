@@ -1,0 +1,15 @@
+version: 1
+approval:
+  require_for_risk:
+    - medium
+    - high
+    - critical
+execution:
+  require_preview_before_execute: true
+  require_approval_before_write: true
+logging:
+  redact_fields:
+    - token
+    - authorization
+    - password
+    - private_key

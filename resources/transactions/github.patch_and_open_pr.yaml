@@ -1,0 +1,87 @@
+id: github.patch_and_open_pr
+provider: github
+name: Patch repository and open draft PR
+description: Create a plan for patching a GitHub repository and opening a draft pull request. Real GitHub execution is excluded from v0.1.
+risk: high
+approval_level: required
+required_capabilities:
+  - github.issue.read
+  - github.file.read
+  - github.branch.create
+  - github.commit.create
+  - github.pr.create
+read_set:
+  - github.issue
+  - github.issue_comments
+  - github.repo_metadata
+  - github.repo_tree
+  - github.files
+write_set:
+  - github.branch
+  - github.commit
+  - github.draft_pr
+verification_strategy:
+  - branch_exists
+  - commit_exists
+  - pr_exists
+  - pr_head_matches_branch
+  - changed_files_match_plan
+  - diff_hash_matches
+proof_types:
+  - transport
+  - resource
+  - state
+  - semantic_basic
+rollback_strategy: manual_close_pr_and_branch
+input_schema:
+  type: object
+  required:
+    - owner
+    - repo
+    - task_description
+  properties:
+    owner:
+      type: string
+    repo:
+      type: string
+    issue_number:
+      type: integer
+    task_description:
+      type: string
+    base_branch:
+      type: string
+      default: main
+    allowed_paths:
+      type: array
+      items:
+        type: string
+    blocked_paths:
+      type: array
+      items:
+        type: string
+    execution_mode:
+      type: string
+      enum: [draft_pr]
+      default: draft_pr
+output_schema:
+  type: object
+  properties:
+    status:
+      type: string
+    provider:
+      type: string
+    transaction:
+      type: string
+    proof_id:
+      type: string
+limits:
+  max_files_changed: 5
+  max_diff_lines: 800
+  default_mode: draft_pr
+blocked_paths:
+  - .github/workflows/**
+  - .env
+  - .env.*
+  - "**/*.pem"
+  - "**/*.key"
+  - "**/secrets/**"
