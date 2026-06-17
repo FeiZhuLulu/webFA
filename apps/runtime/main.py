@@ -19,6 +19,7 @@ from apps.runtime.api.routes.approvals import router as approvals_router
 from apps.runtime.api.routes.audits import router as audits_router
 from apps.runtime.api.routes.executions import router as executions_router
 from apps.runtime.api.routes.health import router as health_router
+from apps.runtime.api.routes.mcp_config import router as mcp_config_router
 from apps.runtime.api.routes.plans import router as plans_router
 from apps.runtime.api.routes.proofs import router as proofs_router
 from apps.runtime.api.routes.providers import router as providers_router
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(audits_router, prefix="/v1")
     app.include_router(executions_router, prefix="/v1")
     app.include_router(health_router)
+    app.include_router(mcp_config_router, prefix="/v1")
     app.include_router(plans_router, prefix="/v1")
     app.include_router(proofs_router, prefix="/v1")
     app.include_router(providers_router, prefix="/v1")
