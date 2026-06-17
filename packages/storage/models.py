@@ -156,3 +156,21 @@ class AuditEvent(Base):
     event_type: Mapped[str] = mapped_column(String(128), nullable=False)
     event_payload_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class ResourceSnapshot(Base):
+    __tablename__ = "resource_snapshots"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("snap"))
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"), nullable=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    resource_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    taint_level: Mapped[str] = mapped_column(String(64), nullable=False, default="external")
+    etag: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    last_modified: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
