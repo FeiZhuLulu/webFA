@@ -37,17 +37,24 @@ def tool_discover(intent: str | None = None, provider: str | None = None) -> dic
 
         providers = []
         for p in providers_resp.get("providers", []):
+            mode = "mock"
+            if p["id"] == "github":
+                mode = "read_only" if p["status"] == "connected" else "disconnected"
+            elif p["id"] == "huggingface":
+                mode = "disconnected"
             providers.append({
                 "id": p["id"],
                 "name": p.get("name", p["id"]),
                 "status": p["status"],
-                "mode": "mock" if p["id"] == "mock" else "real-disabled",
+                "mode": mode,
+                "write_enabled": p["id"] == "mock",  # Only mock has write in P3
             })
 
         transactions = []
         for t in transactions_resp.get("transactions", []):
             if provider and t.get("provider") != provider:
                 continue
+            is_github = t.get("provider") == "github"
             transactions.append({
                 "id": t["id"],
                 "provider": t["provider"],
@@ -55,6 +62,8 @@ def tool_discover(intent: str | None = None, provider: str | None = None) -> dic
                 "risk": t.get("risk", "unknown"),
                 "requires_approval": t.get("approval_level") in ("required", "user"),
                 "enabled": t.get("enabled", True),
+                "execution_available": not is_github,  # GitHub is plan-only in P3
+                "phase": "P3_READ_ONLY" if is_github else "active",
             })
 
         return success_response({"providers": providers, "transactions": transactions})

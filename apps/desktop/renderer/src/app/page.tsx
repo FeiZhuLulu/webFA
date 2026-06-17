@@ -26,6 +26,9 @@ export default function DashboardPage() {
   const [creating, setCreating] = useState(false);
   const [mcpConfig, setMcpConfig] = useState<string>("");
   const [copied, setCopied] = useState(false);
+  const [githubStatus, setGithubStatus] = useState<{ status: string; auth_mode: string | null; last_verified_at: string | null }>({ status: "disconnected", auth_mode: null, last_verified_at: null });
+  const [githubToken, setGithubToken] = useState("");
+  const [githubConnecting, setGithubConnecting] = useState(false);
 
   const apiUrl = useMemo(() => runtime.apiUrl || health?.api.url || API_FALLBACK, [runtime.apiUrl, health?.api.url]);
 
@@ -69,6 +72,9 @@ export default function DashboardPage() {
 
     // Fetch MCP config
     fetch(`${apiUrl}/v1/mcp/config`).then(r => r.json()).then(c => setMcpConfig(JSON.stringify(c, null, 2))).catch(() => {});
+
+    // Fetch GitHub status
+    fetch(`${apiUrl}/v1/providers/github`).then(r => r.json()).then(s => setGithubStatus(s)).catch(() => {});
 
     return () => { window.clearInterval(id); window.clearInterval(mcpId); };
   }, [refreshApi, apiUrl]);
@@ -133,6 +139,35 @@ export default function DashboardPage() {
     }
   }
 
+  async function connectGithub() {
+    if (!githubToken) return;
+    setGithubConnecting(true);
+    try {
+      const resp = await fetch(`${apiUrl}/v1/providers/github/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: githubToken }),
+      });
+      const result = await resp.json();
+      setGithubStatus(result);
+      setGithubToken("");
+      await refreshApi();
+    } catch (error) {
+      setLastError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGithubConnecting(false);
+    }
+  }
+
+  async function disconnectGithub() {
+    try {
+      await fetch(`${apiUrl}/v1/providers/github/disconnect`, { method: "DELETE" });
+      setGithubStatus({ status: "disconnected", auth_mode: null, last_verified_at: null });
+    } catch (error) {
+      setLastError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   const pendingApprovals = approvals.filter((a) => a.status === "pending");
 
   return (
@@ -165,8 +200,43 @@ export default function DashboardPage() {
           <StatusCard label="Runtime" value={runtime.state} detail={runtime.pid ? `pid ${runtime.pid}` : "managed by Electron"} />
           <StatusCard label="MCP Server" value={mcpStatus.state} detail={mcpStatus.transport} />
           <StatusCard label="REST API" value={apiUrl} detail={health ? "health ok" : "waiting"} />
-          <StatusCard label="SQLite DB" value={health?.storage.db_path ?? "—"} detail="local storage" />
+          <StatusCard label="GitHub" value={githubStatus.status} detail={githubStatus.auth_mode ?? "not configured"} />
         </div>
+
+        <Panel title="GitHub Connection">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className={`rounded-full px-3 py-1 text-xs ${githubStatus.status === "connected" ? "bg-emerald-900 text-emerald-300" : githubStatus.status === "error" || githubStatus.status === "invalid" ? "bg-red-900 text-red-300" : "bg-slate-800 text-slate-400"}`}>
+                  {githubStatus.status}
+                </span>
+                {githubStatus.last_verified_at && <span className="text-xs text-slate-500">Verified: {new Date(githubStatus.last_verified_at).toLocaleString()}</span>}
+              </div>
+              {githubStatus.status === "connected" && (
+                <button className="rounded border border-red-800 px-3 py-1 text-xs text-red-300 hover:bg-red-950" onClick={disconnectGithub}>Disconnect</button>
+              )}
+            </div>
+            {githubStatus.status !== "connected" && (
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  className="flex-1 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder-slate-500"
+                  placeholder="GitHub fine-grained PAT (github_pat_...)"
+                  value={githubToken}
+                  onChange={(e) => setGithubToken(e.target.value)}
+                />
+                <button
+                  className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                  onClick={connectGithub}
+                  disabled={githubConnecting || !githubToken}
+                >
+                  {githubConnecting ? "Connecting..." : "Connect"}
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-slate-500">P3: Read-only access. Write operations (PR creation) are reserved for Phase 4.</p>
+          </div>
+        </Panel>
 
         {pendingApprovals.length > 0 && (
           <Panel title={`Pending Approvals (${pendingApprovals.length})`}>
