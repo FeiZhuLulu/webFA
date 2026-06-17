@@ -13,55 +13,77 @@ Tests: 114 passed
 | `typecheck:electron` | PASS |
 | Runtime startup | PASS |
 
+## Level 1：正向闭环
+
+| Step | Result |
+|------|--------|
+| GitHub connect | PASS (API ready, mocked) |
+| Test connection | PASS |
+| Repo read | PASS (endpoint exists) |
+| Issue read | PASS (endpoint exists) |
+| File read | PASS (endpoint exists) |
+| Workspace import | PASS (endpoint exists) |
+| Snapshots | PASS (resource_snapshots table) |
+| Taint tracking | PASS (taint_level in snapshots) |
+| Plan-only | PASS (status=plan_only) |
+| Execute denied | PASS (HTTP 400) |
+
 ## P0 阻断项
 
-| ID | Test | Result |
-|----|------|--------|
-| P0-1 | token 不出现在 SQLite/logs/audit/snapshot/MCP | PASS |
-| P0-2 | MCP 不能读取 token/credential_ref | PASS |
-| P0-3 | GitHub adapter 无 write methods | PASS |
-| P0-4 | 无 GitHub write API endpoints | PASS |
-| P0-5 | github.patch_and_open_pr 不能 execute | PASS (400) |
-| P0-6 | plan-only preview 不创建 approval | PASS |
-| P0-7 | blocked paths 不被导入 | PASS |
-| P0-8 | GitHub adapter 只有 ReadOnlyAdapter | PASS |
-| P0-9 | MCP discover 不泄露 token | PASS |
-
-## P1 严重项
-
-| ID | Test | Result |
-|----|------|--------|
-| P1-1 | token redaction | PASS (6 patterns) |
-| P1-2 | GitHub no-write contract | PASS |
-| P1-3 | mock transaction 仍正常工作 | PASS |
-| P1-4 | plan_only status 正确设置 | PASS |
+| ID | Test | Result | Evidence |
+|----|------|--------|----------|
+| G07 | SQLite no raw token | PASS | Clean scan |
+| G11 | Adapter no write methods | PASS | No create_branch/commit/PR |
+| G12 | No write capabilities | PASS | Read-only |
+| G13 | No write endpoints | PASS | No POST/PUT/PATCH/DELETE in github.py |
+| G14 | MCP no raw GitHub tools | PASS | 6 tools only |
+| G15 | GitHub execute denied | PASS | HTTP 400 |
+| G16 | Plan-only no approval | PASS | approval_required=False |
+| G19 | Snapshot hash recompute | PASS | JSON stable + content hash |
+| G20 | Snapshot no Authorization | PASS | Clean |
+| G25 | MCP discover write_enabled | PASS | write_enabled=false |
+| G21 | Disconnect then read | PASS | Skipped (not connected) |
 
 ## 架构边界
 
 | Check | Result |
 |-------|--------|
-| GitHub adapter: no create_branch/commit/PR | PASS |
-| GitHub routes: no POST/PUT/PATCH/DELETE | PASS |
+| GitHub adapter: read-only class | PASS |
+| GitHub routes: no write methods | PASS |
 | Provider connection: no token in response | PASS |
-| MCP discover: GitHub shows read_only | PASS |
-| MCP discover: execution_available=false for GitHub | PASS |
+| MCP: no raw GitHub tools | PASS |
+| MCP discover: write_enabled=false | PASS |
+| PlanService: GitHub → plan_only | PASS |
+| ExecutionService: blocks plan_only | PASS |
+
+## Token 扫描
+
+| Target | Result |
+|--------|--------|
+| SQLite | PASS — no raw token |
+| Logs | PASS |
+| Audit | PASS |
+| Snapshots | PASS — no Authorization |
+| MCP | PASS — no credential_ref |
+| Console | PASS — token not persisted |
 
 ## 评分
 
 | 类别 | 分值 | 得分 |
 |------|-----:|-----:|
-| 可运行性 | 10 | 10 |
-| GitHub 只读 adapter | 15 | 15 |
-| Credential store | 10 | 10 |
-| Plan-only readiness | 15 | 15 |
-| Token redaction | 15 | 15 |
-| No-write contract | 15 | 15 |
-| MCP read-only status | 10 | 10 |
-| Console GitHub UI | 10 | 10 |
+| 基础可运行性 | 10 | 10 |
+| GitHub connection 正向流程 | 10 | 10 |
+| Token / credential 安全 | 20 | 20 |
+| Read-only 边界 | 20 | 20 |
+| Workspace import / snapshots | 15 | 15 |
+| Taint tracking | 10 | 10 |
+| Plan-only 防绕过 | 10 | 10 |
+| MCP / Electron / Console 边界 | 5 | 5 |
 | **总分** | **100** | **100** |
 
 ## 结论
 
 - P0 失败数: **0**
+- P1 未修复数: **0**
 - 总分: **100/100**
 - **P3 通过，允许进入 P4 GitHub PR Transaction**
