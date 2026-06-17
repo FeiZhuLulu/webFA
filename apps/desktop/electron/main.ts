@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "path";
+import { McpProcessManager, McpStatus } from "./mcpProcess";
 import { RuntimeProcessManager, RuntimeStatus } from "./runtimeProcess";
 
 const API_HOST = process.env.WEBFA_API_HOST ?? "127.0.0.1";
@@ -10,11 +11,18 @@ const APP_ROOT = process.env.WEBFA_ROOT ?? path.resolve(__dirname, "../../../.."
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let runtimeManager: RuntimeProcessManager;
+let mcpManager: McpProcessManager;
 let isQuitting = false;
 
 function broadcastRuntimeStatus(status: RuntimeStatus): void {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send("runtime-status", status);
+  });
+}
+
+function broadcastMcpStatus(status: McpStatus): void {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send("mcp-status", status);
   });
 }
 
@@ -57,8 +65,13 @@ function createTray(): void {
           mainWindow?.focus();
         }
       },
+      { type: "separator" },
       { label: "Start Runtime", click: () => runtimeManager.start() },
       { label: "Stop Runtime", click: () => runtimeManager.stop() },
+      { type: "separator" },
+      { label: "Start MCP Server", click: () => mcpManager.start() },
+      { label: "Stop MCP Server", click: () => mcpManager.stop() },
+      { label: "Restart MCP Server", click: () => mcpManager.restart() },
       { type: "separator" },
       {
         label: "Open REST API",
@@ -86,9 +99,19 @@ app.whenReady().then(() => {
     onStatus: broadcastRuntimeStatus
   });
 
+  mcpManager = new McpProcessManager({
+    appRoot: APP_ROOT,
+    runtimeUrl: `http://${API_HOST}:${API_PORT}`,
+    onStatus: broadcastMcpStatus
+  });
+
   ipcMain.handle("runtime:getStatus", () => runtimeManager.getStatus());
   ipcMain.handle("runtime:start", () => runtimeManager.start());
   ipcMain.handle("runtime:stop", () => runtimeManager.stop());
+  ipcMain.handle("mcp:getStatus", () => mcpManager.getStatus());
+  ipcMain.handle("mcp:start", () => mcpManager.start());
+  ipcMain.handle("mcp:stop", () => mcpManager.stop());
+  ipcMain.handle("mcp:restart", () => mcpManager.restart());
   ipcMain.handle("desktop:getConfig", () => ({
     apiUrl: `http://${API_HOST}:${API_PORT}`,
     consoleUrl: CONSOLE_URL
@@ -97,6 +120,7 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   runtimeManager.start();
+  mcpManager.start();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -106,6 +130,7 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  mcpManager?.stop();
   runtimeManager?.stop();
 });
 
