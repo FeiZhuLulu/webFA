@@ -53,6 +53,10 @@ class ExecutionService:
         if plan is None:
             raise ValueError(f"Plan not found: {request.plan_id}")
 
+        # Block plan_only plans (GitHub in P3)
+        if plan.status == "plan_only":
+            raise ValueError("Execution not available: this transaction is plan-only in P3. GitHub write execution is reserved for Phase 4.")
+
         # Get diff_hash from target_json
         expected_diff_hash = None
         if plan.target_json:

@@ -62,6 +62,11 @@ class PlanService:
         )
         session.add(workspace)
 
+        # Determine plan status: GitHub transactions are plan-only in P3
+        plan_status = "pending_preview"
+        if txn_def.provider == "github":
+            plan_status = "plan_only"
+
         # Create plan
         plan = Plan(
             id=new_id("plan"),
@@ -72,7 +77,7 @@ class PlanService:
             steps_json=steps_json,
             risk=txn_def.risk,
             plan_hash=plan_hash,
-            status="pending_preview",
+            status=plan_status,
         )
         session.add(plan)
 
@@ -119,8 +124,8 @@ class PlanService:
         plan = session.get(Plan, plan_id)
         if plan is None:
             raise ValueError(f"Plan not found: {plan_id}")
-        if plan.status != "pending_preview":
-            raise ValueError(f"Plan status is '{plan.status}', expected 'pending_preview'")
+        if plan.status not in ("pending_preview", "plan_only"):
+            raise ValueError(f"Plan status is '{plan.status}', expected 'pending_preview' or 'plan_only'")
 
         txn_def = self._registry.get(plan.transaction_id)
         if txn_def is None:
@@ -157,6 +162,38 @@ class PlanService:
             ))
             session.flush()
             raise ValueError(f"Policy blocked: {[v.message for v in policy_result.blocked]}")
+
+        # Plan-only: GitHub transactions in P3 are read-only
+        if plan.status == "plan_only":
+            session.add(AuditEvent(
+                id=new_id("audit"),
+                workspace_id=plan.workspace_id,
+                plan_id=plan.id,
+                event_type="github.plan_only.previewed",
+                event_payload_json={"plan_id": plan.id, "provider": txn_def.provider},
+            ))
+            session.flush()
+
+            return PlanPreview(
+                plan_id=plan.id,
+                status="plan_only_preview",
+                risk=plan.risk,
+                approval_required=False,
+                approval_id=None,
+                plan_hash=plan.plan_hash or "",
+                diff_hash=diff_hash,
+                policy=policy_result,
+                preview=PreviewDetail(
+                    provider=txn_def.provider,
+                    target=target.get("repo", "unknown"),
+                    read_set=txn_def.read_set,
+                    write_set=txn_def.write_set,
+                    changed_files=changed_files,
+                    diff_summary="+12 -3",
+                    diff_text=mock_diff_text,
+                    risk_flags=policy_result.risk_flags,
+                ),
+            )
 
         # Create approval
         approval_payload = ApprovalPayload(
