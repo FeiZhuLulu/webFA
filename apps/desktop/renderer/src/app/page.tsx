@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import type { RuntimeStatus } from "../types/webfa-desktop";
+import type { McpStatus, RuntimeStatus } from "../types/webfa-desktop";
 
 const API_FALLBACK = "http://127.0.0.1:8787";
 
@@ -15,6 +15,7 @@ type HealthResponse = {
 
 export default function DashboardPage() {
   const [runtime, setRuntime] = useState<RuntimeStatus>({ state: "stopped", apiUrl: API_FALLBACK });
+  const [mcpStatus, setMcpStatus] = useState<McpStatus>({ state: "stopped", transport: "stdio", runtimeUrl: API_FALLBACK });
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [providers, setProviders] = useState<Array<{ id: string; name: string; status: string }>>([]);
   const [transactions, setTransactions] = useState<Array<{ id: string; provider: string; name: string; risk: string }>>([]);
@@ -23,6 +24,8 @@ export default function DashboardPage() {
   const [executions, setExecutions] = useState<Array<{ id: string; plan_id: string; status: string; proof_id: string | null }>>([]);
   const [proofs, setProofs] = useState<Array<{ id: string; provider: string; hash: string | null }>>([]);
   const [creating, setCreating] = useState(false);
+  const [mcpConfig, setMcpConfig] = useState<string>("");
+  const [copied, setCopied] = useState(false);
 
   const apiUrl = useMemo(() => runtime.apiUrl || health?.api.url || API_FALLBACK, [runtime.apiUrl, health?.api.url]);
 
@@ -53,8 +56,22 @@ export default function DashboardPage() {
   useEffect(() => {
     refreshApi();
     const id = window.setInterval(refreshApi, 3000);
-    return () => window.clearInterval(id);
-  }, [refreshApi]);
+
+    // Poll MCP status from Electron
+    const pollMcp = async () => {
+      try {
+        const status = await window.webfaDesktop?.getMcpStatus();
+        if (status) setMcpStatus(status);
+      } catch {}
+    };
+    pollMcp();
+    const mcpId = window.setInterval(pollMcp, 3000);
+
+    // Fetch MCP config
+    fetch(`${apiUrl}/v1/mcp/config`).then(r => r.json()).then(c => setMcpConfig(JSON.stringify(c, null, 2))).catch(() => {});
+
+    return () => { window.clearInterval(id); window.clearInterval(mcpId); };
+  }, [refreshApi, apiUrl]);
 
   async function createMockPlan() {
     setCreating(true);
@@ -144,8 +161,9 @@ export default function DashboardPage() {
           <div className="rounded-lg border border-red-900 bg-red-950/30 p-4 text-sm text-red-200">{lastError}</div>
         )}
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
           <StatusCard label="Runtime" value={runtime.state} detail={runtime.pid ? `pid ${runtime.pid}` : "managed by Electron"} />
+          <StatusCard label="MCP Server" value={mcpStatus.state} detail={mcpStatus.transport} />
           <StatusCard label="REST API" value={apiUrl} detail={health ? "health ok" : "waiting"} />
           <StatusCard label="SQLite DB" value={health?.storage.db_path ?? "—"} detail="local storage" />
         </div>
@@ -212,6 +230,39 @@ export default function DashboardPage() {
             </div>
           </Panel>
         )}
+
+        <Panel title="MCP Configuration">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <span className={`rounded-full px-3 py-1 text-xs ${mcpStatus.state === "running" ? "bg-emerald-900 text-emerald-300" : mcpStatus.state === "error" ? "bg-red-900 text-red-300" : "bg-slate-800 text-slate-400"}`}>
+                {mcpStatus.state}
+              </span>
+              <span className="text-xs text-slate-500">Transport: {mcpStatus.transport}</span>
+              <div className="flex gap-2 ml-auto">
+                <button className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800" onClick={() => window.webfaDesktop?.startMcp()}>Start</button>
+                <button className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800" onClick={() => window.webfaDesktop?.stopMcp()}>Stop</button>
+                <button className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800" onClick={() => window.webfaDesktop?.restartMcp()}>Restart</button>
+              </div>
+            </div>
+            {mcpConfig && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs uppercase tracking-widest text-slate-500">Client Config</span>
+                  <button
+                    className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                    onClick={() => { navigator.clipboard.writeText(mcpConfig); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                  >
+                    {copied ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+                <pre className="overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs text-slate-300">{mcpConfig}</pre>
+              </div>
+            )}
+            {mcpStatus.lastError && (
+              <div className="rounded border border-red-900 bg-red-950/30 p-3 text-xs text-red-300">{mcpStatus.lastError}</div>
+            )}
+          </div>
+        </Panel>
       </section>
     </main>
   );
