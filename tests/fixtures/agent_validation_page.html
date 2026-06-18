@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>WebFA Agent Validation</title>
+  </head>
+  <body>
+    <main>
+      <h1>WebFA Agent Validation</h1>
+      <form onsubmit="event.preventDefault(); result.textContent = 'Hello ' + nameInput.value;">
+        <label for="nameInput">Your name</label>
+        <input id="nameInput" name="name" placeholder="Your name" />
+        <button id="submitButton" type="submit">Submit</button>
+      </form>
+      <p id="result">Waiting</p>
+      <a id="nextLink" href="about:blank">Next page</a>
+    </main>
+  </body>
+</html>

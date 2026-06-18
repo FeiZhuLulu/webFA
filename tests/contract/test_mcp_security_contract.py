@@ -52,3 +52,32 @@ def test_mcp_tools_not_in_electron():
     assert "webfa.execute" not in source
     assert "approval_token" not in source
     assert "plan_hash" not in source
+
+
+def test_default_mcp_tools_do_not_expose_legacy_or_raw_browser_tools(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.delenv("WEBFA_ENABLE_LEGACY_TRANSACTION", raising=False)
+    reset_engine_for_tests()
+
+    with TestClient(create_app()) as client:
+        tools = client.get("/v1/mcp/status").json()["tools"]
+
+    forbidden = {
+        "webfa.plan",
+        "webfa.preview",
+        "webfa.execute",
+        "webfa.get_proof",
+        "github.create_repo",
+        "hf.upload_model",
+        "raw_playwright",
+        "raw_cdp",
+        "raw_selector",
+    }
+    assert forbidden.isdisjoint(set(tools))
+    assert set(tools) == {
+        "webfa.open_url",
+        "webfa.observe",
+        "webfa.act",
+        "webfa.get_tabs",
+        "webfa.switch_tab",
+    }

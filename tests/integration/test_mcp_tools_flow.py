@@ -1,4 +1,8 @@
-"""Integration tests: MCP tools against live Runtime."""
+"""Integration tests for MCP-adjacent Runtime behavior.
+
+The P4.5 MCP stdio browser flow lives in test_mcp_stdio_browser.py.
+Legacy transaction flow remains covered here so old code stays isolated.
+"""
 
 import json
 from pathlib import Path
@@ -10,7 +14,7 @@ from apps.runtime.mcp.runtime_client import WebFARuntimeClient
 from storage.db import reset_engine_for_tests
 
 
-def test_mcp_discover(monkeypatch, tmp_path: Path):
+def test_legacy_transactions_endpoint_still_available(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     reset_engine_for_tests()
 
@@ -51,11 +55,31 @@ def test_mcp_status_endpoint(monkeypatch, tmp_path: Path):
         assert resp.status_code == 200
         status = resp.json()
         assert status["transport"] == "stdio"
-        assert len(status["tools"]) == 6
+        assert status["tools"] == [
+            "webfa.open_url",
+            "webfa.observe",
+            "webfa.act",
+            "webfa.get_tabs",
+            "webfa.switch_tab",
+        ]
 
 
-def test_mcp_tools_full_flow(monkeypatch, tmp_path: Path):
-    """Test the full MCP flow: discover -> plan -> preview -> approve -> execute -> get_execution -> get_proof."""
+def test_mcp_status_legacy_transaction_tools_are_opt_in(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_ENABLE_LEGACY_TRANSACTION", "1")
+    reset_engine_for_tests()
+
+    with TestClient(create_app()) as client:
+        resp = client.get("/v1/mcp/status")
+        assert resp.status_code == 200
+        tools = resp.json()["tools"]
+        assert "webfa.open_url" in tools
+        assert "webfa.plan" in tools
+        assert "webfa.execute" in tools
+
+
+def test_legacy_transaction_rest_flow(monkeypatch, tmp_path: Path):
+    """Legacy transaction REST flow; not part of the P4.5 agent browser path."""
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     reset_engine_for_tests()
 

@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+from urllib.parse import parse_qs, urlparse
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+BrowserActionName = Literal[
+    "click",
+    "type",
+    "clear",
+    "focus",
+    "press",
+    "select",
+    "check",
+    "uncheck",
+    "scroll",
+    "wait",
+    "wait_for_text",
+    "wait_for_element",
+]
+
+
+class BrowserOpenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        if not value.startswith(("http://", "https://", "file://")):
+            raise ValueError("url must start with http://, https://, or file://")
+        return value
+
+
+class BrowserActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: BrowserActionName
+    target: str | None = None
+    text: str | None = None
+    value: str | None = None
+    key: str | None = None
+    ms: int | None = Field(default=None, ge=0, le=30000)
+    timeout_ms: int | None = Field(default=None, ge=0, le=30000)
+    state: Literal["visible", "hidden", "enabled"] | None = None
+    delta_y: int | None = Field(default=None, ge=-5000, le=5000)
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> "BrowserActionRequest":
+        target_actions = {"click", "type", "clear", "focus", "select", "check", "uncheck"}
+        if self.action in target_actions and not self.target:
+            raise ValueError(f"{self.action} requires target")
+        if self.action == "type" and self.text is None:
+            raise ValueError("type requires text")
+        if self.action == "select" and self.value is None and self.text is None:
+            raise ValueError("select requires value or text")
+        if self.action == "press" and not self.key:
+            raise ValueError("press requires key")
+        if self.action == "wait" and self.ms is None:
+            raise ValueError("wait requires ms")
+        if self.action == "wait_for_text" and not self.text:
+            raise ValueError("wait_for_text requires text")
+        if self.action == "wait_for_element" and (not self.target or not self.state):
+            raise ValueError("wait_for_element requires target and state")
+        return self
+
+
+class BrowserTab(BaseModel):
+    id: str
+    url: str
+    title: str
+    active: bool
+
+
+class BrowserViewport(BaseModel):
+    width: int
+    height: int
+
+
+class BrowserUrlParts(BaseModel):
+    scheme: str = ""
+    host: str = ""
+    origin: str = ""
+    path: str = ""
+    query: dict[str, str] = {}
+
+
+def parse_browser_url_parts(url: str) -> BrowserUrlParts:
+    parsed = urlparse(url)
+    return BrowserUrlParts(
+        scheme=parsed.scheme,
+        host=parsed.netloc,
+        origin=f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else "",
+        path=parsed.path,
+        query={key: values[0] for key, values in parse_qs(parsed.query, keep_blank_values=True).items()},
+    )
+
+
+class BrowserElement(BaseModel):
+    id: str
+    role: str
+    tag: str
+    name: str
+    text: str = ""
+    value: str = ""
+    placeholder: str = ""
+    input_type: str | None = None
+    visible: bool
+    enabled: bool
+    checked: bool | None = None
+    selected: bool | None = None
+    href: str | None = None
+    actions: list[str]
+
+
+class BrowserForm(BaseModel):
+    id: str
+    fields: list[str] = []
+    submit: str | None = None
+
+
+class BrowserState(BaseModel):
+    session_id: str = "default"
+    url: str = ""
+    url_parts: BrowserUrlParts = BrowserUrlParts()
+    title: str = ""
+    page_status: Literal["idle", "loading"] = "idle"
+    focused_element_id: str | None = None
+    viewport: BrowserViewport = BrowserViewport(width=1280, height=720)
+    tabs: list[BrowserTab] = []
+    visible_text: str = ""
+    content_blocks: list[dict] = []
+    forms: list[BrowserForm] = []
+    interactive_elements: list[BrowserElement] = []
+    error: dict | None = None
+
+
+class BrowserActionResult(BaseModel):
+    ok: bool
+    action: str
+    state: BrowserState

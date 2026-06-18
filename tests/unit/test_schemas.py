@@ -37,6 +37,7 @@ from schemas.proof import (
 )
 from schemas.audit import AuditEventRead, AuditListResponse
 from schemas.workspace import WorkspaceRead
+from schemas.browser import BrowserActionRequest, BrowserOpenRequest, parse_browser_url_parts
 
 
 def test_create_plan_request():
@@ -170,3 +171,42 @@ def test_audit_list_response():
 def test_workspace_read():
     w = WorkspaceRead(id="ws_1", title="Fix issue #17", status="created")
     assert w.id == "ws_1"
+
+
+def test_browser_open_request_accepts_web_urls():
+    req = BrowserOpenRequest(url="https://example.com")
+    assert req.url == "https://example.com"
+
+
+def test_browser_action_rejects_raw_selector_payload():
+    try:
+        BrowserActionRequest(action="click", selector="button")
+    except Exception as exc:
+        assert "extra" in str(exc).lower() or "not permitted" in str(exc).lower()
+    else:
+        raise AssertionError("raw selector payload must be rejected")
+
+
+def test_browser_action_validates_required_fields():
+    try:
+        BrowserActionRequest(action="type", target="el_1")
+    except Exception as exc:
+        assert "type requires text" in str(exc)
+    else:
+        raise AssertionError("type without text must fail")
+
+
+def test_browser_url_parts_parse_query():
+    parts = parse_browser_url_parts("https://github.com/search?q=text&type=repositories")
+    assert parts.scheme == "https"
+    assert parts.host == "github.com"
+    assert parts.origin == "https://github.com"
+    assert parts.path == "/search"
+    assert parts.query == {"q": "text", "type": "repositories"}
+
+
+def test_browser_url_parts_empty_query():
+    parts = parse_browser_url_parts("https://github.com")
+    assert parts.origin == "https://github.com"
+    assert parts.path == ""
+    assert parts.query == {}

@@ -1,6 +1,7 @@
 approvals
 apps
 audit
+browser
 execution
 planner
 policy

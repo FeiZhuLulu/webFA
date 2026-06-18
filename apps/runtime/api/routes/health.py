@@ -25,5 +25,5 @@ def health(request: Request) -> dict:
             "db_path": str(db_path),
             "logs_dir": str(paths["logs"]),
         },
-        "mcp": {"status": "not_implemented", "transport": "stdio_placeholder"},
+        "mcp": {"status": "available", "transport": "stdio"},
     }

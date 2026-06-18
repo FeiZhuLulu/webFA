@@ -1,158 +1,107 @@
-# WebFA Desktop 版本路线与冻结约束
+# WebFA Desktop 路线与冻结约束
 
-## 已完成阶段
+## 方向冻结
 
-### v0.1.5 — Phase 1: Runtime Core (冻结)
+WebFA 是 **agent-native browser runtime**。
 
-Tag: `v0.1.5-phase1-runtime-core`
-Tests: 73 passed, 评分 100/100
+它的职责是：
 
-交付物:
-- Mock transaction 完整闭环: plan → preview → approval → execute → verify → proof → audit
-- PlanService + plan_hash (canonical JSON + sha256)
-- PolicyEngine (blocked path / file count / diff size / risk)
-- ApprovalService (token 生成 / hash-only 存储 / 过期)
-- ExecutionService (状态机 / 幂等性)
-- VerificationService (4 项检查)
-- ProofService (DB + 文件)
-- AuditService (事件链 / redaction)
-- MockProvider
-- REST API: 14 endpoints
-- Console UI: mock transaction 操作
+```text
+打开真实网站
+保持用户登录态
+返回 agent 可读的 page_state
+把网页元素转换成 element_id
+执行 agent 发出的网页对象级动作
+```
 
-冻结约束:
-- plan_hash 篡改检测必须通过 (P0-6 regression test)
-- 未 approval 不能 execute
-- rejected approval 不能 execute
-- token 只返回一次
+它不做：
 
----
+```text
+站点 API wrapper
+站点业务动作
+内置 agent
+任务规划
+LLM summary
+raw Playwright/CDP 暴露
+反检测/多账号运营
+```
 
-### v0.2.0 — Phase 2: MCP stdio (冻结)
+核心循环：
 
-Tag: `v0.2.0-mcp-stdio`
-Tests: 99 passed, 评分 100/100
+```text
+observe -> act -> observe -> act
+```
 
-交付物:
-- MCP stdio server (FastMCP)
-- 6 MCP tools: discover / plan / preview / execute / get_execution / get_proof
-- Runtime Client (HTTP → Runtime REST API)
-- Error mapping (403→approval_required, 409→hash_mismatch)
-- Config generator
-- Electron MCP Process Manager
-- Console MCP status + config UI
+不是旧的：
 
-冻结约束:
-- MCP 只是协议适配层，不写 DB
-- MCP 不暴露 approve/reject/admin tools
-- MCP 不泄露 token/credential
-- Runtime stopped 时 MCP 返回 runtime_unavailable
+```text
+preview -> approval -> execute -> verify -> proof
+```
 
----
+## P4 — Agent Browser Runtime MVP
 
-### v0.3.0 — Phase 3: GitHub Read Context (冻结)
+状态：active
 
-Tag: `v0.3.0-github-read-context`
-Tests: 114 passed, 评分 100/100
+目标：
 
-交付物:
-- GitHub credential store (文件级 token 存储)
-- GitHub read-only adapter (repo/branch/tree/file/issue/comments)
-- Provider connection API (connect/test/disconnect)
-- Resource snapshots (content_hash + taint_level)
-- GitHub workspace import
-- Plan-only readiness for github.patch_and_open_pr
-- Console GitHub connection UI
-- MCP discover: GitHub read_only / write_enabled=false
+```text
+agent -> open_url -> observe page_state -> act on element_id -> observe updated page_state
+```
 
-冻结约束:
-- token 只存在 credential store，不进入 SQLite/logs/audit/snapshot
-- GitHub adapter 无 write methods
-- github.patch_and_open_pr 只能 plan-only，不能 execute
-- plan-only preview 不创建 approval
-- 所有 GitHub 外部内容标记 taint_level
+交付物：
 
----
+- Browser Runtime：内部使用 Playwright Chromium persistent context。
+- Agent View：DOM + accessibility/ARIA + visible text + forms + tabs 多源融合。
+- Element Registry MVP：临时使用 `data-webfa-id`，导航后要求重新 observe。
+- Browser REST API：`open / observe / act / tabs / switch_tab`。
+- MCP browser tools：`open_url / observe / act / get_tabs / switch_tab`。
+- Browser Debug Console。
 
-## 待完成阶段
+冻结约束：
 
-### v0.4.0 — Phase 4: GitHub PR Transaction (待做)
+- P4 只做一个 `default` session。
+- 默认 headful，支持用户登录、验证码、2FA、观察和接管。
+- Playwright 是内部实现细节，不进入公共 API。
+- REST/MCP 不接受 selector/xpath/locator/evaluate/raw CDP。
+- 默认不返回完整 DOM/HTML。
+- 默认不返回 cookies/storage/token 明文。
+- 不注册旧 transaction MCP tools，除非 `WEBFA_ENABLE_LEGACY_TRANSACTION=1`。
+- Console 不显示 GitHub PAT、provider cards、approval/proof。
 
-目标: 跑通 github.patch_and_open_pr 真实写操作
+## P4.5 — Agent Validation Harness
 
-交付物:
-- GitHub write adapter (branch/commit/PR)
-- Diff generation (基于真实文件)
-- Blocked path check (基于真实 tree)
-- Approval diff preview (真实 diff)
-- Verification (回读 PR/commit/changed files)
-- Proof bundle (真实 resource proof)
-- Audit timeline
+状态：active next
 
-关键约束:
-- 只创建 draft PR，不 merge
-- 不删除 branch
-- 不修改 workflow/secret/env/key
-- 不修改无权限仓库
-- 公开 repo 默认 plan-only
+目标：
 
----
+```text
+验证外部 agent 通过 MCP stdio 能把 WebFA 当浏览器使用。
+```
 
-### v0.5.0 — Phase 5: HF Connection (待做)
+交付物：
 
-目标: WebFA 能连接 Hugging Face 并读取模型信息
+- 固定本地验证页：`tests/fixtures/agent_validation_page.html`。
+- REST 层验证：打开页面、observe、type、click、observe。
+- MCP stdio 验证：真实 MCP client 调用 `webfa.open_url / observe / act`。
+- Agent 接入文档：`AGENT_VALIDATION.md`。
 
-交付物:
-- HF token 配置页面
-- HF credential store
-- model search / read / card read
-- target repo read
+冻结约束：
 
----
+- P4.5 不新增站点业务工具。
+- P4.5 不做 GitHub/微博/登录真实任务。
+- P4.5 不做多 session、inspect_element、LLM summary、自研 driver。
+- 默认 MCP 工具列表必须只有 browser tools。
+- 旧 transaction 测试只能作为 legacy 保留，不能代表主线验收。
 
-### v0.6.0 — Phase 6: HF Transaction (待做)
+## Legacy
 
-目标: 跑通 hf.compare_and_publish
+旧 Phase 1-3 的 transaction gateway 代码保留为 legacy，因为其中的 Electron shell、FastAPI Runtime、MCP stdio、storage 路径仍可复用。
 
-交付物:
-- model profile extraction
-- comparison report generation
-- source trace
-- README generation
-- approval preview
-- README update
-- revision verify
-- content hash proof
+旧路线不再作为产品主线：
 
----
+- GitHub PR Transaction
+- Hugging Face Transaction
+- provider adapter
+- plan/preview/approval/execute/proof/audit 事务闭环
 
-### v0.7.0 — Phase 7: 打包发布 (待做)
-
-目标: 生成可安装桌面应用
-
-交付物:
-- Windows installer
-- runtime binary (PyInstaller/Nuitka)
-- auto port detection
-- log export
-- diagnostic page
-- first-run onboarding
-
----
-
-## 不做的事情 (冻结)
-
-以下内容在 v0.x 系列中不做:
-
-- SaaS 版本
-- 浏览器自动化
-- 批量 PR/issue/comment
-- 自动 merge PR
-- 删除资源
-- 成员管理/权限管理/组织设置
-- Agent 直接拿 token
-- Agent 绕过用户审批执行高风险写操作
-- 默认修改 workflow/secret/env/key 文件
-- OAuth
-- GitHub App (v1 再考虑)
-- MCP HTTP/SSE (v0 只做 stdio)
+详情见 `docs/abandoned/transaction-gateway.md`。

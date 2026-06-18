@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from apps.runtime.api.routes.approvals import router as approvals_router
 from apps.runtime.api.routes.audits import router as audits_router
+from apps.runtime.api.routes.browser import router as browser_router
 from apps.runtime.api.routes.executions import router as executions_router
 from apps.runtime.api.routes.github import router as github_router
 from apps.runtime.api.routes.health import router as health_router
@@ -44,6 +45,9 @@ async def lifespan(app: FastAPI):
     app.state.webfa_db_path = db_path
     app.state.transaction_registry = registry
     yield
+    browser_runtime = getattr(app.state, "browser_runtime", None)
+    if browser_runtime is not None:
+        browser_runtime.close()
 
 
 def create_app() -> FastAPI:
@@ -57,6 +61,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(approvals_router, prefix="/v1")
     app.include_router(audits_router, prefix="/v1")
+    app.include_router(browser_router, prefix="/v1")
     app.include_router(executions_router, prefix="/v1")
     app.include_router(github_router, prefix="/v1")
     app.include_router(health_router)

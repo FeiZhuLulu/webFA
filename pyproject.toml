@@ -15,7 +15,8 @@ dependencies = [
   "alembic>=1.13",
   "PyYAML>=6.0",
   "mcp>=1.0.0",
-  "httpx>=0.27"
+  "httpx>=0.27",
+  "playwright>=1.45"
 ]
 
 [project.optional-dependencies]
@@ -46,7 +47,8 @@ packages = [
   "verification",
   "proof",
   "audit",
-  "workspace"
+  "workspace",
+  "browser"
 ]
 
 [tool.setuptools.package-dir]
@@ -65,6 +67,7 @@ packages = [
 "proof" = "packages/webfa-core/proof"
 "audit" = "packages/webfa-core/audit"
 "workspace" = "packages/webfa-core/workspace"
+"browser" = "packages/webfa-core/browser"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

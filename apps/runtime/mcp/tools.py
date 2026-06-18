@@ -28,6 +28,68 @@ def get_client() -> WebFARuntimeClient:
 CONSOLE_URL = os.getenv("WEBFA_CONSOLE_URL", "http://127.0.0.1:8788")
 
 
+def tool_open_url(url: str) -> dict[str, Any]:
+    """Open a URL directly; prefer constructed URLs for search, filters, pagination, and known resources."""
+    client = get_client()
+    try:
+        return success_response(client.open_url(url))
+    except RuntimeUnavailableError as e:
+        return map_unavailable_error(e)
+    except RuntimeErrorResponse as e:
+        return map_runtime_error(e)
+
+
+def tool_observe() -> dict[str, Any]:
+    """Return agent-readable page state, including URL parts and interactive elements."""
+    client = get_client()
+    try:
+        return success_response({"state": client.observe()})
+    except RuntimeUnavailableError as e:
+        return map_unavailable_error(e)
+    except RuntimeErrorResponse as e:
+        return map_runtime_error(e)
+
+
+def tool_act(action: str, target: str | None = None, **kwargs: Any) -> dict[str, Any]:
+    """Act on a WebFA element id; prefer open_url when the task is expressible as a URL."""
+    client = get_client()
+    blocked = {"selector", "xpath", "locator", "evaluate", "cdp", "raw_cdp", "raw_playwright"}
+    if blocked.intersection(kwargs):
+        return error_response("invalid_request", "raw selector/playwright/cdp payloads are not accepted")
+    payload = {"action": action}
+    if target is not None:
+        payload["target"] = target
+    payload.update(kwargs)
+    try:
+        return success_response(client.browser_act(payload))
+    except RuntimeUnavailableError as e:
+        return map_unavailable_error(e)
+    except RuntimeErrorResponse as e:
+        return map_runtime_error(e)
+
+
+def tool_get_tabs() -> dict[str, Any]:
+    """List WebFA browser tabs."""
+    client = get_client()
+    try:
+        return success_response(client.get_tabs())
+    except RuntimeUnavailableError as e:
+        return map_unavailable_error(e)
+    except RuntimeErrorResponse as e:
+        return map_runtime_error(e)
+
+
+def tool_switch_tab(tab_id: str) -> dict[str, Any]:
+    """Switch active WebFA browser tab."""
+    client = get_client()
+    try:
+        return success_response({"state": client.switch_tab(tab_id)})
+    except RuntimeUnavailableError as e:
+        return map_unavailable_error(e)
+    except RuntimeErrorResponse as e:
+        return map_runtime_error(e)
+
+
 def tool_discover(intent: str | None = None, provider: str | None = None) -> dict[str, Any]:
     """Discover available providers and transactions."""
     client = get_client()
