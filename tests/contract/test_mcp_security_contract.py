@@ -81,3 +81,13 @@ def test_default_mcp_tools_do_not_expose_legacy_or_raw_browser_tools(monkeypatch
         "webfa.get_tabs",
         "webfa.switch_tab",
     }
+
+
+def test_browser_runtime_does_not_import_playwright_details():
+    root = Path(__file__).resolve().parents[2]
+    runtime_source = (root / "packages/webfa-core/browser/runtime.py").read_text(encoding="utf-8")
+    driver_source = (root / "packages/webfa-core/browser/playwright_driver.py").read_text(encoding="utf-8")
+
+    for forbidden in ("sync_playwright", "page.locator", "chromium.launch_persistent_context"):
+        assert forbidden not in runtime_source
+        assert forbidden in driver_source
