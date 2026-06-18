@@ -40,7 +40,7 @@ preview -> approval -> execute -> verify -> proof
 
 ## P4 — Agent Browser Runtime MVP
 
-状态：active
+状态：completed
 
 目标：
 
@@ -70,7 +70,7 @@ agent -> open_url -> observe page_state -> act on element_id -> observe updated 
 
 ## P4.5 — Agent Validation Harness
 
-状态：active next
+状态：completed
 
 目标：
 
@@ -92,6 +92,54 @@ agent -> open_url -> observe page_state -> act on element_id -> observe updated 
 - P4.5 不做多 session、inspect_element、LLM summary、自研 driver。
 - 默认 MCP 工具列表必须只有 browser tools。
 - 旧 transaction 测试只能作为 legacy 保留，不能代表主线验收。
+
+## P4.6 — Agent Operating Guide + URL-Aware Navigation
+
+状态：completed
+
+目标：
+
+```text
+让 agent 知道 WebFA 不是人类浏览器自动化，URL 也是 agent-native 的网页操作表面。
+```
+
+交付物：
+
+- `AGENT_MANUAL.md`：agent 使用 WebFA 的操作手册。
+- `BrowserState.url_parts`：机械解析当前 URL 的 scheme、host、origin、path、query。
+- MCP tool descriptions：提示 URL-first navigation。
+
+冻结约束：
+
+- 不新增 guide tool。
+- 不新增 suggested_actions。
+- 不做站点业务动作。
+- 不把 live GitHub 访问纳入默认自动测试。
+
+## P5 — Browser Runtime Core
+
+状态：active
+
+目标：
+
+```text
+把 P4 原型重构为 WebFA 自己的 Runtime Core，同时保持 REST/MCP 对外行为不变。
+```
+
+交付物：
+
+- BrowserDriver boundary：Playwright 被隔离到 `PlaywrightBrowserDriver`。
+- RawPageSnapshot：driver 返回底层页面事实。
+- AgentViewBuilder：由 WebFA 生成 BrowserState。
+- ElementRegistry MVP：管理当前页面内 element_id。
+- default BrowserSession：内部建立 session/profile skeleton。
+
+冻结约束：
+
+- P5 不替换 Playwright。
+- P5 不做 Visualizer。
+- P5 不开放多 session API。
+- P5 不改变 agent-facing REST/MCP 工具语义。
 
 ## Legacy
 

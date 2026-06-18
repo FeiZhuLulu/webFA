@@ -31,9 +31,12 @@ P4/P4.5
   Chrome-like UI is only a debug surface.
 
 P5
-  Add a BrowserDriver boundary.
+  Browser Runtime Core.
   Keep public WebFA APIs unchanged.
-  Confine Playwright calls to one driver implementation.
+  Confine Playwright calls to PlaywrightBrowserDriver.
+  Generate BrowserState through AgentViewBuilder.
+  Track current-page element ids through ElementRegistry.
+  Keep one default BrowserSession/Profile.
 
 P6
   Move toward headless browser runtime plus WebFA Visualizer.
