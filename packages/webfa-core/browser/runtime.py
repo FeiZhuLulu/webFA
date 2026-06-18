@@ -5,16 +5,14 @@ import queue
 import threading
 from typing import Any, Callable
 
+from browser.agent_view import AgentViewBuilder
 from browser.driver import BrowserDriver, RawPageSnapshot
 from browser.playwright_driver import PlaywrightBrowserDriver
 from schemas.browser import (
     BrowserActionRequest,
     BrowserActionResult,
-    BrowserElement,
-    BrowserForm,
     BrowserState,
     BrowserTab,
-    parse_browser_url_parts,
 )
 
 
@@ -80,6 +78,7 @@ class _BrowserWorker:
     def __init__(self, driver_factory: DriverFactory) -> None:
         self._driver_factory = driver_factory
         self._driver: BrowserDriver | None = None
+        self._view_builder = AgentViewBuilder()
 
     def run(self, jobs: queue.Queue) -> None:
         handlers: dict[str, Callable[..., Any]] = {
@@ -137,18 +136,4 @@ class _BrowserWorker:
         return self._driver
 
     def _state_from_raw(self, raw: RawPageSnapshot) -> BrowserState:
-        return BrowserState(
-            session_id="default",
-            url=raw.url,
-            url_parts=parse_browser_url_parts(raw.url),
-            title=raw.title,
-            page_status="loading" if raw.loading else "idle",
-            focused_element_id=raw.focused_element_id,
-            viewport=raw.viewport,
-            tabs=raw.tabs,
-            visible_text=raw.visible_text,
-            content_blocks=[],
-            forms=[BrowserForm(**item) for item in raw.forms],
-            interactive_elements=[BrowserElement(**item) for item in raw.interactive_elements],
-            error=None,
-        )
+        return self._view_builder.build(raw, session_id="default")
