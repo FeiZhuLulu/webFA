@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from browser.agent_view import AgentViewBuilder
 from browser.driver import BrowserDriver, RawPageSnapshot
+from browser.element_registry import ElementRegistry
 from browser.playwright_driver import PlaywrightBrowserDriver
 from schemas.browser import (
     BrowserActionRequest,
@@ -78,6 +79,7 @@ class _BrowserWorker:
     def __init__(self, driver_factory: DriverFactory) -> None:
         self._driver_factory = driver_factory
         self._driver: BrowserDriver | None = None
+        self._registry = ElementRegistry()
         self._view_builder = AgentViewBuilder()
 
     def run(self, jobs: queue.Queue) -> None:
@@ -114,6 +116,8 @@ class _BrowserWorker:
 
     def act(self, request: BrowserActionRequest) -> BrowserActionResult:
         driver = self._ensure_driver()
+        if request.target:
+            self._registry.require(request.target)
         driver.act(request)
         return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
 
@@ -129,6 +133,7 @@ class _BrowserWorker:
         if self._driver is not None:
             self._driver.close()
         self._driver = None
+        self._registry.clear()
 
     def _ensure_driver(self) -> BrowserDriver:
         if self._driver is None:
@@ -136,4 +141,5 @@ class _BrowserWorker:
         return self._driver
 
     def _state_from_raw(self, raw: RawPageSnapshot) -> BrowserState:
+        self._registry.update(raw)
         return self._view_builder.build(raw, session_id="default")
