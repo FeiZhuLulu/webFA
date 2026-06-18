@@ -7,8 +7,8 @@ from typing import Any, Callable
 
 from browser.agent_view import AgentViewBuilder
 from browser.driver import BrowserDriver, RawPageSnapshot
-from browser.element_registry import ElementRegistry
 from browser.playwright_driver import PlaywrightBrowserDriver
+from browser.session import BrowserSession
 from schemas.browser import (
     BrowserActionRequest,
     BrowserActionResult,
@@ -77,9 +77,7 @@ class BrowserRuntime:
 
 class _BrowserWorker:
     def __init__(self, driver_factory: DriverFactory) -> None:
-        self._driver_factory = driver_factory
-        self._driver: BrowserDriver | None = None
-        self._registry = ElementRegistry()
+        self._session = BrowserSession(driver_factory=driver_factory)
         self._view_builder = AgentViewBuilder()
 
     def run(self, jobs: queue.Queue) -> None:
@@ -110,19 +108,19 @@ class _BrowserWorker:
         return BrowserActionResult(ok=True, action="open_url", state=self._state_from_raw(driver.observe_raw()))
 
     def observe(self) -> BrowserState:
-        if self._driver is None:
+        if self._session.driver is None:
             return BrowserState()
-        return self._state_from_raw(self._driver.observe_raw())
+        return self._state_from_raw(self._session.driver.observe_raw())
 
     def act(self, request: BrowserActionRequest) -> BrowserActionResult:
-        driver = self._ensure_driver()
+        driver = self._session.ensure_driver()
         if request.target:
-            self._registry.require(request.target)
+            self._session.registry.require(request.target)
         driver.act(request)
         return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
 
     def tabs(self) -> list[BrowserTab]:
-        return [] if self._driver is None else self._driver.tabs()
+        return [] if self._session.driver is None else self._session.driver.tabs()
 
     def switch_tab(self, tab_id: str) -> BrowserState:
         driver = self._ensure_driver()
@@ -130,16 +128,11 @@ class _BrowserWorker:
         return self._state_from_raw(driver.observe_raw())
 
     def close(self) -> None:
-        if self._driver is not None:
-            self._driver.close()
-        self._driver = None
-        self._registry.clear()
+        self._session.close()
 
     def _ensure_driver(self) -> BrowserDriver:
-        if self._driver is None:
-            self._driver = self._driver_factory()
-        return self._driver
+        return self._session.ensure_driver()
 
     def _state_from_raw(self, raw: RawPageSnapshot) -> BrowserState:
-        self._registry.update(raw)
-        return self._view_builder.build(raw, session_id="default")
+        self._session.registry.update(raw)
+        return self._view_builder.build(raw, session_id=self._session.session_id)
