@@ -64,4 +64,6 @@ The two pytest warnings are dependency deprecation warnings from `websockets` / 
 
 ## Next Candidate
 
-P6 should focus on WebFA Visualizer / headless runtime shape, not on replacing Playwright yet.
+P6 moved into Managed Chromium BrowserHost validation. After P6, the next
+runtime direction should be agent-native web operations, not cloning
+Playwright's low-level automation surface.

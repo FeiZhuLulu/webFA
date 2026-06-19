@@ -13,15 +13,21 @@ Agent Interface
   MCP / REST / Console calls: open_url, observe, act, tabs
 
 WebFA Browser Runtime
-  sessions, page_state, element ids, action model, safety contracts
+  sessions, page_state, element ids, agent-native web operations, safety contracts
 
 Browser Driver
-  current: PlaywrightBrowserDriver
-  future: CDP / Electron WebContents / other native driver
+  current stable: PlaywrightBrowserDriver
+  current experiment: ManagedChromiumHost through HostBrowserDriver
+  future: other BrowserHost implementations
 
 Browser Engine
   runs real HTML, CSS, JavaScript, storage, cookies, and web APIs
 ```
+
+Driver work must not become a Playwright clone. WebFA uses browser engines and
+host protocols as implementation details, but its product surface should move
+toward agent-native web operations: URL navigation, readable page objects,
+forms, links, controls, lists, and safe object-level actions.
 
 ## Roadmap
 
@@ -65,31 +71,43 @@ P6
   open/observe/tabs/close, and minimal type/click/press/clear/wait closed loop.
 
 P7
+  Agent-Native Web Operations.
+  Move beyond low-level click/type as the primary abstraction without copying
+  Playwright. Improve BrowserState and action semantics around generic web
+  objects: URL affordances, forms, links, controls, lists, and content blocks.
+  Candidate operations include fill_form, submit_form, follow_link,
+  activate_control, choose_option, read_list, and inspect_block. These are
+  generic webpage operations, not site-specific APIs and not LLM suggestions.
+  Existing click/type/press remain as fallback primitives.
+
+P8
   Plugin-first Packaging / Agent Entry Package.
   Make WebFA easy for external agents to install and use through MCP/local
   plugin/CLI entry points. Desktop remains optional.
 
-P8
+P9
   WebFA Visualizer.
   Show WebFA's own runtime state: URL, title, BrowserState, content_blocks, elements, screenshots, highlights, action log, and takeover controls.
   Do not clone Chrome address bar, tabs, or general human-browser UI.
 
-P9
+P10
   Element Registry v2.
   Reduce dependence on data-webfa-id injection with role/name/text/tag/dom_path/bbox/nearby_text hints.
 
-P10
+P11
   Multi Session / Multi Profile.
   Expose session_id/profile_id only after default session is stable.
 
-P11
+P12
   Real Task Safety Layer.
   Add human confirmation before final high-risk writes such as send, create, delete, purchase, publish, or settings changes.
 
 Long term
-  Replace Playwright where useful.
-  Do not clone Chrome UI.
-  Keep WebFA centered on agent-readable state and object-level web actions.
+  Do not turn WebFA into a Playwright replacement.
+  Keep mature web engines such as Chromium/Blink/V8 where useful.
+  Remove Playwright and Chrome UI assumptions from the product boundary.
+  Keep WebFA centered on agent-readable state, URL-native navigation, and
+  generic web-object operations.
 ```
 
 ## Constraints
