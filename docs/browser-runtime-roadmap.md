@@ -38,9 +38,39 @@ P5
   Track current-page element ids through ElementRegistry.
   Keep one default BrowserSession/Profile.
 
+P5.5
+  Agent View Quality.
+  Add content_blocks MVP so agents do not have to read one flat visible_text blob.
+  Structure generic text blocks, basic list/card blocks, and nearby element ids.
+  Do not add LLM summaries, suggested actions, site parsers, or new MCP tools.
+
 P6
-  Move toward headless browser runtime plus WebFA Visualizer.
-  The visualizer shows page state, screenshots, highlighted elements, agent actions, and takeover controls.
+  Alternative Driver Experiment.
+  Prove WebFA Runtime Core can run on a second driver path before building product UI on top.
+  Try a minimal CDP or Electron WebContents driver for open_url and observe_raw.
+  Keep PlaywrightBrowserDriver as the stable default until the experiment passes.
+
+P7
+  Headless / Non-Chrome-UI Runtime.
+  Move the default runtime shape away from a visible Chromium browser window.
+  Keep a real browser engine, but stop presenting Chrome UI as WebFA's product surface.
+
+P8
+  WebFA Visualizer.
+  Show WebFA's own runtime state: URL, title, BrowserState, content_blocks, elements, screenshots, highlights, action log, and takeover controls.
+  Do not clone Chrome address bar, tabs, or general human-browser UI.
+
+P9
+  Element Registry v2.
+  Reduce dependence on data-webfa-id injection with role/name/text/tag/dom_path/bbox/nearby_text hints.
+
+P10
+  Multi Session / Multi Profile.
+  Expose session_id/profile_id only after default session is stable.
+
+P11
+  Real Task Safety Layer.
+  Add human confirmation before final high-risk writes such as send, create, delete, purchase, publish, or settings changes.
 
 Long term
   Replace Playwright where useful.
