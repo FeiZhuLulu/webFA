@@ -17,6 +17,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from apps.runtime.main import create_app
+from browser.managed_chromium_host import _find_chromium_executable
 from storage.db import reset_engine_for_tests
 
 
@@ -46,9 +47,30 @@ def test_mcp_stdio_browser_observe_act_observe(monkeypatch, tmp_path: Path):
     pytest.importorskip("playwright.sync_api")
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
     monkeypatch.delenv("WEBFA_ENABLE_LEGACY_TRANSACTION", raising=False)
     reset_engine_for_tests()
 
+    _run_runtime_with_mcp_flow(tmp_path)
+
+
+def test_mcp_stdio_managed_chromium_observe_act_observe(monkeypatch, tmp_path: Path):
+    pytest.importorskip("websockets.sync.client")
+    try:
+        _find_chromium_executable()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_BROWSER_DRIVER", "managed-chromium")
+    monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_ENABLE_LEGACY_TRANSACTION", raising=False)
+    reset_engine_for_tests()
+
+    _run_runtime_with_mcp_flow(tmp_path)
+
+
+def _run_runtime_with_mcp_flow(tmp_path: Path) -> None:
     port = _free_port()
     server = uvicorn.Server(
         uvicorn.Config(

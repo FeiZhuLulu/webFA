@@ -72,8 +72,9 @@ P6 acceptance requires:
 - default Playwright path does not regress;
 - managed Chromium path completes local fixture `open -> observe -> type ->
   click -> observe`;
+- managed Chromium path completes the same closed loop through a real MCP stdio
+  client, not just direct REST calls;
 - default MCP tools remain exactly the five browser tools;
 - REST/MCP do not expose raw CDP, raw Playwright, selectors, XPath, locators, or
   evaluate;
 - BrowserState does not expose cookies, storage, full DOM, or full HTML.
-
