@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
@@ -91,3 +92,43 @@ def test_browser_runtime_does_not_import_playwright_details():
     for forbidden in ("sync_playwright", "page.locator", "chromium.launch_persistent_context"):
         assert forbidden not in runtime_source
         assert forbidden in driver_source
+
+
+def test_content_block_schema_forbids_html_dom_and_storage_keys():
+    """content_blocks is part of the agent-facing surface and must never
+    carry raw HTML, DOM strings, cookies, or web storage values."""
+    from pydantic import ValidationError
+
+    from schemas.browser import BrowserContentBlock
+
+    for forbidden in ("html", "outerHTML", "innerHTML", "cookies", "localStorage", "sessionStorage"):
+        with pytest.raises(ValidationError):
+            BrowserContentBlock(id="block_1", type="paragraph", text="x", element_ids=[], **{forbidden: "leak"})
+
+
+def test_observe_script_does_not_read_html_or_storage():
+    """The script that builds content_blocks must not read cookies,
+    localStorage, sessionStorage, or emit raw HTML/DOM strings."""
+    root = Path(__file__).resolve().parents[2]
+    script_source = (root / "packages/webfa-core/browser/playwright_driver.py").read_text(encoding="utf-8")
+
+    # Isolate the _OBSERVE_SCRIPT block so we only check its body, not the
+    # surrounding Python module (which legitimately mentions these words).
+    start = script_source.index("_OBSERVE_SCRIPT")
+    script_body = script_source[start:]
+
+    for forbidden in (
+        "document.cookie",
+        "window.localStorage",
+        "window.sessionStorage",
+        "localStorage.getItem",
+        "sessionStorage.getItem",
+        ".outerHTML",
+        ".innerHTML",
+        "document.documentElement.outerHTML",
+    ):
+        assert forbidden not in script_body, f"observe script must not read {forbidden!r}"
+
+    # content_blocks must only emit the four whitelisted keys per block.
+    assert "element_ids" in script_body
+    assert "content_blocks" in script_body

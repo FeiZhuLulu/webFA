@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from browser.driver import ACTION_TIMEOUT_MS, VISIBLE_TEXT_MAX_CHARS, RawPageSnapshot
+from browser.driver import (
+    ACTION_TIMEOUT_MS,
+    CONTENT_BLOCK_MAX_CHARS,
+    CONTENT_BLOCK_MAX_COUNT,
+    VISIBLE_TEXT_MAX_CHARS,
+    RawPageSnapshot,
+)
 from schemas.browser import BrowserActionRequest, BrowserTab, BrowserViewport
 from storage.file_store import ensure_webfa_data_dir
 
@@ -20,7 +26,10 @@ class PlaywrightBrowserDriver:
 
     def observe_raw(self) -> RawPageSnapshot:
         page = self._ensure_page()
-        raw = page.evaluate(_OBSERVE_SCRIPT, VISIBLE_TEXT_MAX_CHARS)
+        raw = page.evaluate(
+            _OBSERVE_SCRIPT,
+            {"maxChars": VISIBLE_TEXT_MAX_CHARS, "blockChars": CONTENT_BLOCK_MAX_CHARS, "blockCount": CONTENT_BLOCK_MAX_COUNT},
+        )
         viewport = page.viewport_size or {"width": 1280, "height": 720}
         return RawPageSnapshot(
             url=page.url,
@@ -30,6 +39,7 @@ class PlaywrightBrowserDriver:
             viewport=BrowserViewport(width=viewport["width"], height=viewport["height"]),
             tabs=self.tabs(),
             visible_text=raw.get("visible_text", ""),
+            content_blocks=raw.get("content_blocks", []),
             forms=raw.get("forms", []),
             interactive_elements=raw.get("interactive_elements", []),
         )
@@ -154,7 +164,10 @@ def _tab_index(tab_id: str) -> int:
 
 
 _OBSERVE_SCRIPT = r"""
-(maxChars) => {
+(opts) => {
+  const maxChars = opts.maxChars;
+  const blockChars = opts.blockChars;
+  const blockCount = opts.blockCount;
   const isVisible = (el) => {
     const style = window.getComputedStyle(el);
     const rect = el.getBoundingClientRect();
@@ -245,6 +258,45 @@ _OBSERVE_SCRIPT = r"""
     const submit = Array.from(form.querySelectorAll('button,input[type="submit"]')).map((el) => el.getAttribute('data-webfa-id')).find(Boolean) || null;
     return { id: `form_${index + 1}`, fields, submit };
   });
+  // Content blocks: generic readable text blocks bound to the element ids
+  // inside them. Runs AFTER interactive element ids are allocated so that
+  // element_ids reflect the same stable ids exposed in interactive_elements.
+  // No HTML, no DOM path, no site rules — just text plus nearby element ids.
+  const blockTypeOf = (el) => {
+    const role = el.getAttribute('role');
+    if (role === 'listitem') return 'list_item';
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'h1' || tag === 'h2' || tag === 'h3') return 'heading';
+    if (tag === 'p') return 'paragraph';
+    if (tag === 'li') return 'list_item';
+    if (tag === 'form') return 'form';
+    if (tag === 'nav') return 'nav';
+    if (tag === 'article') return 'generic';
+    return 'generic';
+  };
+  const blockSelector = 'h1, h2, h3, p, li, article, form, nav, [role="listitem"]';
+  const blockSeen = new WeakSet();
+  const contentBlocks = [];
+  for (const el of document.querySelectorAll(blockSelector)) {
+    if (contentBlocks.length >= blockCount) break;
+    if (blockSeen.has(el)) continue;
+    // Skip blocks nested inside another block we already captured so a result
+    // item's title and description do not get duplicated as separate blocks.
+    if (el.parentElement && blockSeen.has(el.parentElement)) continue;
+    if (!isVisible(el)) continue;
+    const text = textOf(el);
+    if (!text) continue;
+    blockSeen.add(el);
+    const elementIds = Array.from(el.querySelectorAll('[data-webfa-id]'))
+      .map((node) => node.getAttribute('data-webfa-id'))
+      .filter((id) => idPattern.test(id || ''));
+    contentBlocks.push({
+      id: `block_${contentBlocks.length + 1}`,
+      type: blockTypeOf(el),
+      text: text.slice(0, blockChars),
+      element_ids: Array.from(new Set(elementIds))
+    });
+  }
   const active = document.activeElement && document.activeElement.getAttribute('data-webfa-id');
   const visibleText = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').trim().slice(0, maxChars);
   return {
@@ -252,6 +304,7 @@ _OBSERVE_SCRIPT = r"""
     focused_element_id: active || null,
     visible_text: visibleText,
     interactive_elements: elements,
+    content_blocks: contentBlocks,
     forms
   };
 }

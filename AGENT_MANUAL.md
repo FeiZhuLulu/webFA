@@ -27,6 +27,18 @@ webfa.switch_tab
 
 Do not use raw selectors, XPath, Playwright, CDP, browser devtools, site APIs, or site-specific wrappers.
 
+## Reading Page Content
+
+After `webfa.observe`, the state has both `visible_text` and `content_blocks`.
+
+`visible_text` is one flat string for the whole page. `content_blocks` is a list of smaller, more stable text blocks, each with the `element_ids` of the interactive elements inside it:
+
+```text
+{ "id": "block_1", "type": "heading", "text": "alpha/webfa-one", "element_ids": ["el_7"] }
+```
+
+For real listing pages (search results, dashboards, feeds), read `content_blocks` first, then fall back to `visible_text`. Pick the `element_id` you need from a block's `element_ids` instead of re-scanning the whole page.
+
 ## URL-First Navigation
 
 Do not blindly copy human browser behavior. Humans click through menus because URLs and page state are awkward for them. Agents can read and modify structured text.

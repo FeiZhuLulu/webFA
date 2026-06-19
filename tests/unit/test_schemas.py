@@ -37,7 +37,12 @@ from schemas.proof import (
 )
 from schemas.audit import AuditEventRead, AuditListResponse
 from schemas.workspace import WorkspaceRead
-from schemas.browser import BrowserActionRequest, BrowserOpenRequest, parse_browser_url_parts
+from schemas.browser import (
+    BrowserActionRequest,
+    BrowserContentBlock,
+    BrowserOpenRequest,
+    parse_browser_url_parts,
+)
 
 
 def test_create_plan_request():
@@ -210,3 +215,30 @@ def test_browser_url_parts_empty_query():
     assert parts.origin == "https://github.com"
     assert parts.path == ""
     assert parts.query == {}
+
+
+def test_browser_content_block_basic_shape():
+    block = BrowserContentBlock(id="block_1", type="heading", text="alpha/webfa-one", element_ids=["el_7"])
+    assert block.id == "block_1"
+    assert block.type == "heading"
+    assert block.element_ids == ["el_7"]
+
+
+def test_browser_content_block_rejects_unsupported_type():
+    try:
+        BrowserContentBlock(id="block_1", type="repository", text="x", element_ids=[])
+    except Exception as exc:
+        assert "repository" in str(exc).lower() or "type" in str(exc).lower()
+    else:
+        raise AssertionError("unsupported block type must be rejected")
+
+
+def test_browser_content_block_forbids_html_dom_and_storage_keys():
+    from pydantic import ValidationError
+
+    for forbidden in ("html", "outerHTML", "innerHTML", "cookies", "localStorage", "sessionStorage"):
+        try:
+            BrowserContentBlock(id="block_1", type="paragraph", text="x", element_ids=[], **{forbidden: "y"})
+        except ValidationError:
+            continue
+        raise AssertionError(f"{forbidden} must be rejected by BrowserContentBlock")

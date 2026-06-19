@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from browser.driver import VISIBLE_TEXT_MAX_CHARS, RawPageSnapshot
 from schemas.browser import (
+    BrowserContentBlock,
     BrowserElement,
     BrowserForm,
     BrowserState,
@@ -21,7 +22,7 @@ class AgentViewBuilder:
             viewport=raw.viewport,
             tabs=raw.tabs,
             visible_text=(raw.visible_text or "")[:VISIBLE_TEXT_MAX_CHARS],
-            content_blocks=[],
+            content_blocks=[BrowserContentBlock(**item) for item in raw.content_blocks],
             forms=[BrowserForm(**item) for item in raw.forms],
             interactive_elements=[BrowserElement(**item) for item in raw.interactive_elements],
             error=None,

@@ -39,10 +39,17 @@ P5
   Keep one default BrowserSession/Profile.
 
 P5.5
-  Agent View Quality.
-  Add content_blocks MVP so agents do not have to read one flat visible_text blob.
-  Structure generic text blocks, basic list/card blocks, and nearby element ids.
-  Do not add LLM summaries, suggested actions, site parsers, or new MCP tools.
+  Content Blocks MVP.
+  Goal: BrowserState.content_blocks stops being empty; agents get a more stable
+  reading structure than one flat visible_text blob.
+  Route: RawPageSnapshot -> raw content block candidates -> AgentViewBuilder ->
+  BrowserState.content_blocks, each block carrying {id, type, text, element_ids}.
+  Collect generic DOM blocks (h1/h2/h3, p, li, article, form, nav, role=listitem),
+  cap text length and count, bind nearby data-webfa-id element ids.
+  Public MCP/REST tools are unchanged. No HTML, no DOM path, no site rules,
+  no LLM summaries, no suggested actions, no Visualizer, no new MCP tools.
+  Status: done — BrowserContentBlock schema, AgentViewBuilder mapping, observe
+  script collection, search-results integration test, security contract.
 
 P6
   Alternative Driver Experiment.

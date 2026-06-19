@@ -21,6 +21,32 @@ BrowserActionName = Literal[
     "wait_for_element",
 ]
 
+ContentBlockType = Literal[
+    "heading",
+    "paragraph",
+    "list_item",
+    "form",
+    "nav",
+    "generic",
+]
+
+
+class BrowserContentBlock(BaseModel):
+    """A readable text block with the element ids inside it.
+
+    Agents read content_blocks to get page structure that is more stable
+    than a single flat visible_text blob. The element_ids point at the
+    interactive elements inside this block so an agent can act without
+    re-reading the whole page.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: ContentBlockType
+    text: str
+    element_ids: list[str] = []
+
 
 class BrowserOpenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -132,7 +158,7 @@ class BrowserState(BaseModel):
     viewport: BrowserViewport = BrowserViewport(width=1280, height=720)
     tabs: list[BrowserTab] = []
     visible_text: str = ""
-    content_blocks: list[dict] = []
+    content_blocks: list[BrowserContentBlock] = []
     forms: list[BrowserForm] = []
     interactive_elements: list[BrowserElement] = []
     error: dict | None = None
