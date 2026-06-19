@@ -59,7 +59,7 @@ def webfa_observe() -> str:
 
 @mcp.tool(name="webfa.act")
 def webfa_act(action: str, target: str | None = None, payload: dict[str, Any] | None = None) -> str:
-    """Act on current page element ids. If the task is expressible as a URL, prefer webfa.open_url over human-style UI steps."""
+    """Act on current page objects: forms, links, controls, blocks, or element ids; prefer webfa.open_url when the task is expressible as a URL."""
     return json.dumps(tool_act(action=action, target=target, **(payload or {})), ensure_ascii=False)
 
 

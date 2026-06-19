@@ -127,19 +127,19 @@ async def _run_mcp_browser_flow(port: int, tmp_path: Path) -> None:
             assert "cookie" not in str(state).lower()
             assert "localstorage" not in str(state).lower()
 
-            name_el = _find_element(state, placeholder="Your name")
-            button_el = _find_element(state, role="button")
+            assert state["forms"][0]["id"] == "form_1"
 
             typed = _tool_json(await session.call_tool(
                 "webfa.act",
-                {"action": "type", "target": name_el["id"], "payload": {"text": "Fei"}},
+                {"action": "fill_form", "target": "form_1", "payload": {"fields": {"name": "Fei"}}},
             ))
-            typed_el = _find_element(typed["state"], placeholder="Your name")
-            assert typed_el["value"] == "Fei"
+            field = typed["state"]["forms"][0]["field_details"][0]
+            assert field["key"] == "name"
+            assert field["value"] == "Fei"
 
             clicked = _tool_json(await session.call_tool(
                 "webfa.act",
-                {"action": "click", "target": button_el["id"]},
+                {"action": "submit_form", "target": "form_1"},
             ))
             assert "Hello Fei" in clicked["state"]["visible_text"]
 

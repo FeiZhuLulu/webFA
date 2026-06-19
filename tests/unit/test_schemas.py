@@ -39,7 +39,9 @@ from schemas.audit import AuditEventRead, AuditListResponse
 from schemas.workspace import WorkspaceRead
 from schemas.browser import (
     BrowserActionRequest,
+    BrowserActionResult,
     BrowserContentBlock,
+    BrowserState,
     BrowserOpenRequest,
     parse_browser_url_parts,
 )
@@ -199,6 +201,39 @@ def test_browser_action_validates_required_fields():
         assert "type requires text" in str(exc)
     else:
         raise AssertionError("type without text must fail")
+
+
+def test_browser_object_actions_validate_required_fields():
+    BrowserActionRequest(action="fill_form", target="form_1", fields={"name": "Fei"})
+    BrowserActionRequest(action="submit_form", target="form_1")
+    BrowserActionRequest(action="follow_link", target="el_1")
+    BrowserActionRequest(action="activate_control", target="el_1")
+    BrowserActionRequest(action="choose_option", target="el_1", value="public")
+    BrowserActionRequest(action="read_list", target="block_1")
+    BrowserActionRequest(action="inspect_block", target="block_1")
+
+    invalid = [
+        {"action": "fill_form", "target": "form_1"},
+        {"action": "submit_form"},
+        {"action": "follow_link"},
+        {"action": "activate_control"},
+        {"action": "choose_option", "target": "el_1"},
+        {"action": "read_list"},
+        {"action": "inspect_block"},
+    ]
+    for payload in invalid:
+        try:
+            BrowserActionRequest(**payload)
+        except Exception:
+            continue
+        raise AssertionError(f"payload should be invalid: {payload}")
+
+
+def test_browser_action_result_data_is_optional():
+    without_data = BrowserActionResult(ok=True, action="observe", state=BrowserState())
+    assert without_data.data is None
+    with_data = BrowserActionResult(ok=True, action="inspect_block", state=BrowserState(), data={"id": "block_1"})
+    assert with_data.data == {"id": "block_1"}
 
 
 def test_browser_url_parts_parse_query():

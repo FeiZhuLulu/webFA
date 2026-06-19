@@ -107,6 +107,20 @@ def test_content_block_schema_forbids_html_dom_and_storage_keys():
             BrowserContentBlock(id="block_1", type="paragraph", text="x", element_ids=[], **{forbidden: "leak"})
 
 
+def test_browser_action_result_data_forbids_sensitive_payloads():
+    from schemas.browser import BrowserActionResult, BrowserState
+
+    result = BrowserActionResult(
+        ok=True,
+        action="inspect_block",
+        state=BrowserState(),
+        data={"id": "block_1", "text": "safe text", "elements": []},
+    )
+    body = str(result.model_dump()).lower()
+    for forbidden in ("cookie", "localstorage", "sessionstorage", "token", "full_html", "full_dom"):
+        assert forbidden not in body
+
+
 def test_observe_script_does_not_read_html_or_storage():
     """The script that builds content_blocks must not read cookies,
     localStorage, sessionStorage, or emit raw HTML/DOM strings."""

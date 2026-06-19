@@ -42,7 +42,9 @@ class ManagedChromiumHost:
         )
         result = response.get("result", {})
         if "exceptionDetails" in response:
-            text = response["exceptionDetails"].get("text", "evaluation failed")
+            details = response["exceptionDetails"]
+            exception = details.get("exception", {})
+            text = exception.get("description") or exception.get("value") or details.get("text", "evaluation failed")
             raise RuntimeError(text)
         if "value" in result:
             return result["value"]

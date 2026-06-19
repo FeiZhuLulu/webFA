@@ -41,12 +41,30 @@ OBSERVE_PROBE = r"""
   const actionsFor = (el, role) => {
     const tag = el.tagName.toLowerCase();
     if (role === 'textbox') return ['click', 'type', 'clear', 'focus', 'press'];
-    if (role === 'button' || role === 'link') return ['click', 'focus'];
-    if (role === 'combobox') return ['click', 'select', 'focus', 'press'];
+    if (role === 'link') return ['click', 'focus', 'follow_link'];
+    if (role === 'button') return ['click', 'focus', 'activate_control'];
+    if (role === 'combobox') return ['click', 'select', 'focus', 'press', 'choose_option'];
     if (role === 'checkbox' || role === 'radio') return ['click', 'check', 'uncheck', 'focus'];
     if (el.isContentEditable) return ['click', 'type', 'clear', 'focus', 'press'];
     return tag === 'option' ? ['select'] : ['click', 'focus'];
   };
+  const labelFor = (el) => {
+    const id = el.getAttribute('id');
+    if (id) {
+      const label = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+      if (label) return textOf(label);
+    }
+    const parentLabel = el.closest('label');
+    return parentLabel ? textOf(parentLabel) : '';
+  };
+  const fieldKeyFor = (el) => (
+    el.getAttribute('name') ||
+    labelFor(el) ||
+    el.getAttribute('placeholder') ||
+    el.getAttribute('aria-label') ||
+    el.getAttribute('id') ||
+    ''
+  ).trim();
   const selector = [
     'a[href]', 'button', 'input', 'textarea', 'select',
     '[role="button"]', '[role="link"]', '[contenteditable="true"]',
@@ -92,9 +110,25 @@ OBSERVE_PROBE = r"""
       };
     });
   const forms = Array.from(document.querySelectorAll('form')).slice(0, 50).map((form, index) => {
-    const fields = Array.from(form.querySelectorAll('[data-webfa-id]')).map((el) => el.getAttribute('data-webfa-id')).filter(Boolean);
+    const formElements = Array.from(form.querySelectorAll('input, textarea, select')).filter(isVisible);
+    const fields = formElements.map((el) => el.getAttribute('data-webfa-id')).filter(Boolean);
+    const fieldDetails = formElements.map((el) => {
+      const tag = el.tagName.toLowerCase();
+      return {
+        id: el.getAttribute('data-webfa-id') || '',
+        key: fieldKeyFor(el),
+        label: labelFor(el),
+        name: el.getAttribute('name') || '',
+        placeholder: el.getAttribute('placeholder') || '',
+        value: el.value || '',
+        type: tag === 'input' ? (el.getAttribute('type') || 'text') : tag,
+        required: !!el.required,
+        enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true'
+      };
+    }).filter((field) => field.id && field.key);
     const submit = Array.from(form.querySelectorAll('button,input[type="submit"]')).map((el) => el.getAttribute('data-webfa-id')).find(Boolean) || null;
-    return { id: `form_${index + 1}`, fields, submit };
+    const text = textOf(form).slice(0, 500);
+    return { id: `form_${index + 1}`, label: text.split(' ').slice(0, 8).join(' '), text, fields, field_details: fieldDetails, submit };
   });
   const blockTypeOf = (el) => {
     const role = el.getAttribute('role');

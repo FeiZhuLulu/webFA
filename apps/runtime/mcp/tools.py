@@ -51,7 +51,7 @@ def tool_observe() -> dict[str, Any]:
 
 
 def tool_act(action: str, target: str | None = None, **kwargs: Any) -> dict[str, Any]:
-    """Act on a WebFA element id; prefer open_url when the task is expressible as a URL."""
+    """Act on a WebFA page object; prefer open_url when the task is expressible as a URL."""
     client = get_client()
     blocked = {"selector", "xpath", "locator", "evaluate", "cdp", "raw_cdp", "raw_playwright"}
     if blocked.intersection(kwargs):

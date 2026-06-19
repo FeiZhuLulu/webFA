@@ -78,11 +78,16 @@ P7
   activate_control, choose_option, read_list, and inspect_block. These are
   generic webpage operations, not site-specific APIs and not LLM suggestions.
   Existing click/type/press remain as fallback primitives.
+  Keep the five default MCP browser tools; page operations stay under
+  webfa.act.
 
 P8
   Plugin-first Packaging / Agent Entry Package.
   Make WebFA easy for external agents to install and use through MCP/local
   plugin/CLI entry points. Desktop remains optional.
+  Future non-page resource tool categories may include sessions/profiles,
+  downloads/uploads, permissions, approvals/confirmations, and diagnostics/traces.
+  Do not name or ship those tools until their resource domain is implemented.
 
 P9
   WebFA Visualizer.

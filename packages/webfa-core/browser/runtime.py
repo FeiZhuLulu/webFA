@@ -12,6 +12,8 @@ from browser.session import BrowserSession
 from schemas.browser import (
     BrowserActionRequest,
     BrowserActionResult,
+    BrowserElement,
+    BrowserForm,
     BrowserState,
     BrowserTab,
 )
@@ -120,6 +122,8 @@ class _BrowserWorker:
 
     def act(self, request: BrowserActionRequest) -> BrowserActionResult:
         driver = self._session.ensure_driver()
+        if request.action in {"fill_form", "submit_form", "follow_link", "activate_control", "choose_option", "read_list", "inspect_block"}:
+            return self._object_action(driver, request)
         if request.target:
             self._session.registry.require(request.target)
         driver.act(request)
@@ -142,3 +146,98 @@ class _BrowserWorker:
     def _state_from_raw(self, raw: RawPageSnapshot) -> BrowserState:
         self._session.registry.update(raw)
         return self._view_builder.build(raw, session_id=self._session.session_id)
+
+    def _object_action(self, driver: BrowserDriver, request: BrowserActionRequest) -> BrowserActionResult:
+        state = self._state_from_raw(driver.observe_raw())
+        if request.action == "fill_form":
+            form = _find_form(state, request.target)
+            for key, value in (request.fields or {}).items():
+                field = _find_field(form, key)
+                self._session.registry.require(field.id)
+                driver.act(BrowserActionRequest(action="clear", target=field.id))
+                driver.act(BrowserActionRequest(action="type", target=field.id, text=value))
+            return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
+        if request.action == "submit_form":
+            form = _find_form(state, request.target)
+            if form.submit:
+                self._session.registry.require(form.submit)
+                driver.act(BrowserActionRequest(action="click", target=form.submit))
+            elif form.fields:
+                self._session.registry.require(form.fields[0])
+                driver.act(BrowserActionRequest(action="press", target=form.fields[0], key="Enter"))
+            else:
+                raise ValueError("form has no submit control or fields")
+            return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
+        if request.action in {"follow_link", "activate_control"}:
+            element = _find_element(state, request.target)
+            expected = "link" if request.action == "follow_link" else None
+            if expected and element.role != expected:
+                raise ValueError("follow_link requires a link element")
+            self._session.registry.require(element.id)
+            driver.act(BrowserActionRequest(action="click", target=element.id))
+            return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
+        if request.action == "choose_option":
+            element = _find_element(state, request.target)
+            self._session.registry.require(element.id)
+            driver.act(BrowserActionRequest(action="select", target=element.id, value=request.value, text=request.text))
+            return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
+        if request.action == "inspect_block":
+            data = _inspect_block(state, request.target)
+            return BrowserActionResult(ok=True, action=request.action, state=state, data=data)
+        if request.action == "read_list":
+            data = _read_list(state, request.target)
+            return BrowserActionResult(ok=True, action=request.action, state=state, data=data)
+        raise ValueError(f"unsupported object action: {request.action}")
+
+
+def _find_form(state: BrowserState, form_id: str | None) -> BrowserForm:
+    for form in state.forms:
+        if form.id == form_id:
+            return form
+    raise ValueError("form not found; call observe again")
+
+
+def _find_field(form: BrowserForm, key: str):
+    normalized = _norm(key)
+    for field in form.field_details:
+        candidates = {field.key, field.name, field.label, field.placeholder, field.id}
+        if normalized in {_norm(candidate) for candidate in candidates if candidate}:
+            return field
+    raise ValueError(f"form field not found: {key}")
+
+
+def _find_element(state: BrowserState, element_id: str | None) -> BrowserElement:
+    for element in state.interactive_elements:
+        if element.id == element_id:
+            return element
+    raise ValueError("element id is stale; call observe again")
+
+
+def _inspect_block(state: BrowserState, block_id: str | None) -> dict:
+    for block in state.content_blocks:
+        if block.id == block_id:
+            elements = [element.model_dump() for element in state.interactive_elements if element.id in set(block.element_ids)]
+            return {
+                "id": block.id,
+                "type": block.type,
+                "text": block.text,
+                "element_ids": block.element_ids,
+                "elements": elements,
+            }
+    raise ValueError("block not found; call observe again")
+
+
+def _read_list(state: BrowserState, block_id: str | None) -> dict:
+    inspected = _inspect_block(state, block_id)
+    text = inspected["text"]
+    lines = [part.strip() for part in text.replace(" • ", "\n").splitlines() if part.strip()]
+    if len(lines) <= 1:
+        lines = [part.strip() for part in text.split("  ") if part.strip()]
+    return {
+        **inspected,
+        "items": [{"text": line} for line in lines] or [{"text": text}],
+    }
+
+
+def _norm(value: str) -> str:
+    return " ".join(value.strip().lower().split())

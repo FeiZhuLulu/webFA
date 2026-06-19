@@ -65,4 +65,25 @@ def test_managed_chromium_rejects_unsupported_actions(monkeypatch, tmp_path: Pat
         unsupported = client.post("/v1/browser/act", json={"action": "select", "target": name_el["id"], "value": "x"})
 
     assert unsupported.status_code == 400
-    assert "not supported by managed chromium driver" in unsupported.json()["detail"]
+    assert "element is not a select" in unsupported.json()["detail"]
+
+
+def test_managed_chromium_object_form_actions(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_BROWSER_DRIVER", "managed-chromium")
+    monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    reset_engine_for_tests()
+
+    with TestClient(create_app()) as client:
+        state = client.post("/v1/browser/open", json={"url": FIXTURE_PAGE.as_uri()}).json()["state"]
+        assert state["forms"][0]["field_details"][0]["key"] == "name"
+
+        filled = client.post("/v1/browser/act", json={"action": "fill_form", "target": "form_1", "fields": {"name": "Fei"}})
+        assert filled.status_code == 200, filled.text
+        field = filled.json()["state"]["forms"][0]["field_details"][0]
+        assert field["value"] == "Fei"
+
+        submitted = client.post("/v1/browser/act", json={"action": "submit_form", "target": "form_1"})
+        assert submitted.status_code == 200, submitted.text
+        assert "Hello Fei" in submitted.json()["state"]["visible_text"]

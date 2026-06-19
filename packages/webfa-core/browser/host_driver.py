@@ -71,6 +71,9 @@ class HostBrowserDriver:
         if action == "focus":
             self._focus(request.target)
             return
+        if action == "select":
+            self._element_action(request.target, "select", request.value or request.text or "")
+            return
         raise ValueError(f"{action} is not supported by managed chromium driver")
 
     def tabs(self) -> list[BrowserTab]:
@@ -85,7 +88,10 @@ class HostBrowserDriver:
     def _focus(self, element_id: str | None) -> None:
         if not element_id:
             raise ValueError("target is required")
-        self._host.evaluate(_element_expression(element_id, "focus"))
+        try:
+            self._host.evaluate(_element_expression(element_id, "focus"))
+        except RuntimeError as exc:
+            raise ValueError(str(exc)) from exc
 
     def _press(self, key: str) -> None:
         self._host.evaluate(
@@ -110,7 +116,10 @@ class HostBrowserDriver:
     def _element_action(self, element_id: str | None, action: str, text: str | None = None) -> None:
         if not element_id:
             raise ValueError("target is required")
-        self._host.evaluate(_element_expression(element_id, action, text))
+        try:
+            self._host.evaluate(_element_expression(element_id, action, text))
+        except RuntimeError as exc:
+            raise ValueError(str(exc)) from exc
 
     def _wait_for_text(self, text: str, timeout_ms: int) -> None:
         deadline = time.monotonic() + timeout_ms / 1000
@@ -158,6 +167,22 @@ def _element_expression(element_id: str, action: str, text: str | None = None) -
         }} else {{
           throw new Error('element does not accept text');
         }}
+        return true;
+      }}
+      if ({json.dumps(action)} === 'select') {{
+        if (el.tagName.toLowerCase() !== 'select') throw new Error('element is not a select');
+        const wanted = {json.dumps(text or '')};
+        let matched = false;
+        for (const option of Array.from(el.options)) {{
+          if (option.value === wanted || option.textContent.trim() === wanted) {{
+            el.value = option.value;
+            matched = true;
+            break;
+          }}
+        }}
+        if (!matched) throw new Error('option not found');
+        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
         return true;
       }}
       throw new Error('unsupported element action');

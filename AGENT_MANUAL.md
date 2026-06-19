@@ -39,6 +39,32 @@ After `webfa.observe`, the state has both `visible_text` and `content_blocks`.
 
 For real listing pages (search results, dashboards, feeds), read `content_blocks` first, then fall back to `visible_text`. Pick the `element_id` you need from a block's `element_ids` instead of re-scanning the whole page.
 
+## Object Operations
+
+Prefer object-level actions when WebFA exposes the needed page object:
+
+```text
+fill_form(form_id, fields)
+submit_form(form_id)
+follow_link(element_id)
+activate_control(element_id)
+choose_option(element_id, value)
+read_list(block_id)
+inspect_block(block_id)
+```
+
+Use them through `webfa.act`:
+
+```json
+{ "action": "fill_form", "target": "form_1", "payload": { "fields": { "name": "Fei" } } }
+```
+
+```json
+{ "action": "submit_form", "target": "form_1" }
+```
+
+Use `click`, `type`, and `press` as fallback primitives when the page object is not clear enough.
+
 ## URL-First Navigation
 
 Do not blindly copy human browser behavior. Humans click through menus because URLs and page state are awkward for them. Agents can read and modify structured text.
@@ -47,9 +73,10 @@ Prefer this order:
 
 ```text
 1. If the target page can be expressed as a URL, use webfa.open_url directly.
-2. If the page has a normal form, use observe -> type -> press Enter.
-3. If Enter does not work, use observe -> click the stable submit button.
-4. Avoid clicking dynamic suggestions unless they appear as interactive_elements.
+2. If the page has a normal form, use fill_form -> submit_form.
+3. If object operations are not available, fall back to type -> press Enter.
+4. If Enter does not work, click the stable submit button.
+5. Avoid clicking dynamic suggestions unless they appear as interactive_elements.
 ```
 
 Good URL-first candidates:

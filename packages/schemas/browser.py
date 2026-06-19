@@ -19,6 +19,13 @@ BrowserActionName = Literal[
     "wait",
     "wait_for_text",
     "wait_for_element",
+    "fill_form",
+    "submit_form",
+    "follow_link",
+    "activate_control",
+    "choose_option",
+    "read_list",
+    "inspect_block",
 ]
 
 ContentBlockType = Literal[
@@ -68,6 +75,7 @@ class BrowserActionRequest(BaseModel):
     target: str | None = None
     text: str | None = None
     value: str | None = None
+    fields: dict[str, str] | None = None
     key: str | None = None
     ms: int | None = Field(default=None, ge=0, le=30000)
     timeout_ms: int | None = Field(default=None, ge=0, le=30000)
@@ -91,6 +99,12 @@ class BrowserActionRequest(BaseModel):
             raise ValueError("wait_for_text requires text")
         if self.action == "wait_for_element" and (not self.target or not self.state):
             raise ValueError("wait_for_element requires target and state")
+        if self.action == "fill_form" and (not self.target or not self.fields):
+            raise ValueError("fill_form requires target and fields")
+        if self.action in {"submit_form", "follow_link", "activate_control", "read_list", "inspect_block"} and not self.target:
+            raise ValueError(f"{self.action} requires target")
+        if self.action == "choose_option" and (not self.target or (self.value is None and self.text is None)):
+            raise ValueError("choose_option requires target and value or text")
         return self
 
 
@@ -142,9 +156,24 @@ class BrowserElement(BaseModel):
     actions: list[str]
 
 
+class BrowserFormField(BaseModel):
+    id: str
+    key: str
+    label: str = ""
+    name: str = ""
+    placeholder: str = ""
+    value: str = ""
+    type: str | None = None
+    required: bool = False
+    enabled: bool = True
+
+
 class BrowserForm(BaseModel):
     id: str
+    label: str = ""
+    text: str = ""
     fields: list[str] = []
+    field_details: list[BrowserFormField] = []
     submit: str | None = None
 
 
@@ -168,3 +197,4 @@ class BrowserActionResult(BaseModel):
     ok: bool
     action: str
     state: BrowserState
+    data: dict | None = None
