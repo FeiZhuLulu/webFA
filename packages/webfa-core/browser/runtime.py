@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from browser.agent_view import AgentViewBuilder
 from browser.driver import BrowserDriver, RawPageSnapshot
-from browser.playwright_driver import PlaywrightBrowserDriver
+from browser.driver_factory import create_default_driver_factory
 from browser.session import BrowserSession
 from schemas.browser import (
     BrowserActionRequest,
@@ -24,8 +24,14 @@ class BrowserRuntime:
     """Single-session agent browser runtime backed by one driver thread."""
 
     def __init__(self, headless: bool | None = None, driver_factory: DriverFactory | None = None) -> None:
-        self._headless = headless if headless is not None else os.getenv("WEBFA_BROWSER_HEADLESS") == "1"
-        self._driver_factory = driver_factory or (lambda: PlaywrightBrowserDriver(headless=self._headless))
+        self._driver_name = os.getenv("WEBFA_BROWSER_DRIVER", "playwright")
+        if headless is not None:
+            self._headless = headless
+        elif self._driver_name == "managed-chromium":
+            self._headless = os.getenv("WEBFA_BROWSER_HEADLESS", "1") != "0"
+        else:
+            self._headless = os.getenv("WEBFA_BROWSER_HEADLESS") == "1"
+        self._driver_factory = driver_factory or create_default_driver_factory(self._driver_name, self._headless)
         self._jobs: queue.Queue[tuple[str, tuple, queue.Queue] | None] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._closed = False

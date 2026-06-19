@@ -52,15 +52,22 @@ P5.5
   script collection, search-results integration test, security contract.
 
 P6
-  Alternative Driver Experiment.
-  Prove WebFA Runtime Core can run on a second driver path before building product UI on top.
-  Try a minimal CDP or Electron WebContents driver for open_url and observe_raw.
-  Keep PlaywrightBrowserDriver as the stable default until the experiment passes.
+  Managed Chromium BrowserHost Closed Loop.
+  Keep Chromium/Blink/V8 as the web engine, but prove WebFA can run without
+  Playwright as the control layer and without treating Chrome UI as the product
+  surface.
+  Add a BrowserHost layer under BrowserDriver. The first experimental host is
+  ManagedChromiumHost, which launches a WebFA-managed Chromium process and uses
+  an internal CDP channel for navigate/evaluate/actions.
+  Keep PlaywrightBrowserDriver as the stable default. Enable the experiment with
+  WEBFA_BROWSER_DRIVER=managed-chromium.
+  Status: done — host contract, shared observe probe, managed Chromium
+  open/observe/tabs/close, and minimal type/click/press/clear/wait closed loop.
 
 P7
-  Headless / Non-Chrome-UI Runtime.
-  Move the default runtime shape away from a visible Chromium browser window.
-  Keep a real browser engine, but stop presenting Chrome UI as WebFA's product surface.
+  Plugin-first Packaging / Agent Entry Package.
+  Make WebFA easy for external agents to install and use through MCP/local
+  plugin/CLI entry points. Desktop remains optional.
 
 P8
   WebFA Visualizer.

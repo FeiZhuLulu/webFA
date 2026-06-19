@@ -10,6 +10,7 @@ from browser.driver import (
     VISIBLE_TEXT_MAX_CHARS,
     RawPageSnapshot,
 )
+from browser.observe_probe import OBSERVE_PROBE
 from schemas.browser import BrowserActionRequest, BrowserTab, BrowserViewport
 from storage.file_store import ensure_webfa_data_dir
 
@@ -27,7 +28,7 @@ class PlaywrightBrowserDriver:
     def observe_raw(self) -> RawPageSnapshot:
         page = self._ensure_page()
         raw = page.evaluate(
-            _OBSERVE_SCRIPT,
+            OBSERVE_PROBE,
             {"maxChars": VISIBLE_TEXT_MAX_CHARS, "blockChars": CONTENT_BLOCK_MAX_CHARS, "blockCount": CONTENT_BLOCK_MAX_COUNT},
         )
         viewport = page.viewport_size or {"width": 1280, "height": 720}
@@ -161,151 +162,3 @@ def _tab_index(tab_id: str) -> int:
         return int(tab_id.removeprefix("tab_")) - 1
     except ValueError:
         return -1
-
-
-_OBSERVE_SCRIPT = r"""
-(opts) => {
-  const maxChars = opts.maxChars;
-  const blockChars = opts.blockChars;
-  const blockCount = opts.blockCount;
-  const isVisible = (el) => {
-    const style = window.getComputedStyle(el);
-    const rect = el.getBoundingClientRect();
-    return style && style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
-  };
-  const textOf = (el) => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
-  const nameOf = (el) => (
-    el.getAttribute('aria-label') ||
-    el.getAttribute('title') ||
-    el.getAttribute('placeholder') ||
-    el.getAttribute('name') ||
-    textOf(el) ||
-    el.value ||
-    ''
-  ).trim();
-  const roleOf = (el) => {
-    const role = el.getAttribute('role');
-    if (role) return role;
-    const tag = el.tagName.toLowerCase();
-    if (tag === 'a') return 'link';
-    if (tag === 'button') return 'button';
-    if (tag === 'textarea') return 'textbox';
-    if (tag === 'select') return 'combobox';
-    if (tag === 'input') {
-      const type = (el.getAttribute('type') || 'text').toLowerCase();
-      if (type === 'checkbox') return 'checkbox';
-      if (type === 'radio') return 'radio';
-      if (type === 'submit' || type === 'button') return 'button';
-      return 'textbox';
-    }
-    return tag;
-  };
-  const actionsFor = (el, role) => {
-    const tag = el.tagName.toLowerCase();
-    if (role === 'textbox') return ['click', 'type', 'clear', 'focus', 'press'];
-    if (role === 'button' || role === 'link') return ['click', 'focus'];
-    if (role === 'combobox') return ['click', 'select', 'focus', 'press'];
-    if (role === 'checkbox' || role === 'radio') return ['click', 'check', 'uncheck', 'focus'];
-    if (el.isContentEditable) return ['click', 'type', 'clear', 'focus', 'press'];
-    return tag === 'option' ? ['select'] : ['click', 'focus'];
-  };
-  const selector = [
-    'a[href]', 'button', 'input', 'textarea', 'select',
-    '[role="button"]', '[role="link"]', '[contenteditable="true"]',
-    '[tabindex]:not([tabindex="-1"])'
-  ].join(',');
-  const idPattern = /^el_(\d+)$/;
-  let nextId = Array.from(document.querySelectorAll('[data-webfa-id]')).reduce((max, el) => {
-    const match = idPattern.exec(el.getAttribute('data-webfa-id') || '');
-    return match ? Math.max(max, Number(match[1]) + 1) : max;
-  }, 1);
-  const usedIds = new Set();
-  const allocateId = (el) => {
-    let id = el.getAttribute('data-webfa-id') || '';
-    if (!idPattern.test(id) || usedIds.has(id)) {
-      do {
-        id = `el_${nextId++}`;
-      } while (usedIds.has(id));
-      el.setAttribute('data-webfa-id', id);
-    }
-    usedIds.add(id);
-    return id;
-  };
-  const elements = Array.from(document.querySelectorAll(selector))
-    .filter(isVisible)
-    .slice(0, 200)
-    .map((el) => {
-      const id = allocateId(el);
-      const role = roleOf(el);
-      const tag = el.tagName.toLowerCase();
-      return {
-        id, role, tag,
-        name: nameOf(el),
-        text: textOf(el),
-        value: el.value || '',
-        placeholder: el.getAttribute('placeholder') || '',
-        input_type: tag === 'input' ? (el.getAttribute('type') || 'text') : null,
-        visible: true,
-        enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true',
-        checked: typeof el.checked === 'boolean' ? el.checked : null,
-        selected: typeof el.selected === 'boolean' ? el.selected : null,
-        href: el.href || null,
-        actions: actionsFor(el, role)
-      };
-    });
-  const forms = Array.from(document.querySelectorAll('form')).slice(0, 50).map((form, index) => {
-    const fields = Array.from(form.querySelectorAll('[data-webfa-id]')).map((el) => el.getAttribute('data-webfa-id')).filter(Boolean);
-    const submit = Array.from(form.querySelectorAll('button,input[type="submit"]')).map((el) => el.getAttribute('data-webfa-id')).find(Boolean) || null;
-    return { id: `form_${index + 1}`, fields, submit };
-  });
-  // Content blocks: generic readable text blocks bound to the element ids
-  // inside them. Runs AFTER interactive element ids are allocated so that
-  // element_ids reflect the same stable ids exposed in interactive_elements.
-  // No HTML, no DOM path, no site rules — just text plus nearby element ids.
-  const blockTypeOf = (el) => {
-    const role = el.getAttribute('role');
-    if (role === 'listitem') return 'list_item';
-    const tag = el.tagName.toLowerCase();
-    if (tag === 'h1' || tag === 'h2' || tag === 'h3') return 'heading';
-    if (tag === 'p') return 'paragraph';
-    if (tag === 'li') return 'list_item';
-    if (tag === 'form') return 'form';
-    if (tag === 'nav') return 'nav';
-    if (tag === 'article') return 'generic';
-    return 'generic';
-  };
-  const blockSelector = 'h1, h2, h3, p, li, article, form, nav, [role="listitem"]';
-  const blockSeen = new WeakSet();
-  const contentBlocks = [];
-  for (const el of document.querySelectorAll(blockSelector)) {
-    if (contentBlocks.length >= blockCount) break;
-    if (blockSeen.has(el)) continue;
-    // Skip blocks nested inside another block we already captured so a result
-    // item's title and description do not get duplicated as separate blocks.
-    if (el.parentElement && blockSeen.has(el.parentElement)) continue;
-    if (!isVisible(el)) continue;
-    const text = textOf(el);
-    if (!text) continue;
-    blockSeen.add(el);
-    const elementIds = Array.from(el.querySelectorAll('[data-webfa-id]'))
-      .map((node) => node.getAttribute('data-webfa-id'))
-      .filter((id) => idPattern.test(id || ''));
-    contentBlocks.push({
-      id: `block_${contentBlocks.length + 1}`,
-      type: blockTypeOf(el),
-      text: text.slice(0, blockChars),
-      element_ids: Array.from(new Set(elementIds))
-    });
-  }
-  const active = document.activeElement && document.activeElement.getAttribute('data-webfa-id');
-  const visibleText = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').trim().slice(0, maxChars);
-  return {
-    loading: document.readyState !== 'complete',
-    focused_element_id: active || null,
-    visible_text: visibleText,
-    interactive_elements: elements,
-    content_blocks: contentBlocks,
-    forms
-  };
-}
-"""

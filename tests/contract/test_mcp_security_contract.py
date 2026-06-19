@@ -89,8 +89,9 @@ def test_browser_runtime_does_not_import_playwright_details():
     runtime_source = (root / "packages/webfa-core/browser/runtime.py").read_text(encoding="utf-8")
     driver_source = (root / "packages/webfa-core/browser/playwright_driver.py").read_text(encoding="utf-8")
 
-    for forbidden in ("sync_playwright", "page.locator", "chromium.launch_persistent_context"):
+    for forbidden in ("sync_playwright", "page.locator", "chromium.launch_persistent_context", "ManagedChromiumHost"):
         assert forbidden not in runtime_source
+    for forbidden in ("sync_playwright", "page.locator", "chromium.launch_persistent_context"):
         assert forbidden in driver_source
 
 
@@ -110,11 +111,11 @@ def test_observe_script_does_not_read_html_or_storage():
     """The script that builds content_blocks must not read cookies,
     localStorage, sessionStorage, or emit raw HTML/DOM strings."""
     root = Path(__file__).resolve().parents[2]
-    script_source = (root / "packages/webfa-core/browser/playwright_driver.py").read_text(encoding="utf-8")
+    script_source = (root / "packages/webfa-core/browser/observe_probe.py").read_text(encoding="utf-8")
 
-    # Isolate the _OBSERVE_SCRIPT block so we only check its body, not the
+    # Isolate the OBSERVE_PROBE block so we only check its body, not the
     # surrounding Python module (which legitimately mentions these words).
-    start = script_source.index("_OBSERVE_SCRIPT")
+    start = script_source.index("OBSERVE_PROBE")
     script_body = script_source[start:]
 
     for forbidden in (
