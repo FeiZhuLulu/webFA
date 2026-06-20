@@ -23,8 +23,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.2",
-  "httpx>=0.27"
+  "httpx>=0.27",
+  "build>=1.2"
 ]
+
+[project.scripts]
+webfa = "apps.runtime.cli:main_webfa"
+webfa-runtime = "apps.runtime.cli:main_runtime"
+webfa-mcp = "apps.runtime.cli:main_mcp"
 
 [tool.setuptools]
 packages = [

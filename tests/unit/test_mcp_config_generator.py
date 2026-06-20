@@ -12,8 +12,13 @@ def test_generate_config_has_mcpServers():
 def test_generate_config_has_command():
     config = generate_config(runtime_url="http://127.0.0.1:8787")
     entry = config["mcpServers"]["webfa"]
-    assert "command" in entry
-    assert "args" in entry
+    assert entry["command"] == "webfa-mcp"
+    assert entry["args"] == []
+
+
+def test_generate_config_source_mode_has_python_module_command():
+    config = generate_config(runtime_url="http://127.0.0.1:8787", installed=False)
+    entry = config["mcpServers"]["webfa"]
     assert "-m" in entry["args"]
     assert "apps.runtime.mcp.server" in entry["args"]
 

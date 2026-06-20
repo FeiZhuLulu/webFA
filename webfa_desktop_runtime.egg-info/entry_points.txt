@@ -1,0 +1,4 @@
+[console_scripts]
+webfa = apps.runtime.cli:main_webfa
+webfa-mcp = apps.runtime.cli:main_mcp
+webfa-runtime = apps.runtime.cli:main_runtime

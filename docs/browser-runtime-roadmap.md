@@ -93,6 +93,9 @@ P8
   Plugin-first Packaging / Agent Entry Package.
   Make WebFA easy for external agents to install and use through MCP/local
   plugin/CLI entry points. Desktop remains optional.
+  Provide webfa-runtime, webfa-mcp, and webfa helper commands. webfa-mcp can
+  reuse or auto-start a local Runtime, and webfa doctor provides a local smoke
+  test before external agent validation.
   Future non-page resource tool categories may include sessions/profiles,
   downloads/uploads, permissions, approvals/confirmations, and diagnostics/traces.
   Do not name or ship those tools until their resource domain is implemented.

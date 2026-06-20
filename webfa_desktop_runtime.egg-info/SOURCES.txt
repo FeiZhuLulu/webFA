@@ -2,7 +2,9 @@ README.md
 pyproject.toml
 apps/__init__.py
 apps/runtime/__init__.py
+apps/runtime/cli.py
 apps/runtime/main.py
+apps/runtime/process.py
 apps/runtime/api/__init__.py
 apps/runtime/api/routes/__init__.py
 apps/runtime/api/routes/approvals.py
@@ -67,7 +69,18 @@ packages/webfa-core/approvals/service.py
 packages/webfa-core/audit/__init__.py
 packages/webfa-core/audit/store.py
 packages/webfa-core/browser/__init__.py
+packages/webfa-core/browser/agent_view.py
+packages/webfa-core/browser/config.py
+packages/webfa-core/browser/driver.py
+packages/webfa-core/browser/driver_factory.py
+packages/webfa-core/browser/element_registry.py
+packages/webfa-core/browser/host.py
+packages/webfa-core/browser/host_driver.py
+packages/webfa-core/browser/managed_chromium_host.py
+packages/webfa-core/browser/observe_probe.py
+packages/webfa-core/browser/playwright_driver.py
 packages/webfa-core/browser/runtime.py
+packages/webfa-core/browser/session.py
 packages/webfa-core/execution/__init__.py
 packages/webfa-core/execution/engine.py
 packages/webfa-core/planner/__init__.py
@@ -87,5 +100,6 @@ packages/webfa-core/workspace/store.py
 webfa_desktop_runtime.egg-info/PKG-INFO
 webfa_desktop_runtime.egg-info/SOURCES.txt
 webfa_desktop_runtime.egg-info/dependency_links.txt
+webfa_desktop_runtime.egg-info/entry_points.txt
 webfa_desktop_runtime.egg-info/requires.txt
 webfa_desktop_runtime.egg-info/top_level.txt

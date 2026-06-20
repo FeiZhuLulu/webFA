@@ -44,6 +44,7 @@ def test_mcp_config_endpoint(monkeypatch, tmp_path: Path):
         config = resp.json()
         assert "mcpServers" in config
         assert "webfa" in config["mcpServers"]
+        assert config["mcpServers"]["webfa"]["command"] == "webfa-mcp"
 
 
 def test_mcp_status_endpoint(monkeypatch, tmp_path: Path):

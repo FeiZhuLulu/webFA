@@ -49,5 +49,7 @@ def default_resources_root() -> Path:
 def build_default_registry(resources_root: Path | None = None) -> TransactionRegistry:
     root = resources_root or default_resources_root()
     registry = TransactionRegistry()
-    registry.load_dir(root / "transactions")
+    transactions_dir = root / "transactions"
+    if transactions_dir.exists():
+        registry.load_dir(transactions_dir)
     return registry

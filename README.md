@@ -29,7 +29,7 @@ agent -> open_url -> observe page_state -> act on element_id -> observe updated 
 Agent
   ↓ MCP stdio / local REST
 WebFA Runtime
-  ↓ BrowserDriver (internal Playwright Chromium)
+  ↓ BrowserDriver (managed Chromium by default)
 Real websites
 ```
 
@@ -99,13 +99,49 @@ webfa.switch_tab
 $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 ```
 
+## Agent Entry Package
+
+Install locally:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -e ".[dev]"
+```
+
+Start Runtime:
+
+```powershell
+webfa-runtime
+```
+
+Print MCP client config:
+
+```powershell
+webfa mcp-config
+```
+
+Run the MCP stdio server:
+
+```powershell
+webfa-mcp
+```
+
+Run a local self-test:
+
+```powershell
+webfa doctor
+```
+
+`webfa-mcp` reuses an already-running Runtime. If none is reachable at
+`WEBFA_RUNTIME_URL`, it starts a local Runtime automatically.
+
 ## Local Development
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -e ".[dev]"
-python -m playwright install chromium
 
 npm install
 npm run dev
@@ -114,7 +150,7 @@ npm run dev
 Runtime only:
 
 ```powershell
-python -m uvicorn apps.runtime.main:app --host 127.0.0.1 --port 8787 --reload
+webfa-runtime
 ```
 
 Check:
