@@ -4,6 +4,10 @@ This manual is for agents that use WebFA through MCP.
 
 WebFA is an agent browser runtime, not a human browser automation wrapper. Use it to access web pages in ways that are natural for an agent.
 
+The default runtime path uses WebFA-managed Chromium. Treat the browser engine
+as an implementation detail: agents should rely on WebFA's page state and
+object actions, not Chrome UI, DevTools, CDP, or Playwright concepts.
+
 ## Core Loop
 
 Use this loop by default:

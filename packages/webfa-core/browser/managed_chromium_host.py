@@ -22,6 +22,9 @@ class ManagedChromiumHost:
         self._port: int | None = None
         self._page_target_id: str | None = None
         self._page_client: _CDPClient | None = None
+        self._last_error: str | None = None
+        self._executable: Path | None = None
+        self._profile_dir: Path | None = None
 
     def navigate(self, url: str) -> None:
         client = self._ensure_page_client()
@@ -51,7 +54,7 @@ class ManagedChromiumHost:
         return None
 
     def tabs(self) -> list[BrowserTab]:
-        if self._port is None:
+        if self._port is None or not self._process_is_running():
             return []
         tabs = []
         for index, target in enumerate(self._http_json("/json/list")):
@@ -69,18 +72,36 @@ class ManagedChromiumHost:
 
     def close(self) -> None:
         if self._page_client is not None:
-            self._page_client.close()
+            try:
+                self._page_client.close()
+            except Exception:
+                pass
         self._page_client = None
         self._page_target_id = None
         if self._process is not None:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=5)
+            if self._process.poll() is None:
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=5)
         self._process = None
         self._port = None
+
+    def status(self) -> dict[str, Any]:
+        executable_found, executable_name = self._executable_status()
+        status = "running" if self._process_is_running() else "not_started"
+        if self._process is not None and self._process.poll() is not None:
+            status = "exited"
+        return {
+            "host_status": status,
+            "headless": self._headless,
+            "executable_found": executable_found,
+            "executable_name": executable_name,
+            "profile_id": "default",
+            "last_error": self._last_error,
+        }
 
     def _ensure_page_client(self) -> "_CDPClient":
         self._ensure_started()
@@ -92,13 +113,23 @@ class ManagedChromiumHost:
         return self._page_client
 
     def _ensure_started(self) -> None:
-        if self._process is not None:
+        if self._process_is_running():
             return
+        if self._process is not None:
+            self._reset_dead_process()
         paths = ensure_webfa_data_dir()
         data_dir = Path(paths["data_dir"])
         profile_dir = data_dir / "browser" / "managed-chromium-profile-default"
         profile_dir.mkdir(parents=True, exist_ok=True)
+        active_port_file = profile_dir / "DevToolsActivePort"
+        if active_port_file.exists():
+            try:
+                active_port_file.unlink()
+            except OSError:
+                pass
         executable = _find_chromium_executable()
+        self._executable = executable
+        self._profile_dir = profile_dir
         args = [
             str(executable),
             "about:blank",
@@ -113,19 +144,29 @@ class ManagedChromiumHost:
         ]
         if self._headless:
             args.append("--headless=new")
-        self._process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self._port = self._read_devtools_port(profile_dir)
+        try:
+            self._process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self._port = self._read_devtools_port(profile_dir)
+            self._last_error = None
+        except Exception as exc:
+            self._last_error = str(exc)
+            self.close()
+            raise
 
     def _read_devtools_port(self, profile_dir: Path) -> int:
         active_port_file = profile_dir / "DevToolsActivePort"
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             if self._process is not None and self._process.poll() is not None:
-                raise RuntimeError("managed chromium exited before DevTools became available")
+                code = self._process.returncode
+                raise RuntimeError(f"managed chromium exited before DevTools became available (exit code {code})")
             if active_port_file.exists():
-                lines = active_port_file.read_text(encoding="utf-8").splitlines()
-                if lines:
-                    return int(lines[0])
+                try:
+                    lines = active_port_file.read_text(encoding="utf-8").splitlines()
+                    if lines:
+                        return int(lines[0])
+                except (OSError, ValueError):
+                    pass
             time.sleep(0.05)
         raise RuntimeError("managed chromium DevTools port was not created")
 
@@ -151,10 +192,31 @@ class ManagedChromiumHost:
         raise RuntimeError("page did not reach an observable ready state")
 
     def _http_json(self, path: str) -> Any:
-        if self._port is None:
+        if self._port is None or not self._process_is_running():
             raise RuntimeError("managed chromium is not started")
         with urllib.request.urlopen(f"http://127.0.0.1:{self._port}{path}", timeout=5) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def _process_is_running(self) -> bool:
+        return self._process is not None and self._process.poll() is None
+
+    def _reset_dead_process(self) -> None:
+        if self._page_client is not None:
+            try:
+                self._page_client.close()
+            except Exception:
+                pass
+        code = self._process.returncode if self._process is not None else None
+        self._last_error = f"managed chromium process exited (exit code {code})"
+        self._page_client = None
+        self._page_target_id = None
+        self._process = None
+        self._port = None
+
+    def _executable_status(self) -> tuple[bool, str | None]:
+        if self._executable is not None and self._executable.exists():
+            return True, self._executable.name
+        return chromium_executable_status()
 
 
 class _CDPClient:
@@ -180,7 +242,10 @@ class _CDPClient:
         raise RuntimeError(f"CDP call timed out: {method}")
 
     def close(self) -> None:
-        self._ws.close()
+        try:
+            self._ws.close()
+        except Exception:
+            pass
 
 
 def _find_chromium_executable() -> Path:
@@ -212,3 +277,11 @@ def _find_chromium_executable() -> Path:
         if candidate.exists():
             return candidate
     raise RuntimeError("Chromium executable not found; set WEBFA_CHROMIUM_EXECUTABLE")
+
+
+def chromium_executable_status() -> tuple[bool, str | None]:
+    try:
+        executable = _find_chromium_executable()
+        return True, executable.name
+    except RuntimeError:
+        return False, None

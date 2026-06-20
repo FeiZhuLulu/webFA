@@ -46,6 +46,18 @@ def test_mcp_config_no_sensitive_data(monkeypatch, tmp_path: Path):
         assert "secret" not in body_str
 
 
+def test_health_browser_status_has_no_sensitive_data(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
+    reset_engine_for_tests()
+
+    with TestClient(create_app()) as client:
+        body_str = str(client.get("/health").json()).lower()
+
+    for forbidden in ("token", "cookie", "localstorage", "sessionstorage", "websocket", "devtools"):
+        assert forbidden not in body_str
+
+
 def test_mcp_tools_not_in_electron():
     """Verify Electron main process does not contain MCP tool dispatch logic."""
     source = (Path(__file__).resolve().parents[2] / "apps/desktop/electron/main.ts").read_text(encoding="utf-8")

@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
-from browser.managed_chromium_host import _find_chromium_executable
+from browser.managed_chromium_host import ManagedChromiumHost, _find_chromium_executable
 from storage.db import reset_engine_for_tests
 
 
@@ -87,3 +87,26 @@ def test_managed_chromium_object_form_actions(monkeypatch, tmp_path: Path):
         submitted = client.post("/v1/browser/act", json={"action": "submit_form", "target": "form_1"})
         assert submitted.status_code == 200, submitted.text
         assert "Hello Fei" in submitted.json()["state"]["visible_text"]
+
+
+def test_managed_chromium_restarts_after_process_exit(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    host = ManagedChromiumHost(headless=True)
+    try:
+        host.navigate(FIXTURE_PAGE.as_uri())
+        first = host.status()
+        assert first["host_status"] == "running"
+
+        assert host._process is not None
+        host._process.kill()
+        host._process.wait(timeout=5)
+        assert host.status()["host_status"] == "exited"
+
+        host.navigate(FIXTURE_PAGE.as_uri())
+        restarted = host.status()
+        assert restarted["host_status"] == "running"
+        assert restarted["last_error"] is None
+    finally:
+        host.close()

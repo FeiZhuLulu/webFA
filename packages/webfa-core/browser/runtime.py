@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 import queue
 import threading
 from typing import Any, Callable
 
 from browser.agent_view import AgentViewBuilder
+from browser.config import resolve_browser_runtime_config
 from browser.driver import BrowserDriver, RawPageSnapshot
 from browser.driver_factory import create_default_driver_factory
 from browser.session import BrowserSession
@@ -26,13 +26,9 @@ class BrowserRuntime:
     """Single-session agent browser runtime backed by one driver thread."""
 
     def __init__(self, headless: bool | None = None, driver_factory: DriverFactory | None = None) -> None:
-        self._driver_name = os.getenv("WEBFA_BROWSER_DRIVER", "playwright")
-        if headless is not None:
-            self._headless = headless
-        elif self._driver_name == "managed-chromium":
-            self._headless = os.getenv("WEBFA_BROWSER_HEADLESS", "1") != "0"
-        else:
-            self._headless = os.getenv("WEBFA_BROWSER_HEADLESS") == "1"
+        config = resolve_browser_runtime_config(headless=headless)
+        self._driver_name = config.driver_name
+        self._headless = config.headless
         self._driver_factory = driver_factory or create_default_driver_factory(self._driver_name, self._headless)
         self._jobs: queue.Queue[tuple[str, tuple, queue.Queue] | None] = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -52,6 +48,25 @@ class BrowserRuntime:
 
     def switch_tab(self, tab_id: str) -> BrowserState:
         return self._call("switch_tab", tab_id)
+
+    def status(self) -> dict[str, Any]:
+        base = {
+            "selected_driver": self._driver_name,
+            "headless": self._headless,
+            "session_id": "default",
+            "profile_id": "default",
+            "host_status": "not_started",
+            "last_error": None,
+        }
+        if self._closed:
+            return {**base, "host_status": "closed"}
+        if self._thread is None:
+            return base
+        try:
+            worker_status = self._call("status")
+            return {**base, **worker_status}
+        except Exception as exc:
+            return {**base, "host_status": "error", "last_error": str(exc)}
 
     def close(self) -> None:
         if self._thread is None or self._closed:
@@ -96,6 +111,7 @@ class _BrowserWorker:
             "tabs": self.tabs,
             "switch_tab": self.switch_tab,
             "close": self.close,
+            "status": self.status,
         }
         while True:
             job = jobs.get()
@@ -139,6 +155,16 @@ class _BrowserWorker:
 
     def close(self) -> None:
         self._session.close()
+
+    def status(self) -> dict[str, Any]:
+        if self._session.driver is None:
+            return {"host_status": "not_started"}
+        driver = self._session.driver
+        if hasattr(driver, "status"):
+            status = driver.status()
+            if isinstance(status, dict):
+                return status
+        return {"host_status": "running"}
 
     def _ensure_driver(self) -> BrowserDriver:
         return self._session.ensure_driver()

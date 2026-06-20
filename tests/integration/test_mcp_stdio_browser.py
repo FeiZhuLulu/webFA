@@ -44,7 +44,11 @@ FORBIDDEN_DEFAULT_TOOLS = {
 
 
 def test_mcp_stdio_browser_observe_act_observe(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    pytest.importorskip("websockets.sync.client")
+    try:
+        _find_chromium_executable()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
     monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)

@@ -4,15 +4,25 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
+from browser.managed_chromium_host import _find_chromium_executable
 from storage.db import reset_engine_for_tests
 
 FIXTURE_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "agent_validation_page.html"
 
 
+def _require_default_browser() -> None:
+    pytest.importorskip("websockets.sync.client")
+    try:
+        _find_chromium_executable()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+
+
 def test_browser_open_observe_act_loop(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    _require_default_browser()
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
@@ -49,9 +59,10 @@ def test_browser_open_observe_act_loop(monkeypatch, tmp_path: Path):
 
 
 def test_browser_object_form_actions(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    _require_default_browser()
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
@@ -72,9 +83,10 @@ def test_browser_object_form_actions(monkeypatch, tmp_path: Path):
 
 
 def test_browser_object_link_action(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    _require_default_browser()
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
@@ -87,9 +99,10 @@ def test_browser_object_link_action(monkeypatch, tmp_path: Path):
 
 
 def test_browser_read_list_and_inspect_block(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    _require_default_browser()
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
     reset_engine_for_tests()
 
     page = Path(__file__).resolve().parents[1] / "fixtures" / "search_results_page.html"
@@ -109,9 +122,10 @@ def test_browser_read_list_and_inspect_block(monkeypatch, tmp_path: Path):
 
 
 def test_browser_choose_option_and_activate_control(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    _require_default_browser()
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
     reset_engine_for_tests()
 
     page = tmp_path / "controls.html"
@@ -158,9 +172,10 @@ def test_browser_rejects_raw_selector(monkeypatch, tmp_path: Path):
 
 
 def test_browser_stale_element_after_navigation(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    _require_default_browser()
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
@@ -174,9 +189,10 @@ def test_browser_stale_element_after_navigation(monkeypatch, tmp_path: Path):
 
 
 def test_browser_keeps_element_ids_stable_after_dom_insert(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    _require_default_browser()
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
     reset_engine_for_tests()
 
     page = tmp_path / "dynamic.html"

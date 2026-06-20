@@ -85,6 +85,13 @@ class HostBrowserDriver:
     def close(self) -> None:
         self._host.close()
 
+    def status(self) -> dict:
+        if hasattr(self._host, "status"):
+            status = self._host.status()
+            if isinstance(status, dict):
+                return status
+        return {"host_status": "running"}
+
     def _focus(self, element_id: str | None) -> None:
         if not element_id:
             raise ValueError("target is required")

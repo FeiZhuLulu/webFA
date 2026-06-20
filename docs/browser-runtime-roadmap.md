@@ -65,7 +65,6 @@ P6
   Add a BrowserHost layer under BrowserDriver. The first experimental host is
   ManagedChromiumHost, which launches a WebFA-managed Chromium process and uses
   an internal CDP channel for navigate/evaluate/actions.
-  Enable the experiment with WEBFA_BROWSER_DRIVER=managed-chromium.
   Status: done — host contract, shared observe probe, managed Chromium
   open/observe/tabs/close, and minimal type/click/press/clear/wait closed loop.
 
@@ -74,12 +73,21 @@ P7
   Move beyond low-level click/type as the primary abstraction. Improve
   BrowserState and action semantics around generic web objects: URL affordances,
   forms, links, controls, lists, and content blocks.
-  Candidate operations include fill_form, submit_form, follow_link,
-  activate_control, choose_option, read_list, and inspect_block. These are
-  generic webpage operations, not site-specific APIs and not LLM suggestions.
+  Implement fill_form, submit_form, follow_link, activate_control,
+  choose_option, read_list, and inspect_block. These are generic webpage
+  operations, not site-specific APIs and not LLM suggestions.
   Existing click/type/press remain as fallback primitives.
   Keep the five default MCP browser tools; page operations stay under
   webfa.act.
+  Engineering finish: managed-chromium is the default runtime path; Playwright
+  remains only as an explicit fallback via WEBFA_BROWSER_DRIVER=playwright.
+  /health reports safe browser status without exposing cookies, storage,
+  tokens, or internal debug endpoints.
+  Complex validation: passed GitHub login persistence, authenticated
+  navigation, safe pre-submit form filling, Wikipedia/MDN/Hugging Face reading,
+  and GitHub safety-stop checks. npmjs.com tests were blocked by Cloudflare
+  headless protection; P7 records this as an external anti-bot limitation, not
+  a WebFA object-operation failure.
 
 P8
   Plugin-first Packaging / Agent Entry Package.
