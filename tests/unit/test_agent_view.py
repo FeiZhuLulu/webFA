@@ -125,3 +125,99 @@ def test_content_block_rejects_html_or_dom_fields():
         except ValidationError:
             continue
         raise AssertionError(f"{forbidden} must be rejected by BrowserContentBlock")
+
+
+def test_agent_view_detects_auth_surface_and_hides_password_value():
+    state = AgentViewBuilder().build(
+        RawPageSnapshot(
+            url="https://example.com/login",
+            title="Sign in",
+            loading=False,
+            focused_element_id=None,
+            viewport=BrowserViewport(width=1280, height=720),
+            tabs=[],
+            visible_text="Sign in with password or verification code",
+            forms=[
+                {
+                    "id": "form_1",
+                    "fields": ["el_1", "el_2"],
+                    "field_details": [
+                        {"id": "el_1", "key": "email", "type": "email", "value": "user@example.com"},
+                        {"id": "el_2", "key": "password", "type": "password", "value": "secret"},
+                    ],
+                    "submit": "el_3",
+                }
+            ],
+            interactive_elements=[
+                {
+                    "id": "el_1",
+                    "role": "textbox",
+                    "tag": "input",
+                    "name": "Email",
+                    "value": "user@example.com",
+                    "input_type": "email",
+                    "visible": True,
+                    "enabled": True,
+                    "actions": ["type"],
+                },
+                {
+                    "id": "el_2",
+                    "role": "textbox",
+                    "tag": "input",
+                    "name": "Password",
+                    "value": "secret",
+                    "input_type": "password",
+                    "visible": True,
+                    "enabled": True,
+                    "actions": ["type"],
+                },
+            ],
+        )
+    )
+
+    assert state.auth.surface_detected is True
+    assert "password_input" in state.auth.reason
+    assert state.auth.user_action_required is True
+    assert state.interactive_elements[1].value == ""
+    assert state.forms[0].field_details[1].value == ""
+
+
+def test_agent_view_detects_qr_auth_text_but_not_plain_contact_form():
+    qr_state = AgentViewBuilder().build(
+        RawPageSnapshot(
+            url="https://example.com/account",
+            title="Account",
+            loading=False,
+            focused_element_id=None,
+            viewport=BrowserViewport(width=1280, height=720),
+            tabs=[],
+            visible_text="请使用手机扫码登录，或输入验证码完成登录",
+        )
+    )
+    plain_state = AgentViewBuilder().build(
+        RawPageSnapshot(
+            url="https://example.com/contact",
+            title="Contact",
+            loading=False,
+            focused_element_id=None,
+            viewport=BrowserViewport(width=1280, height=720),
+            tabs=[],
+            visible_text="Contact us Name Email Message Submit",
+            interactive_elements=[
+                {
+                    "id": "el_1",
+                    "role": "textbox",
+                    "tag": "input",
+                    "name": "Email",
+                    "input_type": "email",
+                    "visible": True,
+                    "enabled": True,
+                    "actions": ["type"],
+                }
+            ],
+        )
+    )
+
+    assert qr_state.auth.surface_detected is True
+    assert "human_auth_text" in qr_state.auth.reason
+    assert plain_state.auth.surface_detected is False

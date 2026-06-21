@@ -177,6 +177,13 @@ class BrowserForm(BaseModel):
     submit: str | None = None
 
 
+class BrowserAuthState(BaseModel):
+    surface_detected: bool = False
+    takeover: Literal["none", "visible_window"] = "none"
+    reason: list[str] = []
+    user_action_required: bool = False
+
+
 class BrowserState(BaseModel):
     session_id: str = "default"
     url: str = ""
@@ -190,6 +197,7 @@ class BrowserState(BaseModel):
     content_blocks: list[BrowserContentBlock] = []
     forms: list[BrowserForm] = []
     interactive_elements: list[BrowserElement] = []
+    auth: BrowserAuthState = BrowserAuthState()
     error: dict | None = None
 
 

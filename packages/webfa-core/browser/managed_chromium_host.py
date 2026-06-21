@@ -89,6 +89,11 @@ class ManagedChromiumHost:
         self._process = None
         self._port = None
 
+    def relaunch_visible(self, url: str) -> None:
+        self.close()
+        self._headless = False
+        self.navigate(url)
+
     def status(self) -> dict[str, Any]:
         executable_found, executable_name = self._executable_status()
         status = "running" if self._process_is_running() else "not_started"
@@ -97,6 +102,7 @@ class ManagedChromiumHost:
         return {
             "host_status": status,
             "headless": self._headless,
+            "visible_window": status == "running" and not self._headless,
             "executable_found": executable_found,
             "executable_name": executable_name,
             "profile_id": "default",

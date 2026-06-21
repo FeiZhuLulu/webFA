@@ -114,6 +114,16 @@ P8.5
   This does not add MCP tools, does not ask agents to type credentials, and
   does not expose cookies, storage, passwords, or tokens.
 
+P8.6
+  Automatic Auth Takeover UI.
+  Move login handling into the Runtime path: when open_url or act lands on a
+  login, QR-code, verification-code, 2FA, or authorization surface, WebFA marks
+  BrowserState.auth and automatically relaunches the current managed Chromium
+  page as a visible window using the same default profile.
+  The user completes password, QR, verification, or approval steps manually.
+  Agents continue with observe and never receive credentials, cookies, storage,
+  password values, tokens, or new login-specific MCP tools.
+
 P9
   WebFA Visualizer.
   Show WebFA's own runtime state: URL, title, BrowserState, content_blocks, elements, screenshots, highlights, action log, and takeover controls.

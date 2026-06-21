@@ -92,6 +92,11 @@ class HostBrowserDriver:
                 return status
         return {"host_status": "running"}
 
+    def relaunch_visible(self, url: str) -> None:
+        if not hasattr(self._host, "relaunch_visible"):
+            raise RuntimeError("browser host does not support visible relaunch")
+        self._host.relaunch_visible(url)
+
     def _focus(self, element_id: str | None) -> None:
         if not element_id:
             raise ValueError("target is required")

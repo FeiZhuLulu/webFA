@@ -133,6 +133,37 @@ def test_browser_action_result_data_forbids_sensitive_payloads():
         assert forbidden not in body
 
 
+def test_browser_state_hides_password_values():
+    from schemas.browser import BrowserElement, BrowserForm, BrowserFormField, BrowserState
+
+    state = BrowserState(
+        interactive_elements=[
+            BrowserElement(
+                id="el_1",
+                role="textbox",
+                tag="input",
+                name="Password",
+                value="",
+                input_type="password",
+                visible=True,
+                enabled=True,
+                actions=["type"],
+            )
+        ],
+        forms=[
+            BrowserForm(
+                id="form_1",
+                fields=["el_1"],
+                field_details=[BrowserFormField(id="el_1", key="password", type="password", value="")],
+            )
+        ],
+    )
+    body = str(state.model_dump()).lower()
+    assert "secret" not in body
+    for forbidden in ("cookie", "localstorage", "sessionstorage", "token", "full_html", "full_dom"):
+        assert forbidden not in body
+
+
 def test_observe_script_does_not_read_html_or_storage():
     """The script that builds content_blocks must not read cookies,
     localStorage, sessionStorage, or emit raw HTML/DOM strings."""

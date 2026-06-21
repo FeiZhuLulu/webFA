@@ -80,6 +80,7 @@ $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
 $env:WEBFA_HOME="$env:APPDATA\WebFA"
 $env:WEBFA_BROWSER_DRIVER="managed-chromium"
 $env:WEBFA_BROWSER_HEADLESS="1"
+$env:WEBFA_AUTH_TAKEOVER="auto"
 ```
 
 `WEBFA_HOME` is optional. If unset on Windows, WebFA uses:
@@ -96,6 +97,18 @@ The default browser profile is:
 
 Use `webfa login github` to put a GitHub login session into this profile before
 asking an agent to work on logged-in GitHub pages.
+
+By default, WebFA also performs automatic auth takeover. If an agent opens a
+login, QR-code, verification-code, 2FA, or authorization page while the Runtime
+is headless, WebFA relaunches the same page in a visible managed Chromium
+window using the same default profile. The user completes the credential step
+manually, then the agent continues with `webfa.observe`.
+
+Disable this behavior only for tests or fully unattended local smoke runs:
+
+```powershell
+$env:WEBFA_AUTH_TAKEOVER="off"
+```
 
 ## Agent Contract
 

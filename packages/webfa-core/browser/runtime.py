@@ -29,6 +29,7 @@ class BrowserRuntime:
         config = resolve_browser_runtime_config(headless=headless)
         self._driver_name = config.driver_name
         self._headless = config.headless
+        self._auth_takeover = config.auth_takeover
         self._driver_factory = driver_factory or create_default_driver_factory(self._driver_name, self._headless)
         self._jobs: queue.Queue[tuple[str, tuple, queue.Queue] | None] = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -53,6 +54,8 @@ class BrowserRuntime:
         base = {
             "selected_driver": self._driver_name,
             "headless": self._headless,
+            "auth_takeover": self._auth_takeover,
+            "visible_window": False,
             "session_id": "default",
             "profile_id": "default",
             "host_status": "not_started",
@@ -93,15 +96,17 @@ class BrowserRuntime:
     def _ensure_thread(self) -> None:
         if self._thread is not None:
             return
-        worker = _BrowserWorker(self._driver_factory)
+        worker = _BrowserWorker(self._driver_factory, headless=self._headless, auth_takeover=self._auth_takeover)
         self._thread = threading.Thread(target=worker.run, args=(self._jobs,), name="webfa-browser", daemon=True)
         self._thread.start()
 
 
 class _BrowserWorker:
-    def __init__(self, driver_factory: DriverFactory) -> None:
+    def __init__(self, driver_factory: DriverFactory, headless: bool, auth_takeover: str) -> None:
         self._session = BrowserSession(driver_factory=driver_factory)
         self._view_builder = AgentViewBuilder()
+        self._headless = headless
+        self._auth_takeover = auth_takeover
 
     def run(self, jobs: queue.Queue) -> None:
         handlers: dict[str, Callable[..., Any]] = {
@@ -129,7 +134,7 @@ class _BrowserWorker:
     def open(self, url: str) -> BrowserActionResult:
         driver = self._ensure_driver()
         driver.open(url)
-        return BrowserActionResult(ok=True, action="open_url", state=self._state_from_raw(driver.observe_raw()))
+        return BrowserActionResult(ok=True, action="open_url", state=self._state_after_navigation(driver))
 
     def observe(self) -> BrowserState:
         if self._session.driver is None:
@@ -141,9 +146,14 @@ class _BrowserWorker:
         if request.action in {"fill_form", "submit_form", "follow_link", "activate_control", "choose_option", "read_list", "inspect_block"}:
             return self._object_action(driver, request)
         if request.target:
+            if request.action == "type":
+                state = self._state_from_raw(driver.observe_raw())
+                element = _find_element(state, request.target)
+                if (element.input_type or "").lower() == "password":
+                    raise ValueError("password fields require user auth takeover")
             self._session.registry.require(request.target)
         driver.act(request)
-        return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
+        return BrowserActionResult(ok=True, action=request.action, state=self._state_after_navigation(driver))
 
     def tabs(self) -> list[BrowserTab]:
         return [] if self._session.driver is None else self._session.driver.tabs()
@@ -173,16 +183,49 @@ class _BrowserWorker:
         self._session.registry.update(raw)
         return self._view_builder.build(raw, session_id=self._session.session_id)
 
+    def _state_after_navigation(self, driver: BrowserDriver) -> BrowserState:
+        state = self._state_from_raw(driver.observe_raw())
+        if not self._should_takeover_auth(driver, state):
+            return state
+        relaunch = getattr(driver, "relaunch_visible", None)
+        if not callable(relaunch):
+            return state
+        relaunch(state.url)
+        self._session.registry.clear()
+        visible_state = self._state_from_raw(driver.observe_raw())
+        visible_state.auth.surface_detected = True
+        visible_state.auth.takeover = "visible_window"
+        visible_state.auth.user_action_required = True
+        if not visible_state.auth.reason:
+            visible_state.auth.reason = state.auth.reason
+        return visible_state
+
+    def _should_takeover_auth(self, driver: BrowserDriver, state: BrowserState) -> bool:
+        if self._auth_takeover != "auto":
+            return False
+        if not self._headless:
+            return False
+        if not state.auth.surface_detected:
+            return False
+        if not state.url.startswith(("http://", "https://")):
+            return False
+        status = driver.status() if hasattr(driver, "status") else {}
+        if isinstance(status, dict) and status.get("visible_window"):
+            return False
+        return True
+
     def _object_action(self, driver: BrowserDriver, request: BrowserActionRequest) -> BrowserActionResult:
         state = self._state_from_raw(driver.observe_raw())
         if request.action == "fill_form":
             form = _find_form(state, request.target)
             for key, value in (request.fields or {}).items():
                 field = _find_field(form, key)
+                if (field.type or "").lower() == "password":
+                    raise ValueError("password fields require user auth takeover")
                 self._session.registry.require(field.id)
                 driver.act(BrowserActionRequest(action="clear", target=field.id))
                 driver.act(BrowserActionRequest(action="type", target=field.id, text=value))
-            return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
+            return BrowserActionResult(ok=True, action=request.action, state=self._state_after_navigation(driver))
         if request.action == "submit_form":
             form = _find_form(state, request.target)
             if form.submit:
@@ -193,7 +236,7 @@ class _BrowserWorker:
                 driver.act(BrowserActionRequest(action="press", target=form.fields[0], key="Enter"))
             else:
                 raise ValueError("form has no submit control or fields")
-            return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
+            return BrowserActionResult(ok=True, action=request.action, state=self._state_after_navigation(driver))
         if request.action in {"follow_link", "activate_control"}:
             element = _find_element(state, request.target)
             expected = "link" if request.action == "follow_link" else None
@@ -201,12 +244,12 @@ class _BrowserWorker:
                 raise ValueError("follow_link requires a link element")
             self._session.registry.require(element.id)
             driver.act(BrowserActionRequest(action="click", target=element.id))
-            return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
+            return BrowserActionResult(ok=True, action=request.action, state=self._state_after_navigation(driver))
         if request.action == "choose_option":
             element = _find_element(state, request.target)
             self._session.registry.require(element.id)
             driver.act(BrowserActionRequest(action="select", target=element.id, value=request.value, text=request.text))
-            return BrowserActionResult(ok=True, action=request.action, state=self._state_from_raw(driver.observe_raw()))
+            return BrowserActionResult(ok=True, action=request.action, state=self._state_after_navigation(driver))
         if request.action == "inspect_block":
             data = _inspect_block(state, request.target)
             return BrowserActionResult(ok=True, action=request.action, state=state, data=data)

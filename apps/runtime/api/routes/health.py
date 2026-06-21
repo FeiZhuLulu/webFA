@@ -30,6 +30,8 @@ def health(request: Request) -> dict:
         browser = {
             "selected_driver": config.driver_name,
             "headless": config.headless,
+            "auth_takeover": config.auth_takeover,
+            "visible_window": False,
             "session_id": "default",
             "profile_id": "default",
             "host_status": "not_started",

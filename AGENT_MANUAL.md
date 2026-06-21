@@ -69,6 +69,27 @@ Use them through `webfa.act`:
 
 Use `click`, `type`, and `press` as fallback primitives when the page object is not clear enough.
 
+## Auth Takeover
+
+WebFA may automatically open a visible WebFA-managed Chromium window when a page
+looks like a login, QR-code, verification-code, 2FA, or authorization surface.
+
+When `state.auth.surface_detected` is true and
+`state.auth.takeover == "visible_window"`, a human is expected to finish the
+credential step in the visible window. Do not ask the user for passwords,
+verification codes, cookies, storage values, or tokens in chat. Do not try to
+fill password fields yourself.
+
+After the user finishes signing in or approving access, continue with:
+
+```text
+webfa.observe
+```
+
+If the page is still a login or verification page, report the current state and
+wait for the user to finish. If the page changed to the authenticated app, keep
+working from the new BrowserState.
+
 ## URL-First Navigation
 
 Do not blindly copy human browser behavior. Humans click through menus because URLs and page state are awkward for them. Agents can read and modify structured text.
