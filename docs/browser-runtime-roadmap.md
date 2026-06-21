@@ -96,6 +96,9 @@ P8
   Provide webfa-runtime, webfa-mcp, and webfa helper commands. webfa-mcp can
   reuse or auto-start a local Runtime, and webfa doctor provides a local smoke
   test before external agent validation.
+  Status: Kimi Code CLI external MCP validation passed, including real website
+  reading, GitHub unstar, and public repository creation. Follow-up runtime
+  quality work should improve React controlled input event compatibility.
   Future non-page resource tool categories may include sessions/profiles,
   downloads/uploads, permissions, approvals/confirmations, and diagnostics/traces.
   Do not name or ship those tools until their resource domain is implemented.

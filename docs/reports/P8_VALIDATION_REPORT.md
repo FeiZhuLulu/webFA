@@ -2,7 +2,7 @@
 
 **Phase**: P8 Plugin-first Packaging / Agent Entry Package  
 **Scope**: local Python entrypoints, MCP config, Runtime auto-start, doctor smoke test  
-**External agent validation**: deferred to user-run manual testing
+**External agent validation**: Kimi Code CLI passed with `webfa-mcp`
 
 ## Implemented
 
@@ -51,4 +51,30 @@ Manual user-run checks:
 webfa mcp-config
 webfa doctor
 external agent MCP connection with webfa-mcp
+```
+
+Result:
+
+```text
+Kimi Code CLI MCP connection      -> pass, 5 tools
+example.com read smoke            -> pass
+local validation fixture loop      -> pass
+aihot.virxact.com read             -> pass
+inkcraft.cc project reading        -> pass
+GitHub unstar anthropics/skills    -> pass
+GitHub create public repo webFA    -> pass
+```
+
+External validation report:
+
+```text
+docs/reports/P8_KIMI_MCP_VALIDATION_REPORT.md
+```
+
+Known issue found during validation:
+
+```text
+GitHub React controlled input validation did not always update after WebFA type.
+The task succeeded through URL prefill and direct README edit, but React input
+event compatibility should be improved in a later runtime quality pass.
 ```
