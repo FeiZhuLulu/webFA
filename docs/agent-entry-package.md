@@ -62,6 +62,17 @@ Runs a local smoke test:
 - local fixture open/fill/submit loop
 - no cookie/storage/token/full DOM leak in returned state
 
+```powershell
+webfa login github
+webfa login --url https://example.com/login
+```
+
+Opens a visible login window using the default WebFA managed-chromium profile.
+The user signs in manually, including password, QR code, 2FA, or authorization
+prompts. WebFA does not ask an agent to type credentials and does not store
+passwords. When the user presses Enter in the CLI, WebFA closes the window and
+keeps the browser profile for future agent sessions.
+
 ## Environment
 
 ```powershell
@@ -82,6 +93,9 @@ The default browser profile is:
 ```text
 %APPDATA%\WebFA\browser\managed-chromium-profile-default
 ```
+
+Use `webfa login github` to put a GitHub login session into this profile before
+asking an agent to work on logged-in GitHub pages.
 
 ## Agent Contract
 
@@ -114,4 +128,3 @@ agent validation is intentionally manual for P8:
 3. Start the agent.
 4. Confirm the agent sees only the five default tools.
 5. Run a local `open_url -> observe -> act -> observe` task.
-

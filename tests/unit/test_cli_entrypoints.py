@@ -50,3 +50,18 @@ def test_webfa_doctor_reports_runtime_unreachable(monkeypatch, capsys):
     assert body["status"] == "fail"
     assert any(check["name"] == "doctor" for check in body["checks"])
 
+
+def test_webfa_login_invokes_login_window(monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    def fake_login(target):
+        return {"status": "ok", "site": target.site, "profile": "default", "profile_dir": str(target.profile_dir)}
+
+    monkeypatch.setattr(cli, "run_login_window", fake_login)
+
+    exit_code = cli.main_webfa(["login", "github"])
+
+    assert exit_code == 0
+    body = json.loads(capsys.readouterr().out)
+    assert body["status"] == "ok"
+    assert body["site"] == "github.com"

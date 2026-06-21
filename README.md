@@ -133,6 +133,12 @@ Run a local self-test:
 webfa doctor
 ```
 
+Open a manual login window for the default WebFA profile:
+
+```powershell
+webfa login github
+```
+
 `webfa-mcp` reuses an already-running Runtime. If none is reachable at
 `WEBFA_RUNTIME_URL`, it starts a local Runtime automatically.
 

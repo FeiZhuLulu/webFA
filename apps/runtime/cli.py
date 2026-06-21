@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from apps.runtime.login import resolve_login_target, run_login_window
 from apps.runtime.mcp.config_generator import generate_config
 from apps.runtime.process import ensure_runtime, get_runtime_url, runtime_health, wait_for_runtime
 from storage.file_store import ensure_webfa_data_dir
@@ -78,6 +79,10 @@ def main_webfa(argv: list[str] | None = None) -> int:
     doctor_parser.add_argument("--runtime-url", default=None)
     doctor_parser.add_argument("--no-auto-start", action="store_true")
 
+    login_parser = subparsers.add_parser("login", help="Open a manual login window for the WebFA profile.")
+    login_parser.add_argument("site", nargs="?", help="Known site name, for example: github")
+    login_parser.add_argument("--url", default=None, help="Login URL to open manually.")
+
     args = parser.parse_args(argv)
     if args.command == "status":
         return _cmd_status(args.runtime_url)
@@ -91,6 +96,8 @@ def main_webfa(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "doctor":
         return _cmd_doctor(args.runtime_url, auto_start=not args.no_auto_start)
+    if args.command == "login":
+        return _cmd_login(args.site, args.url)
     raise ValueError(f"unsupported command: {args.command}")
 
 
@@ -141,6 +148,17 @@ def _cmd_doctor(runtime_url: str | None, auto_start: bool) -> int:
             os.environ["WEBFA_HOME"] = original_home
         if temp_home is not None:
             temp_home.cleanup()
+
+
+def _cmd_login(site: str | None, url: str | None) -> int:
+    try:
+        target = resolve_login_target(site=site, url=url)
+        result = run_login_window(target)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as exc:
+        print(json.dumps({"status": "fail", "error": str(exc)}, indent=2, ensure_ascii=False))
+        return 1
 
 
 def _record(checks: list[dict[str, Any]], name: str, ok: bool, detail: str) -> None:

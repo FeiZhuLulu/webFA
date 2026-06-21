@@ -103,6 +103,17 @@ P8
   downloads/uploads, permissions, approvals/confirmations, and diagnostics/traces.
   Do not name or ship those tools until their resource domain is implemented.
 
+P8.5
+  Login/Profile Onboarding.
+  Add a lightweight CLI entry for user-assisted login before packaging:
+  webfa login github and webfa login --url <login-url>.
+  The command opens a visible WebFA-managed Chromium window with the default
+  managed-chromium profile. The human signs in manually, including password,
+  QR code, 2FA, or authorization prompts; WebFA closes the window after the
+  user confirms in the CLI and keeps the profile for future agent sessions.
+  This does not add MCP tools, does not ask agents to type credentials, and
+  does not expose cookies, storage, passwords, or tokens.
+
 P9
   WebFA Visualizer.
   Show WebFA's own runtime state: URL, title, BrowserState, content_blocks, elements, screenshots, highlights, action log, and takeover controls.
