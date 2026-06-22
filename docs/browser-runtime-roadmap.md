@@ -134,6 +134,15 @@ P8.7
   This does not add anti-detect behavior or site-specific parsers; site risk
   blocks remain external platform behavior.
 
+P8.8
+  Agent Integration Hardening.
+  Make external agent usage safer without adding browser features. Each MCP
+  client should set WEBFA_AGENT_ID. Runtime tracks one active agent lease for
+  browser-changing operations, while observe/tabs/health remain readable and
+  show the active agent. The default profile remains shared, so all agents
+  connected to the same Runtime use the same website login state. This phase
+  also records opencode, Kimi Code, Claude Code, and Codex setup docs.
+
 P9
   WebFA Visualizer.
   Show WebFA's own runtime state: URL, title, BrowserState, content_blocks, elements, screenshots, highlights, action log, and takeover controls.

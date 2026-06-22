@@ -72,6 +72,8 @@ def main_webfa(argv: list[str] | None = None) -> int:
     config_parser.add_argument("--runtime-url", default=None)
     config_parser.add_argument("--source-mode", action="store_true", help="Use python -m apps.runtime.mcp.server style config.")
     config_parser.add_argument("--cwd", default=None)
+    config_parser.add_argument("--agent-id", default="webfa-agent")
+    config_parser.add_argument("--client", default="mcpServers", choices=["mcpServers", "opencode"])
 
     subparsers.add_parser("paths", help="Print WebFA local data paths.")
 
@@ -87,7 +89,13 @@ def main_webfa(argv: list[str] | None = None) -> int:
     if args.command == "status":
         return _cmd_status(args.runtime_url)
     if args.command == "mcp-config":
-        config = generate_config(runtime_url=args.runtime_url, installed=not args.source_mode, cwd=args.cwd)
+        config = generate_config(
+            runtime_url=args.runtime_url,
+            installed=not args.source_mode,
+            cwd=args.cwd,
+            agent_id=args.agent_id,
+            client=args.client,
+        )
         print(json.dumps(config, indent=2, ensure_ascii=False))
         return 0
     if args.command == "paths":

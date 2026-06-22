@@ -185,6 +185,13 @@ class BrowserAuthState(BaseModel):
     user_action_required: bool = False
 
 
+class BrowserAgentState(BaseModel):
+    active_agent_id: str | None = None
+    agent_lease_expires_at: str | None = None
+    profile_shared: bool = True
+    profile_id: str = "default"
+
+
 class BrowserState(BaseModel):
     session_id: str = "default"
     url: str = ""
@@ -199,6 +206,7 @@ class BrowserState(BaseModel):
     forms: list[BrowserForm] = []
     interactive_elements: list[BrowserElement] = []
     auth: BrowserAuthState = BrowserAuthState()
+    agent: BrowserAgentState = BrowserAgentState()
     error: dict | None = None
 
 

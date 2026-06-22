@@ -14,6 +14,8 @@ def generate_config(
     platform: str | None = None,
     cwd: str | None = None,
     installed: bool = True,
+    agent_id: str = "webfa-agent",
+    client: str = "mcpServers",
 ) -> dict[str, Any]:
     """Generate MCP client config for the current platform."""
     url = runtime_url or os.getenv("WEBFA_RUNTIME_URL", "http://127.0.0.1:8787")
@@ -21,7 +23,7 @@ def generate_config(
     if platform is None:
         platform = sys.platform
 
-    env: dict[str, str] = {"WEBFA_RUNTIME_URL": url}
+    env: dict[str, str] = {"WEBFA_RUNTIME_URL": url, "WEBFA_AGENT_ID": agent_id}
 
     if installed:
         command = "webfa-mcp"
@@ -39,11 +41,19 @@ def generate_config(
     if cwd:
         entry["cwd"] = cwd
 
-    return {
-        "mcpServers": {
-            "webfa": entry,
+    if client == "opencode":
+        command = [entry["command"], *entry["args"]]
+        opencode_entry: dict[str, Any] = {
+            "type": "local",
+            "enabled": True,
+            "command": command,
+            "environment": env,
         }
-    }
+        if cwd:
+            opencode_entry["cwd"] = cwd
+        return {"mcp": {"webfa": opencode_entry}}
+
+    return {"mcpServers": {"webfa": entry}}
 
 
 def generate_config_json(**kwargs: Any) -> str:

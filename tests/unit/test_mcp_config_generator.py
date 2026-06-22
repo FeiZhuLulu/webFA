@@ -27,6 +27,23 @@ def test_generate_config_has_env():
     config = generate_config(runtime_url="http://127.0.0.1:8787")
     env = config["mcpServers"]["webfa"]["env"]
     assert env["WEBFA_RUNTIME_URL"] == "http://127.0.0.1:8787"
+    assert env["WEBFA_AGENT_ID"] == "webfa-agent"
+
+
+def test_generate_config_accepts_agent_id():
+    config = generate_config(runtime_url="http://127.0.0.1:8787", agent_id="opencode")
+    env = config["mcpServers"]["webfa"]["env"]
+    assert env["WEBFA_AGENT_ID"] == "opencode"
+
+
+def test_generate_config_opencode_shape():
+    config = generate_config(runtime_url="http://127.0.0.1:8787", agent_id="opencode", client="opencode")
+    entry = config["mcp"]["webfa"]
+    assert entry["type"] == "local"
+    assert entry["enabled"] is True
+    assert entry["command"] == ["webfa-mcp"]
+    assert entry["environment"]["WEBFA_RUNTIME_URL"] == "http://127.0.0.1:8787"
+    assert entry["environment"]["WEBFA_AGENT_ID"] == "opencode"
 
 
 def test_generate_config_json():

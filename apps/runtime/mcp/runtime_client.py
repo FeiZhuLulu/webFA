@@ -16,13 +16,14 @@ class RuntimeUnavailableError(Exception):
 class WebFARuntimeClient:
     """HTTP client for WebFA Runtime REST API."""
 
-    def __init__(self, base_url: str | None = None, caller: str = "mcp") -> None:
+    def __init__(self, base_url: str | None = None, caller: str = "mcp", agent_id: str | None = None) -> None:
         self.base_url = base_url or os.getenv("WEBFA_RUNTIME_URL", "http://127.0.0.1:8787")
         self.caller = caller
+        self.agent_id = agent_id if agent_id is not None else os.getenv("WEBFA_AGENT_ID", "anonymous-mcp")
         self._client = httpx.Client(timeout=10.0)
 
     def _headers(self, tool: str | None = None) -> dict[str, str]:
-        h = {"X-WebFA-Caller": self.caller}
+        h = {"X-WebFA-Caller": self.caller, "X-WebFA-Agent-Id": self.agent_id}
         if tool:
             h["X-WebFA-MCP-Tool"] = tool
         return h

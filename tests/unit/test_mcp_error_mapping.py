@@ -36,6 +36,22 @@ def test_map_409_hash_mismatch():
     assert result["error"]["code"] == "hash_mismatch"
 
 
+def test_map_409_agent_busy():
+    exc = RuntimeErrorResponse(
+        409,
+        {
+            "detail": {
+                "code": "agent_busy",
+                "message": "WebFA is currently controlled by agent 'opencode'",
+                "active_agent_id": "opencode",
+            }
+        },
+    )
+    result = map_runtime_error(exc)
+    assert result["error"]["code"] == "agent_busy"
+    assert result["error"]["message"]["active_agent_id"] == "opencode"
+
+
 def test_map_404():
     exc = RuntimeErrorResponse(404, {"detail": "Plan not found"})
     result = map_runtime_error(exc)

@@ -4,6 +4,7 @@ import queue
 import threading
 from typing import Any, Callable
 
+from browser.agent_lease import AgentLease, AgentLeaseSnapshot
 from browser.agent_view import AgentViewBuilder
 from browser.config import resolve_browser_runtime_config
 from browser.driver import BrowserDriver, RawPageSnapshot
@@ -12,6 +13,7 @@ from browser.session import BrowserSession
 from schemas.browser import (
     BrowserActionRequest,
     BrowserActionResult,
+    BrowserAgentState,
     BrowserElement,
     BrowserForm,
     BrowserState,
@@ -34,23 +36,28 @@ class BrowserRuntime:
         self._jobs: queue.Queue[tuple[str, tuple, queue.Queue] | None] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._closed = False
+        self._agent_lease = AgentLease()
 
-    def open(self, url: str) -> BrowserActionResult:
-        return self._call("open", url)
+    def open(self, url: str, agent_id: str | None = None) -> BrowserActionResult:
+        self._agent_lease.acquire(agent_id)
+        return self._with_agent_result(self._call("open", url))
 
     def observe(self) -> BrowserState:
-        return self._call("observe")
+        return self._with_agent_state(self._call("observe"))
 
-    def act(self, request: BrowserActionRequest) -> BrowserActionResult:
-        return self._call("act", request)
+    def act(self, request: BrowserActionRequest, agent_id: str | None = None) -> BrowserActionResult:
+        self._agent_lease.acquire(agent_id)
+        return self._with_agent_result(self._call("act", request))
 
     def tabs(self) -> list[BrowserTab]:
         return self._call("tabs")
 
-    def switch_tab(self, tab_id: str) -> BrowserState:
-        return self._call("switch_tab", tab_id)
+    def switch_tab(self, tab_id: str, agent_id: str | None = None) -> BrowserState:
+        self._agent_lease.acquire(agent_id)
+        return self._with_agent_state(self._call("switch_tab", tab_id))
 
     def status(self) -> dict[str, Any]:
+        lease = self._agent_lease.snapshot().as_dict()
         base = {
             "selected_driver": self._driver_name,
             "headless": self._headless,
@@ -58,6 +65,8 @@ class BrowserRuntime:
             "visible_window": False,
             "session_id": "default",
             "profile_id": "default",
+            "profile_shared": True,
+            **lease,
             "host_status": "not_started",
             "last_error": None,
         }
@@ -99,6 +108,23 @@ class BrowserRuntime:
         worker = _BrowserWorker(self._driver_factory, headless=self._headless, auth_takeover=self._auth_takeover)
         self._thread = threading.Thread(target=worker.run, args=(self._jobs,), name="webfa-browser", daemon=True)
         self._thread.start()
+
+    def _with_agent_result(self, result: BrowserActionResult) -> BrowserActionResult:
+        result.state = self._with_agent_state(result.state)
+        return result
+
+    def _with_agent_state(self, state: BrowserState) -> BrowserState:
+        state.agent = _agent_state_from_snapshot(self._agent_lease.snapshot())
+        return state
+
+
+def _agent_state_from_snapshot(snapshot: AgentLeaseSnapshot) -> BrowserAgentState:
+    return BrowserAgentState(
+        active_agent_id=snapshot.active_agent_id,
+        agent_lease_expires_at=snapshot.expires_at.isoformat() if snapshot.expires_at else None,
+        profile_shared=snapshot.profile_shared,
+        profile_id=snapshot.profile_id,
+    )
 
 
 class _BrowserWorker:

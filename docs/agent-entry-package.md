@@ -77,6 +77,7 @@ keeps the browser profile for future agent sessions.
 
 ```powershell
 $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
+$env:WEBFA_AGENT_ID="opencode"
 $env:WEBFA_HOME="$env:APPDATA\WebFA"
 $env:WEBFA_BROWSER_DRIVER="managed-chromium"
 $env:WEBFA_BROWSER_HEADLESS="1"
@@ -93,6 +94,22 @@ The default browser profile is:
 
 ```text
 %APPDATA%\WebFA\browser\managed-chromium-profile-default
+```
+
+This default profile is shared. If Kimi Code, Claude Code, Codex, and opencode
+all connect to the same Runtime and `WEBFA_HOME`, they use the same website
+login state. This is intentional for the early local runtime: WebFA represents
+the local user's browser identity, not a separate account per agent.
+
+Set a distinct `WEBFA_AGENT_ID` in each agent's MCP config. WebFA allows one
+active agent to control the browser at a time. If another agent tries to open,
+act, or switch tabs while the lease is active, Runtime returns `409 agent_busy`.
+Read-only observe/tabs/health calls remain available and show the active agent.
+
+The default lease is 10 minutes and renews on each browser-changing action:
+
+```powershell
+$env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
 ```
 
 Use `webfa login github` to put a GitHub login session into this profile before
@@ -138,6 +155,7 @@ agent validation is intentionally manual for P8:
 
 1. Install WebFA in a clean environment.
 2. Add `webfa mcp-config` output to the agent's MCP configuration.
+   Use `--agent-id opencode`, `--agent-id kimi-code`, etc. for each client.
 3. Start the agent.
 4. Confirm the agent sees only the five default tools.
 5. Run a local `open_url -> observe -> act -> observe` task.

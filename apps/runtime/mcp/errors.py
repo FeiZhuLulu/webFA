@@ -20,6 +20,8 @@ ERROR_CODE_MAP: dict[int, str] = {
 def map_runtime_error(exc: RuntimeErrorResponse) -> dict[str, Any]:
     code = ERROR_CODE_MAP.get(exc.status_code, "runtime_error")
     detail = exc.body.get("detail", str(exc.body))
+    if isinstance(detail, dict) and isinstance(detail.get("code"), str):
+        code = detail["code"]
 
     # Refine code based on detail content (check specific patterns first)
     detail_lower = str(detail).lower()

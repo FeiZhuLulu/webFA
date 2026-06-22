@@ -118,7 +118,8 @@ webfa-runtime
 Print MCP client config:
 
 ```powershell
-webfa mcp-config
+webfa mcp-config --agent-id opencode
+webfa mcp-config --client opencode --agent-id opencode
 ```
 
 Run the MCP stdio server:
@@ -141,6 +142,11 @@ webfa login github
 
 `webfa-mcp` reuses an already-running Runtime. If none is reachable at
 `WEBFA_RUNTIME_URL`, it starts a local Runtime automatically.
+
+All agents connected to the same Runtime share the default WebFA browser
+profile and website login state. Set a distinct `WEBFA_AGENT_ID` per client.
+WebFA allows one active agent to change browser state at a time; other agents
+can still observe and will see the active lease in BrowserState and `/health`.
 
 ## Local Development
 
