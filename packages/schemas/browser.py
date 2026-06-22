@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 BrowserActionName = Literal[
     "click",
+    "double_click",
     "type",
     "clear",
     "focus",
@@ -84,7 +85,7 @@ class BrowserActionRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_shape(self) -> "BrowserActionRequest":
-        target_actions = {"click", "type", "clear", "focus", "select", "check", "uncheck"}
+        target_actions = {"click", "double_click", "type", "clear", "focus", "select", "check", "uncheck"}
         if self.action in target_actions and not self.target:
             raise ValueError(f"{self.action} requires target")
         if self.action == "type" and self.text is None:

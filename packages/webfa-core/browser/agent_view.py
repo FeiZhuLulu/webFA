@@ -66,7 +66,7 @@ def _detect_auth_surface(raw: RawPageSnapshot, elements: list[dict], forms: list
             " ".join(str(element.get("placeholder") or "").lower() for element in elements),
         ]
     )
-    login_like_url = any(marker in url for marker in ("/login", "/signin", "auth", "passport", "account", "cancel_login"))
+    login_like_url = any(marker in url for marker in ("/login", "/signin", "auth", "passport", "cancel_login"))
     has_login_text = any(
         marker in combined_text
         for marker in (
@@ -83,9 +83,11 @@ def _detect_auth_surface(raw: RawPageSnapshot, elements: list[dict], forms: list
             "微信登录",
         )
     )
+    has_password_input = False
+    has_login_input = False
     if login_like_url and has_login_text:
         reasons.append("login_url")
-    if any(
+    has_human_auth_text = any(
         marker in combined_text
         for marker in (
             "扫码",
@@ -98,22 +100,28 @@ def _detect_auth_surface(raw: RawPageSnapshot, elements: list[dict], forms: list
             "授权",
             "authorize",
         )
-    ):
-        reasons.append("human_auth_text")
+    )
     for element in elements:
         input_type = str(element.get("input_type") or "").lower()
         name = str(element.get("name") or "").lower()
         placeholder = str(element.get("placeholder") or "").lower()
         if input_type == "password":
-            reasons.append("password_input")
+            has_password_input = True
         if input_type in {"email", "tel"} and (login_like_url or has_login_text):
+            has_login_input = True
             reasons.append(f"{input_type}_login_input")
         if any(marker in f"{name} {placeholder}" for marker in ("password", "密码")):
-            reasons.append("password_input")
+            has_password_input = True
     for form in forms:
         text = str(form.get("text") or "").lower()
-        if any(marker in text for marker in ("password", "密码", "验证码", "扫码")):
+        if any(marker in text for marker in ("password", "密码")):
+            has_password_input = True
+        if any(marker in text for marker in ("验证码", "扫码")) and (login_like_url or has_login_text):
             reasons.append("auth_form")
+    if has_password_input:
+        reasons.append("password_input")
+    if has_human_auth_text and (login_like_url or has_login_text or has_password_input or has_login_input):
+        reasons.append("human_auth_text")
 
     deduped = list(dict.fromkeys(reasons))
     detected = bool(deduped)

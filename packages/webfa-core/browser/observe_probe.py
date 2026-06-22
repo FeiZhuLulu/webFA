@@ -68,7 +68,8 @@ OBSERVE_PROBE = r"""
   const selector = [
     'a[href]', 'button', 'input', 'textarea', 'select',
     '[role="button"]', '[role="link"]', '[contenteditable="true"]',
-    '[tabindex]:not([tabindex="-1"])'
+    '[role="row"]', '[role="listitem"]', '[role="option"]', '[role="menuitem"]',
+    'tr', '[onclick]', '[tabindex]:not([tabindex="-1"])'
   ].join(',');
   const idPattern = /^el_(\d+)$/;
   let nextId = Array.from(document.querySelectorAll('[data-webfa-id]')).reduce((max, el) => {
@@ -142,7 +143,7 @@ OBSERVE_PROBE = r"""
     if (tag === 'article') return 'generic';
     return 'generic';
   };
-  const blockSelector = 'h1, h2, h3, p, li, article, form, nav, [role="listitem"]';
+  const blockSelector = 'h1, h2, h3, p, li, article, form, nav, tr, [role="listitem"], [role="row"], [role="option"]';
   const blockSeen = new WeakSet();
   const contentBlocks = [];
   for (const el of document.querySelectorAll(blockSelector)) {
@@ -153,9 +154,12 @@ OBSERVE_PROBE = r"""
     const text = textOf(el);
     if (!text) continue;
     blockSeen.add(el);
-    const elementIds = Array.from(el.querySelectorAll('[data-webfa-id]'))
+    const ownId = el.getAttribute('data-webfa-id');
+    const elementIds = [
+      ownId,
+      ...Array.from(el.querySelectorAll('[data-webfa-id]'))
       .map((node) => node.getAttribute('data-webfa-id'))
-      .filter((id) => idPattern.test(id || ''));
+    ].filter((id) => idPattern.test(id || ''));
     contentBlocks.push({
       id: `block_${contentBlocks.length + 1}`,
       type: blockTypeOf(el),

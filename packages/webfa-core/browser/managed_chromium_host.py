@@ -227,12 +227,41 @@ class ManagedChromiumHost:
 
 class _CDPClient:
     def __init__(self, websocket_url: str) -> None:
-        from websockets.sync.client import connect
-
+        self._websocket_url = websocket_url
         self._next_id = 1
-        self._ws = connect(websocket_url, open_timeout=5)
+        self._ws = None
+        self._connect()
 
     def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                return self._call_once(method, params)
+            except Exception as exc:
+                last_error = exc
+                self.close()
+                if attempt == 0:
+                    self._connect()
+                    continue
+                raise
+        raise last_error or RuntimeError(f"CDP call failed: {method}")
+
+    def close(self) -> None:
+        if self._ws is not None:
+            try:
+                self._ws.close()
+            except Exception:
+                pass
+        self._ws = None
+
+    def _connect(self) -> None:
+        from websockets.sync.client import connect
+
+        self._ws = connect(self._websocket_url, open_timeout=5, ping_interval=None)
+
+    def _call_once(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self._ws is None:
+            self._connect()
         message_id = self._next_id
         self._next_id += 1
         self._ws.send(json.dumps({"id": message_id, "method": method, "params": params or {}}))
@@ -246,12 +275,6 @@ class _CDPClient:
                 raise RuntimeError(message["error"].get("message", "CDP call failed"))
             return message.get("result", {})
         raise RuntimeError(f"CDP call timed out: {method}")
-
-    def close(self) -> None:
-        try:
-            self._ws.close()
-        except Exception:
-            pass
 
 
 def _find_chromium_executable() -> Path:

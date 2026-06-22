@@ -68,6 +68,8 @@ Use them through `webfa.act`:
 ```
 
 Use `click`, `type`, and `press` as fallback primitives when the page object is not clear enough.
+Use `double_click` only when the page clearly requires row-style double-click
+activation, such as legacy mail or file-list UIs.
 
 ## Auth Takeover
 

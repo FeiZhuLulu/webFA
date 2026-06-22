@@ -221,3 +221,38 @@ def test_agent_view_detects_qr_auth_text_but_not_plain_contact_form():
     assert qr_state.auth.surface_detected is True
     assert "human_auth_text" in qr_state.auth.reason
     assert plain_state.auth.surface_detected is False
+
+
+def test_agent_view_does_not_flag_logged_in_inbox_text_as_auth():
+    state = AgentViewBuilder().build(
+        RawPageSnapshot(
+            url="https://wx.mail.qq.com/list/readtemplate",
+            title="QQ Mail Inbox",
+            loading=False,
+            focused_element_id=None,
+            viewport=BrowserViewport(width=1280, height=720),
+            tabs=[],
+            visible_text="收件箱 322 封未读 GitHub verification code 邮件提醒 密码安全通知",
+            content_blocks=[
+                {
+                    "id": "block_1",
+                    "type": "list_item",
+                    "text": "GitHub verification code 邮件提醒 密码安全通知",
+                    "element_ids": ["el_1"],
+                }
+            ],
+            interactive_elements=[
+                {
+                    "id": "el_1",
+                    "role": "div",
+                    "tag": "div",
+                    "name": "GitHub verification code 邮件提醒",
+                    "visible": True,
+                    "enabled": True,
+                    "actions": ["click", "focus"],
+                }
+            ],
+        )
+    )
+
+    assert state.auth.surface_detected is False

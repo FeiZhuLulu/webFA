@@ -124,6 +124,16 @@ P8.6
   Agents continue with observe and never receive credentials, cookies, storage,
   password values, tokens, or new login-specific MCP tools.
 
+P8.7
+  Runtime Stability and Post-Login Usability.
+  Fix the first real auth validation findings: reduce auth false positives on
+  logged-in pages, keep the CDP connection stable with reconnect behavior,
+  improve React-style controlled input filling, expose generic row/list items
+  as addressable elements, and add double_click for legacy row UIs such as mail
+  inboxes.
+  This does not add anti-detect behavior or site-specific parsers; site risk
+  blocks remain external platform behavior.
+
 P9
   WebFA Visualizer.
   Show WebFA's own runtime state: URL, title, BrowserState, content_blocks, elements, screenshots, highlights, action log, and takeover controls.

@@ -204,6 +204,7 @@ def test_browser_action_validates_required_fields():
 
 
 def test_browser_object_actions_validate_required_fields():
+    BrowserActionRequest(action="double_click", target="el_1")
     BrowserActionRequest(action="fill_form", target="form_1", fields={"name": "Fei"})
     BrowserActionRequest(action="submit_form", target="form_1")
     BrowserActionRequest(action="follow_link", target="el_1")
@@ -214,6 +215,7 @@ def test_browser_object_actions_validate_required_fields():
 
     invalid = [
         {"action": "fill_form", "target": "form_1"},
+        {"action": "double_click"},
         {"action": "submit_form"},
         {"action": "follow_link"},
         {"action": "activate_control"},

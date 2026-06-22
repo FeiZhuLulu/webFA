@@ -62,6 +62,9 @@ class HostBrowserDriver:
         if action == "click":
             self._element_action(request.target, "click")
             return
+        if action == "double_click":
+            self._element_action(request.target, "double_click")
+            return
         if action == "type":
             self._element_action(request.target, "type", request.text or "")
             return
@@ -167,15 +170,36 @@ def _element_expression(element_id: str, action: str, text: str | None = None) -
         el.click();
         return true;
       }}
+      if ({json.dumps(action)} === 'double_click') {{
+        const options = {{ bubbles: true, cancelable: true, view: window, detail: 2 }};
+        el.dispatchEvent(new MouseEvent('mousedown', options));
+        el.dispatchEvent(new MouseEvent('mouseup', options));
+        el.dispatchEvent(new MouseEvent('click', options));
+        el.dispatchEvent(new MouseEvent('mousedown', options));
+        el.dispatchEvent(new MouseEvent('mouseup', options));
+        el.dispatchEvent(new MouseEvent('click', options));
+        el.dispatchEvent(new MouseEvent('dblclick', options));
+        return true;
+      }}
       if ({json.dumps(action)} === 'type') {{
         el.focus();
         if ('value' in el) {{
-          el.value = {json.dumps(text or '')};
-          el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: {json.dumps(text or '')} }}));
+          const value = {json.dumps(text or '')};
+          const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+          if (descriptor && descriptor.set) {{
+            descriptor.set.call(el, value);
+          }} else {{
+            el.value = value;
+          }}
+          el.dispatchEvent(new InputEvent('beforeinput', {{ bubbles: true, cancelable: true, inputType: 'insertText', data: value }}));
+          el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: value }}));
           el.dispatchEvent(new Event('change', {{ bubbles: true }}));
         }} else if (el.isContentEditable) {{
-          el.textContent = {json.dumps(text or '')};
-          el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: {json.dumps(text or '')} }}));
+          const value = {json.dumps(text or '')};
+          el.textContent = value;
+          el.dispatchEvent(new InputEvent('beforeinput', {{ bubbles: true, cancelable: true, inputType: 'insertText', data: value }}));
+          el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: value }}));
         }} else {{
           throw new Error('element does not accept text');
         }}
