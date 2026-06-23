@@ -1,5 +1,7 @@
 import json
 
+from browser.exceptions import BrowserHostClosedError
+from browser.managed_chromium_host import ManagedChromiumHost
 from browser.managed_chromium_host import _CDPClient
 
 
@@ -34,3 +36,13 @@ def test_cdp_client_reconnects_once_after_receive_failure(monkeypatch):
     result = client.call("Runtime.evaluate", {"expression": "1 + 1"})
 
     assert result == {"ok": True}
+
+
+def test_http_json_raises_browser_host_closed_when_not_running():
+    host = ManagedChromiumHost()
+
+    try:
+        host._http_json("/json/list")
+    except BrowserHostClosedError:
+        return
+    raise AssertionError("expected BrowserHostClosedError")

@@ -143,6 +143,15 @@ P8.8
   connected to the same Runtime use the same website login state. This phase
   also records opencode, Kimi Code, Claude Code, and Codex setup docs.
 
+P8.10
+  Visible Host Stability.
+  Default developer preview to visible managed Chromium so login, QR, 2FA, and
+  human takeover happen in one stable host. Auth takeover only relaunches when
+  Runtime is explicitly headless.
+  If the visible host window is closed, observe/act/tabs/switch_tab return
+  browser_host_closed. open_url restarts the host under the same default
+  session/profile, clears ElementRegistry, and invalidates old element ids.
+
 P9
   WebFA Visualizer.
   Show WebFA's own runtime state: URL, title, BrowserState, content_blocks, elements, screenshots, highlights, action log, and takeover controls.

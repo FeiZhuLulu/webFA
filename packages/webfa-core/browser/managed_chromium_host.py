@@ -9,6 +9,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from browser.exceptions import BrowserHostClosedError
 from schemas.browser import BrowserTab
 from storage.file_store import ensure_webfa_data_dir
 
@@ -199,7 +200,7 @@ class ManagedChromiumHost:
 
     def _http_json(self, path: str) -> Any:
         if self._port is None or not self._process_is_running():
-            raise RuntimeError("managed chromium is not started")
+            raise BrowserHostClosedError("managed chromium host is not running")
         with urllib.request.urlopen(f"http://127.0.0.1:{self._port}{path}", timeout=5) as response:
             return json.loads(response.read().decode("utf-8"))
 

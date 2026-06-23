@@ -52,6 +52,18 @@ def test_map_409_agent_busy():
     assert result["error"]["message"]["active_agent_id"] == "opencode"
 
 
+def test_map_browser_host_closed():
+    exc = RuntimeErrorResponse(
+        503,
+        {"detail": {"code": "browser_host_closed", "message": "Browser host has exited; use open_url to restart"}},
+    )
+    result = map_runtime_error(exc)
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "browser_host_closed"
+    assert result["error"]["runtime_status"] == 503
+
+
 def test_map_404():
     exc = RuntimeErrorResponse(404, {"detail": "Plan not found"})
     result = map_runtime_error(exc)

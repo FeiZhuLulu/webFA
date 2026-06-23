@@ -33,4 +33,4 @@ def _default_headless(driver_name: str) -> bool:
     value = os.getenv("WEBFA_BROWSER_HEADLESS")
     if value is not None:
         return value == "1"
-    return driver_name == "managed-chromium"
+    return False

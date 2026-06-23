@@ -29,14 +29,15 @@ Status: **developer preview**. APIs and behavior may change.
   auth status, and active agent lease metadata.
 - Generic actions for forms, links, controls, lists, blocks, and fallback
   primitives such as click/type/press.
-- User-assisted login takeover for password, QR, verification, 2FA, and
-  authorization pages.
+- Visible managed Chromium host by default for user-assisted login, QR,
+  verification, 2FA, and authorization pages.
 - Single active agent lease so multiple connected agents do not silently fight
   over one browser session.
 
 ## Current Limits
 
-- Visible auth takeover still uses a managed Chromium window.
+- The visible host is still a managed Chromium window until WebFA Visualizer
+  replaces the product-facing takeover surface.
 - All agents connected to the same Runtime and `WEBFA_HOME` share the default
   browser profile and website login state.
 - Multi-profile and multi-session isolation are not implemented yet.
@@ -110,11 +111,15 @@ webfa login github
 webfa login --url https://example.com/login
 ```
 
-Agents should not type passwords or verification codes. When WebFA detects a
-login, QR-code, verification-code, 2FA, or authorization page in headless mode,
-it can automatically reopen the same page in a visible managed Chromium window.
-The user completes authentication manually, then the agent continues with
+Developer preview uses a visible managed Chromium host by default. Agents
+should not type passwords or verification codes. The user completes
+authentication manually in the visible window, then the agent continues with
 `webfa.observe`.
+
+If the visible window is closed during a task, the current browser host is
+ended. `webfa.observe`, `webfa.act`, `webfa.get_tabs`, and `webfa.switch_tab`
+will return `browser_host_closed`. Use `webfa.open_url` to restart with the
+same default profile; page memory and old element ids are lost.
 
 ## Environment
 
@@ -124,7 +129,7 @@ Copy `.env.example` for local notes if needed. Common variables:
 $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
 $env:WEBFA_AGENT_ID="opencode"
 $env:WEBFA_BROWSER_DRIVER="managed-chromium"
-$env:WEBFA_BROWSER_HEADLESS="1"
+$env:WEBFA_BROWSER_HEADLESS="0"
 $env:WEBFA_AUTH_TAKEOVER="auto"
 $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
 ```

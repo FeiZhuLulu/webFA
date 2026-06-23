@@ -24,6 +24,9 @@ class BrowserSession:
         return self.driver
 
     def close(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
         if self.driver is not None:
             self.driver.close()
         self.driver = None

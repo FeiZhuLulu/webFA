@@ -9,6 +9,7 @@ from browser.agent_view import AgentViewBuilder
 from browser.config import resolve_browser_runtime_config
 from browser.driver import BrowserDriver, RawPageSnapshot
 from browser.driver_factory import create_default_driver_factory
+from browser.exceptions import BrowserHostClosedError
 from browser.session import BrowserSession
 from schemas.browser import (
     BrowserActionRequest,
@@ -158,6 +159,8 @@ class _BrowserWorker:
                 result.put((False, exc))
 
     def open(self, url: str) -> BrowserActionResult:
+        if self._host_is_exited():
+            self._session.reset()
         driver = self._ensure_driver()
         driver.open(url)
         return BrowserActionResult(ok=True, action="open_url", state=self._state_after_navigation(driver))
@@ -165,9 +168,11 @@ class _BrowserWorker:
     def observe(self) -> BrowserState:
         if self._session.driver is None:
             return BrowserState()
+        self._raise_if_host_exited()
         return self._state_from_raw(self._session.driver.observe_raw())
 
     def act(self, request: BrowserActionRequest) -> BrowserActionResult:
+        self._raise_if_host_exited()
         driver = self._session.ensure_driver()
         if request.action in {"fill_form", "submit_form", "follow_link", "activate_control", "choose_option", "read_list", "inspect_block"}:
             return self._object_action(driver, request)
@@ -182,9 +187,13 @@ class _BrowserWorker:
         return BrowserActionResult(ok=True, action=request.action, state=self._state_after_navigation(driver))
 
     def tabs(self) -> list[BrowserTab]:
-        return [] if self._session.driver is None else self._session.driver.tabs()
+        if self._session.driver is None:
+            return []
+        self._raise_if_host_exited()
+        return self._session.driver.tabs()
 
     def switch_tab(self, tab_id: str) -> BrowserState:
+        self._raise_if_host_exited()
         driver = self._ensure_driver()
         driver.switch_tab(tab_id)
         return self._state_from_raw(driver.observe_raw())
@@ -204,6 +213,17 @@ class _BrowserWorker:
 
     def _ensure_driver(self) -> BrowserDriver:
         return self._session.ensure_driver()
+
+    def _host_is_exited(self) -> bool:
+        driver = self._session.driver
+        if driver is None or not hasattr(driver, "status"):
+            return False
+        status = driver.status()
+        return isinstance(status, dict) and status.get("host_status") == "exited"
+
+    def _raise_if_host_exited(self) -> None:
+        if self._host_is_exited():
+            raise BrowserHostClosedError()
 
     def _state_from_raw(self, raw: RawPageSnapshot) -> BrowserState:
         self._session.registry.update(raw)

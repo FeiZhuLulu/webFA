@@ -28,3 +28,20 @@ def test_browser_session_defaults_and_close():
 
     assert created[0].closed is True
     assert session.driver is None
+
+
+def test_browser_session_reset_closes_driver_and_clears_registry():
+    session = BrowserSession(driver_factory=FakeDriver)
+    driver = session.ensure_driver()
+    session.registry.update(type("Raw", (), {"url": "https://example.com", "interactive_elements": [{"id": "el_1"}]})())
+
+    session.reset()
+
+    assert driver.closed is True
+    assert session.driver is None
+    try:
+        session.registry.require("el_1")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("registry should be cleared after reset")

@@ -140,6 +140,20 @@ def test_auth_takeover_off_does_not_relaunch(monkeypatch):
     assert result.state.auth.takeover == "none"
 
 
+def test_auth_takeover_does_not_relaunch_in_visible_mode(monkeypatch):
+    monkeypatch.setenv("WEBFA_AUTH_TAKEOVER", "auto")
+    driver = FakeAuthDriver()
+    driver.visible = True
+    runtime = BrowserRuntime(headless=False, driver_factory=lambda: driver)
+
+    result = runtime.open("https://example.com/login")
+
+    assert driver.relaunches == []
+    assert result.state.auth.surface_detected is True
+    assert result.state.auth.user_action_required is True
+    assert result.state.auth.takeover == "none"
+
+
 def test_runtime_rejects_agent_typing_password_field(monkeypatch):
     monkeypatch.setenv("WEBFA_AUTH_TAKEOVER", "off")
     driver = FakeAuthDriver()

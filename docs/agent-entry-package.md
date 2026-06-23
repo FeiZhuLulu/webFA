@@ -80,7 +80,7 @@ $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
 $env:WEBFA_AGENT_ID="opencode"
 $env:WEBFA_HOME="$env:APPDATA\WebFA"
 $env:WEBFA_BROWSER_DRIVER="managed-chromium"
-$env:WEBFA_BROWSER_HEADLESS="1"
+$env:WEBFA_BROWSER_HEADLESS="0"
 $env:WEBFA_AUTH_TAKEOVER="auto"
 ```
 
@@ -115,11 +115,17 @@ $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
 Use `webfa login github` to put a GitHub login session into this profile before
 asking an agent to work on logged-in GitHub pages.
 
-By default, WebFA also performs automatic auth takeover. If an agent opens a
-login, QR-code, verification-code, 2FA, or authorization page while the Runtime
-is headless, WebFA relaunches the same page in a visible managed Chromium
-window using the same default profile. The user completes the credential step
-manually, then the agent continues with `webfa.observe`.
+Developer preview recommends visible managed Chromium. If the visible Chromium
+window is closed during a task, the current browser host has ended; subsequent
+`observe`, `act`, `get_tabs`, or `switch_tab` calls return
+`browser_host_closed`. Calling `webfa.open_url` restarts a new host with the
+same default profile, but page memory and old element ids are lost.
+
+WebFA also keeps automatic auth takeover for headless fallback. If an agent
+opens a login, QR-code, verification-code, 2FA, or authorization page while the
+Runtime is headless, WebFA relaunches the same page in a visible managed
+Chromium window using the same default profile. The user completes the
+credential step manually, then the agent continues with `webfa.observe`.
 
 Disable this behavior only for tests or fully unattended local smoke runs:
 

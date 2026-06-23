@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from browser.agent_lease import AgentLeaseBusyError
+from browser.exceptions import BrowserHostClosedError
 from browser.runtime import BrowserRuntime
 from schemas.browser import BrowserActionRequest, BrowserOpenRequest
 
@@ -33,12 +34,21 @@ def busy_response(exc: AgentLeaseBusyError) -> HTTPException:
     )
 
 
+def host_closed_response(exc: BrowserHostClosedError) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={"code": "browser_host_closed", "message": str(exc)},
+    )
+
+
 @router.post("/browser/open")
 def open_url(payload: BrowserOpenRequest, request: Request):
     try:
         return get_browser_runtime(request).open(payload.url, agent_id=get_agent_id(request)).model_dump()
     except AgentLeaseBusyError as exc:
         raise busy_response(exc) from exc
+    except BrowserHostClosedError as exc:
+        raise host_closed_response(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -47,6 +57,8 @@ def open_url(payload: BrowserOpenRequest, request: Request):
 def observe(request: Request):
     try:
         return get_browser_runtime(request).observe().model_dump()
+    except BrowserHostClosedError as exc:
+        raise host_closed_response(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -57,6 +69,8 @@ def act(payload: BrowserActionRequest, request: Request):
         return get_browser_runtime(request).act(payload, agent_id=get_agent_id(request)).model_dump()
     except AgentLeaseBusyError as exc:
         raise busy_response(exc) from exc
+    except BrowserHostClosedError as exc:
+        raise host_closed_response(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -77,6 +91,8 @@ def tabs(request: Request):
                 "profile_id": status.get("profile_id", "default"),
             },
         }
+    except BrowserHostClosedError as exc:
+        raise host_closed_response(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -90,6 +106,8 @@ def switch_tab(payload: dict, request: Request):
         return get_browser_runtime(request).switch_tab(tab_id, agent_id=get_agent_id(request)).model_dump()
     except AgentLeaseBusyError as exc:
         raise busy_response(exc) from exc
+    except BrowserHostClosedError as exc:
+        raise host_closed_response(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

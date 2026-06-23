@@ -13,6 +13,7 @@ ERROR_CODE_MAP: dict[int, str] = {
     404: "not_found",
     409: "invalid_state",
     422: "validation_error",
+    503: "runtime_unavailable",
     500: "runtime_error",
 }
 

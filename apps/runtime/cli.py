@@ -123,9 +123,11 @@ def _cmd_doctor(runtime_url: str | None, auto_start: bool) -> int:
     checks: list[dict[str, Any]] = []
     runtime_process = None
     original_home = os.environ.get("WEBFA_HOME")
+    original_headless = os.environ.get("WEBFA_BROWSER_HEADLESS")
     temp_home = tempfile.TemporaryDirectory(ignore_cleanup_errors=True) if original_home is None else None
     if temp_home is not None:
         os.environ["WEBFA_HOME"] = str(Path(temp_home.name) / "WebFA")
+    os.environ["WEBFA_BROWSER_HEADLESS"] = "1"
     try:
         _record(checks, "import", True, "Python package imports are available")
         runtime_process = ensure_runtime(runtime_url, auto_start=auto_start)
@@ -154,6 +156,10 @@ def _cmd_doctor(runtime_url: str | None, auto_start: bool) -> int:
             os.environ.pop("WEBFA_HOME", None)
         else:
             os.environ["WEBFA_HOME"] = original_home
+        if original_headless is None:
+            os.environ.pop("WEBFA_BROWSER_HEADLESS", None)
+        else:
+            os.environ["WEBFA_BROWSER_HEADLESS"] = original_headless
         if temp_home is not None:
             temp_home.cleanup()
 
