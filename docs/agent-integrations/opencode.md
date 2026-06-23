@@ -21,10 +21,11 @@ Use opencode's local MCP config shape, not `mcpServers`.
 }
 ```
 
-If using the repo virtual environment directly, replace `webfa-mcp` with:
+If using the repo virtual environment directly, replace `webfa-mcp` with the
+absolute path to your local executable, for example:
 
 ```json
-["E:/项目库/webFA/webfa-phase1/.venv/Scripts/webfa-mcp.exe"]
+["<absolute-path-to-webfa-mcp>"]
 ```
 
 Validation prompt:
@@ -32,7 +33,7 @@ Validation prompt:
 ```text
 Use only WebFA MCP tools. List available tools, then open https://example.com,
 report the title and main visible text, then open
-E:/项目库/webFA/webfa-phase1/tests/fixtures/agent_validation_page.html,
+<your-webfa-repo>/tests/fixtures/agent_validation_page.html,
 enter Fei, click Submit, and confirm Hello Fei.
 ```
 

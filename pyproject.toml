@@ -5,7 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "webfa-desktop-runtime"
 version = "0.2.0"
-description = "WebFA Desktop v0.2 MCP stdio runtime"
+description = "WebFA developer preview: local agent-native browser runtime over MCP"
+license = "MIT"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.111",

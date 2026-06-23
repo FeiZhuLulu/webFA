@@ -8,3 +8,7 @@ __pycache__/
 .DS_Store
 webfa.db
 coverage/
+.env
+.env.local
+*_login_test_report.md
+webfa_*_test_report.md

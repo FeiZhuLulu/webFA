@@ -10,7 +10,7 @@
 | # | 测试 | 结果 | 说明 |
 |---|------|------|------|
 | C2 | GitHub 重启后持久化 | ✅ PASS | 重启 Runtime 后仍为已登录状态 |
-| C3 | GitHub 登录态页面导航 | ✅ PASS | 进入 FeiZhuLulu/ceshi1，读取仓库名、README、文件列表 |
+| C3 | GitHub 登录态页面导航 | ✅ PASS | 进入已登录用户的测试仓库，读取仓库名、README、文件列表 |
 | D4 | GitHub 搜索到 Star 按钮观察 | ✅ PASS | 识别 Star 按钮 (el_54)，未点击 |
 | A1 | Wikipedia 文章导航 | ✅ PASS | URL-first 进入 Chromium 页面，读取 3 个关键事实 |
 | A4 | npm 包搜索读取 | ❌ FAIL | npmjs.com Cloudflare 反爬阻断 |
@@ -35,7 +35,7 @@ webfa.observe()
 
 **BrowserState 证据**:
 - `title`: `"GitHub"` ✅
-- `visible_text`: `"Dashboard Top repositories New FeiZhuLulu/collabkit FeiZhuLulu/ceshi1 FeiZhuLulu/inkcraft-releases FeiZhuLulu/inkcraft FeiZhuLulu/MiMo-TTS"` ✅
+- `visible_text`: `"Dashboard Top repositories New <user>/<repo-a> <user>/<repo-b> ..."` ✅
 - 无 "Sign in" / "Sign up" ✅
 
 ---
@@ -44,12 +44,12 @@ webfa.observe()
 
 **工具序列**:
 ```
-webfa.open_url("https://github.com/FeiZhuLulu/ceshi1")
+webfa.open_url("https://github.com/<user>/<test-repo>")
 ```
 
 **BrowserState 证据**:
-- `title`: `"FeiZhuLulu/ceshi1: 测试wfa连接"`
-- 仓库名: `ceshi1`，Owner: `FeiZhuLulu`
+- `title`: `"<user>/<test-repo>: <test repository title>"`
+- 仓库名: `<test-repo>`，Owner: `<user>`
 - README 标题: `ceshi1`，内容: `"测试wfa连接"`
 - 文件列表: `README.md`
 - About: `"测试wfa连接"`
@@ -159,7 +159,7 @@ webfa.open_url("https://huggingface.co/models?search=whisper&sort=trending")
 
 **工具序列**:
 ```
-webfa.open_url("https://github.com/FeiZhuLulu/ceshi1/issues/new")
+webfa.open_url("https://github.com/<user>/<test-repo>/issues/new")
 webfa.act(type, el_26, "WebFA validation test - do not submit")
 webfa.act(type, el_43, "This issue was created by WebFA agent validation. Do not submit.")
 ```

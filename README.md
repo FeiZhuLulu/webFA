@@ -1,131 +1,58 @@
-# WebFA Desktop
+# WebFA
 
-WebFA Desktop 是一个本地运行的 **agent-native browser runtime**。
+WebFA is a local **agent-native browser runtime**.
 
-一句话定义：
-
-> WebFA 把真实网站转换成 agent 可读、可操作、可持续访问的联网环境。
-
-WebFA 不是 GitHub/Hugging Face API wrapper，不是站点动作库，不是内置 agent，也不替 agent 做任务规划。Agent 负责理解目标和决定下一步；WebFA 负责打开网页、保持登录态、返回结构化页面状态，并按 element id 执行网页对象级动作。
-
-## 当前主线
+It lets external agents use the web through a small MCP interface:
 
 ```text
-v0.1.5  Phase 1: Runtime Core                 legacy
-v0.2.0  Phase 2: MCP stdio                    legacy shell reused
-v0.3.0  Phase 3: GitHub Read Context          legacy
-v0.4.0  Phase 4: Agent Browser Runtime MVP    active
+agent -> webfa.open_url -> webfa.observe -> webfa.act -> webfa.observe
 ```
 
-P4 核心闭环：
+WebFA is not a traditional browser UI, not a site-specific API wrapper, and not
+an autonomous agent. The agent decides what to do. WebFA opens real websites,
+keeps the local user's login profile, returns structured page state, and
+performs generic web-object actions.
 
-```text
-agent -> open_url -> observe page_state -> act on element_id -> observe updated page_state
-```
+Status: **developer preview**. APIs and behavior may change.
 
-## Architecture
+## What Works Today
 
-```text
-Agent
-  ↓ MCP stdio / local REST
-WebFA Runtime
-  ↓ BrowserDriver (managed Chromium by default)
-Real websites
-```
+- MCP stdio entry point for external agents.
+- Five default MCP tools:
+  - `webfa.open_url`
+  - `webfa.observe`
+  - `webfa.act`
+  - `webfa.get_tabs`
+  - `webfa.switch_tab`
+- Managed Chromium runtime path with persistent local profile.
+- Agent-readable `BrowserState` with URL parts, forms, elements, content blocks,
+  auth status, and active agent lease metadata.
+- Generic actions for forms, links, controls, lists, blocks, and fallback
+  primitives such as click/type/press.
+- User-assisted login takeover for password, QR, verification, 2FA, and
+  authorization pages.
+- Single active agent lease so multiple connected agents do not silently fight
+  over one browser session.
 
-```text
-webfa/
-  apps/
-    desktop/
-      electron/          # Electron shell: window, tray, process managers
-      renderer/          # Browser Debug Console
-    runtime/
-      api/routes/        # REST API endpoints
-      mcp/               # MCP stdio server + HTTP client
-      main.py            # FastAPI app
+## Current Limits
 
-  packages/
-    webfa-core/
-      browser/           # Agent browser runtime
-    schemas/
-      browser.py         # BrowserState / BrowserAction contracts
-    storage/             # SQLite + WEBFA_HOME paths
-```
+- Visible auth takeover still uses a managed Chromium window.
+- All agents connected to the same Runtime and `WEBFA_HOME` share the default
+  browser profile and website login state.
+- Multi-profile and multi-session isolation are not implemented yet.
+- WebFA does not bypass anti-bot or platform risk systems.
+- High-risk final actions such as send, delete, purchase, publish, or settings
+  changes do not yet have a complete confirmation layer.
+- Some historical transaction/provider code remains in the repository as
+  legacy code and is disabled from the default MCP surface.
 
-旧 transaction/provider/proof/audit 代码暂时保留为 legacy，默认 MCP 和 Console 不再走这条主线。
-
-## Browser REST API
-
-```text
-POST /v1/browser/open
-GET  /v1/browser/observe
-POST /v1/browser/act
-GET  /v1/browser/tabs
-POST /v1/browser/tabs/switch
-```
-
-示例：
-
-```json
-{
-  "action": "type",
-  "target": "el_1",
-  "text": "webfa"
-}
-```
-
-约束：
-
-- 对外只接受网页对象级动作。
-- 不接受 raw Playwright、raw CDP、selector、xpath、locator、evaluate。
-- 默认不返回完整 DOM/HTML。
-- 默认不返回 cookies、localStorage、sessionStorage、IndexedDB、token 明文。
-
-## MCP Tools
-
-默认工具：
-
-```text
-webfa.open_url
-webfa.observe
-webfa.act
-webfa.get_tabs
-webfa.switch_tab
-```
-
-旧 transaction MCP tools 只有在显式设置时才注册：
-
-```powershell
-$env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
-```
-
-## Agent Entry Package
-
-Install locally:
+## Install
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -e ".[dev]"
-```
-
-Start Runtime:
-
-```powershell
-webfa-runtime
-```
-
-Print MCP client config:
-
-```powershell
-webfa mcp-config --agent-id opencode
-webfa mcp-config --client opencode --agent-id opencode
-```
-
-Run the MCP stdio server:
-
-```powershell
-webfa-mcp
+npm install
 ```
 
 Run a local self-test:
@@ -134,54 +61,116 @@ Run a local self-test:
 webfa doctor
 ```
 
-Open a manual login window for the default WebFA profile:
-
-```powershell
-webfa login github
-```
-
-`webfa-mcp` reuses an already-running Runtime. If none is reachable at
-`WEBFA_RUNTIME_URL`, it starts a local Runtime automatically.
-
-All agents connected to the same Runtime share the default WebFA browser
-profile and website login state. Set a distinct `WEBFA_AGENT_ID` per client.
-WebFA allows one active agent to change browser state at a time; other agents
-can still observe and will see the active lease in BrowserState and `/health`.
-
-## Local Development
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -e ".[dev]"
-
-npm install
-npm run dev
-```
-
-Runtime only:
+Start the Runtime manually:
 
 ```powershell
 webfa-runtime
 ```
 
-Check:
+Run the MCP stdio server:
 
 ```powershell
-pytest -q
-npm run typecheck:renderer
-npm run typecheck:electron
+webfa-mcp
 ```
 
-## Product Rules
+`webfa-mcp` reuses an already-running Runtime. If none is reachable at
+`WEBFA_RUNTIME_URL`, it starts one automatically.
 
-- WebFA 是 agent browser，不是 API wrapper。
-- WebFA 是工具，不是 agent。
-- 智能在 agent，不在 WebFA。
-- WebFA 不内置大模型。
-- WebFA 不封装具体网站业务动作。
-- WebFA 不主动破解网站接口。
-- WebFA 不以截图为主路径。
-- WebFA 以结构化页面状态为主输出。
-- WebFA 以网页对象级动作为主操作方式。
-- WebFA 必须支持用户登录态和持续 session。
+## Configure an Agent
+
+Generate a standard MCP config:
+
+```powershell
+webfa mcp-config --agent-id codex
+```
+
+Generate an opencode config:
+
+```powershell
+webfa mcp-config --client opencode --agent-id opencode
+```
+
+Each agent should use a distinct `WEBFA_AGENT_ID`. WebFA allows one active
+agent to change browser state at a time. Other agents can still observe and
+will see the active lease in `BrowserState` and `/health`.
+
+Integration docs:
+
+- `docs/agent-integrations/opencode.md`
+- `docs/agent-integrations/kimi-code.md`
+- `docs/agent-integrations/claude-code.md`
+- `docs/agent-integrations/codex.md`
+
+## Login
+
+Open a manual login window for the default WebFA profile:
+
+```powershell
+webfa login github
+webfa login --url https://example.com/login
+```
+
+Agents should not type passwords or verification codes. When WebFA detects a
+login, QR-code, verification-code, 2FA, or authorization page in headless mode,
+it can automatically reopen the same page in a visible managed Chromium window.
+The user completes authentication manually, then the agent continues with
+`webfa.observe`.
+
+## Environment
+
+Copy `.env.example` for local notes if needed. Common variables:
+
+```powershell
+$env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
+$env:WEBFA_AGENT_ID="opencode"
+$env:WEBFA_BROWSER_DRIVER="managed-chromium"
+$env:WEBFA_BROWSER_HEADLESS="1"
+$env:WEBFA_AUTH_TAKEOVER="auto"
+$env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
+```
+
+If `WEBFA_HOME` is unset on Windows, WebFA uses `%APPDATA%\WebFA`.
+
+## Local Development
+
+```powershell
+python -m pytest -q
+npm run typecheck:renderer
+npm run typecheck:electron
+python -m build
+```
+
+## Safety Contract
+
+WebFA should not expose these to agents:
+
+- cookies
+- localStorage/sessionStorage values
+- tokens or authorization headers
+- password values
+- raw Playwright
+- raw CDP
+- selector/XPath/evaluate escape hatches
+- full DOM/HTML by default
+
+Default MCP tools must remain exactly the five browser tools. Legacy
+transaction MCP tools appear only when explicitly enabled:
+
+```powershell
+$env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
+```
+
+## Roadmap
+
+See `docs/browser-runtime-roadmap.md`.
+
+Near-term work:
+
+- P9 WebFA Visualizer
+- P10 Element Registry v2
+- P11 Multi Session / Multi Profile
+- P12 Real Task Safety Layer
+
+## License
+
+MIT. See `LICENSE`.
