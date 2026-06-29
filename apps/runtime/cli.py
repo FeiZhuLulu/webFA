@@ -6,12 +6,13 @@ import os
 import subprocess
 import sys
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 from apps.runtime.login import resolve_login_target, run_login_window
 from apps.runtime.mcp.config_generator import generate_config
-from apps.runtime.process import ensure_runtime, get_runtime_url, runtime_health, wait_for_runtime
+from apps.runtime.process import ensure_runtime, get_runtime_url, runtime_health, runtime_http_options, wait_for_runtime
 from storage.file_store import ensure_webfa_data_dir
 
 
@@ -161,7 +162,8 @@ def _cmd_doctor(runtime_url: str | None, auto_start: bool) -> int:
         else:
             os.environ["WEBFA_BROWSER_HEADLESS"] = original_headless
         if temp_home is not None:
-            temp_home.cleanup()
+            with suppress(OSError, PermissionError):
+                temp_home.cleanup()
 
 
 def _cmd_login(site: str | None, url: str | None) -> int:
@@ -182,7 +184,7 @@ def _record(checks: list[dict[str, Any]], name: str, ok: bool, detail: str) -> N
 def _mcp_tools_are_default(runtime_url: str) -> bool:
     import httpx
 
-    response = httpx.get(f"{runtime_url}/v1/mcp/status", timeout=5)
+    response = httpx.get(f"{runtime_url}/v1/mcp/status", timeout=5, **runtime_http_options(runtime_url))
     response.raise_for_status()
     tools = response.json().get("tools")
     return tools == ["webfa.open_url", "webfa.observe", "webfa.act", "webfa.get_tabs", "webfa.switch_tab"]
@@ -203,7 +205,7 @@ def _run_browser_loop(runtime_url: str) -> bool:
     with tempfile.TemporaryDirectory() as tmp:
         page = Path(tmp) / "doctor.html"
         page.write_text(html, encoding="utf-8")
-        with httpx.Client(timeout=20) as client:
+        with httpx.Client(timeout=20, **runtime_http_options(runtime_url)) as client:
             opened = client.post(f"{runtime_url}/v1/browser/open", json={"url": page.as_uri()})
             opened.raise_for_status()
             state = opened.json()["state"]

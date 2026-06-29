@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from apps.runtime.process import runtime_http_options
+
 
 class RuntimeUnavailableError(Exception):
     """Runtime is not reachable."""
@@ -20,7 +22,7 @@ class WebFARuntimeClient:
         self.base_url = base_url or os.getenv("WEBFA_RUNTIME_URL", "http://127.0.0.1:8787")
         self.caller = caller
         self.agent_id = agent_id if agent_id is not None else os.getenv("WEBFA_AGENT_ID", "anonymous-mcp")
-        self._client = httpx.Client(timeout=10.0)
+        self._client = httpx.Client(timeout=10.0, **runtime_http_options(self.base_url))
 
     def _headers(self, tool: str | None = None) -> dict[str, str]:
         h = {"X-WebFA-Caller": self.caller, "X-WebFA-Agent-Id": self.agent_id}

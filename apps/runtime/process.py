@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from ipaddress import ip_address
 from urllib.parse import urlparse
 
 import httpx
@@ -31,10 +32,26 @@ def parse_runtime_url(runtime_url: str) -> tuple[str, int]:
     return parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
 
 
+def is_local_runtime_url(runtime_url: str) -> bool:
+    host, _port = parse_runtime_url(runtime_url)
+    if host == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def runtime_http_options(runtime_url: str) -> dict[str, object]:
+    if is_local_runtime_url(runtime_url):
+        return {"trust_env": False}
+    return {}
+
+
 def runtime_health(runtime_url: str | None = None, timeout: float = 2.0) -> dict | None:
     url = get_runtime_url(runtime_url)
     try:
-        response = httpx.get(f"{url}/health", timeout=timeout)
+        response = httpx.get(f"{url}/health", timeout=timeout, **runtime_http_options(url))
         if response.status_code == 200:
             return response.json()
     except httpx.HTTPError:
@@ -88,4 +105,3 @@ def ensure_runtime(runtime_url: str | None = None, auto_start: bool = True) -> R
                 process.kill()
         raise
     return RuntimeProcess(runtime_url=url, process=process, reused_existing=False)
-
