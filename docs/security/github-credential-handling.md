@@ -1,3 +1,12 @@
+# Legacy: GitHub Credential Handling
+
+This document is historical transaction/provider guidance. It is not part of
+the current default WebFA agent-browser path.
+
+Current WebFA developer preview does not expose GitHub PAT collection or
+GitHub-specific business tools through the default MCP surface. Default MCP
+tools remain only the five browser tools.
+
 # GitHub 凭证处理规范
 
 ## 认证方式

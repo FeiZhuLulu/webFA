@@ -1,5 +1,8 @@
 # WebFA Desktop 路线与冻结约束
 
+> Historical note: this document records the P4-P5 direction reset. The current
+> developer-preview roadmap is `docs/browser-runtime-roadmap.md`.
+
 ## 方向冻结
 
 WebFA 是 **agent-native browser runtime**。

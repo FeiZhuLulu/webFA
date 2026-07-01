@@ -17,6 +17,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from apps.runtime.main import create_app
+from apps.runtime.process import runtime_http_options
 from browser.managed_chromium_host import _find_chromium_executable
 from storage.db import reset_engine_for_tests
 
@@ -175,7 +176,7 @@ def _wait_for_runtime(port: int) -> None:
     url = f"http://127.0.0.1:{port}/health"
     while time.time() < deadline:
         try:
-            response = httpx.get(url, timeout=1)
+            response = httpx.get(url, timeout=1, **runtime_http_options(url))
             if response.status_code == 200:
                 return
         except httpx.HTTPError:

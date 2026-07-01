@@ -10,5 +10,7 @@ webfa.db
 coverage/
 .env
 .env.local
+docs/superpowers/
+.tmp/
 *_login_test_report.md
 webfa_*_test_report.md

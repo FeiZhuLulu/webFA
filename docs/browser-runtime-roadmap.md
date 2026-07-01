@@ -152,6 +152,13 @@ P8.10
   browser_host_closed. open_url restarts the host under the same default
   session/profile, clears ElementRegistry, and invalidates old element ids.
 
+P8.11
+  Developer Preview Release Hardening.
+  Keep the current WebFA capability set fixed and prepare the repository for a
+  public developer-preview release. Verify clean install, MCP entry package,
+  docs consistency, legacy isolation, local proxy-safe Runtime calls, ignored
+  scratch files, and release checklist coverage.
+
 P9
   WebFA Visualizer.
   Show WebFA's own runtime state: URL, title, BrowserState, content_blocks, elements, screenshots, highlights, action log, and takeover controls.

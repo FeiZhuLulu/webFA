@@ -1,54 +1,75 @@
 # WebFA Security Invariants
 
-These rules are non-negotiable. Any violation is a Phase-blocking failure.
+These rules define the current agent-browser runtime line. Historical
+transaction/approval/proof code is legacy and must not shape the default agent
+surface.
 
-## Approval Binding
+## Agent Surface
 
-1. **No execute without preview.** Plan must pass through preview (policy check + diff generation) before execution is possible.
-2. **No execute without approval.** Execution requires an approved approval with valid token.
-3. **Approval binds plan_hash.** If plan content changes after approval, execution must fail with plan_hash mismatch.
-4. **Approval binds diff_hash.** If diff changes after approval, execution must fail with diff_hash mismatch.
-5. **Approval has expiry.** Expired approvals cannot be used for execution.
-6. **Approval token not reusable across plans.** Token A for plan A cannot execute plan B.
-7. **Rejected approval cannot be re-approved.** Once rejected, approval is terminal.
-8. **plan_hash recomputed on execute.** The executor must recompute plan_hash from current DB fields and compare against stored hash. Do NOT compare stored hash against caller-provided hash.
+1. Default MCP tools are exactly `webfa.open_url`, `webfa.observe`,
+   `webfa.act`, `webfa.get_tabs`, and `webfa.switch_tab`.
+2. Raw Playwright, raw CDP, raw DevTools, selectors, XPath, and arbitrary
+   evaluate are not public agent capabilities.
+3. Site-specific business APIs are not public agent capabilities.
+4. Page operations remain under `webfa.act`; new public tools require an
+   explicit resource-domain decision.
 
-## Policy Enforcement
+## Browser State
 
-9. **Blocked paths are backend-enforced.** Policy check happens in the Runtime service layer, not in the UI.
-10. **File count limit enforced.** Changed files > 5 → blocked.
-11. **Diff line limit enforced.** Diff > 800 lines → blocked.
-12. **High-risk transactions require approval.** Risk level medium/high/critical → approval_required=true.
+5. `BrowserState` must not include cookies, localStorage, sessionStorage,
+   IndexedDB values, authorization headers, tokens, password values, full DOM,
+   or full HTML.
+6. `BrowserState` may include URL parts, visible text, content blocks, forms,
+   elements, tabs, auth status, and active agent/profile metadata.
+7. Password fields may be reported as fields, but password values must be empty
+   and agents must not fill them.
+8. Element ids are page-state references, not stable cross-navigation
+   identities. Navigation or host restart invalidates old ids.
 
-## Token Security
+## Authentication
 
-13. **Agent never sees tokens.** approval_token only returned once in the approve response.
-14. **Token stored as hash only.** DB stores sha256(token), never plaintext.
-15. **Token not in logs.** Logs must redact token, authorization, credential, secret, private_key.
-16. **Token not in audit.** Audit payloads must not contain token or token_hash.
-17. **Token not in proof.** Proof bundles must not contain token.
+9. WebFA may open a visible managed Chromium host for human login, QR, 2FA, or
+   authorization.
+10. Agents must not ask users for passwords, verification codes, cookies,
+    storage values, or tokens in chat.
+11. Auth takeover must use the same local profile without exposing credential
+    material to MCP, REST responses, logs, or docs.
+12. Closing the visible host ends the current browser host. `open_url` may
+    restart it with the same profile, but page memory and old element ids are
+    lost.
 
-## Proof Integrity
+## Agent Coordination
 
-18. **Verified execution must have proof.** execution.status=verified implies proof exists.
-19. **Proof binds execution.** proof.execution_id must reference a real execution.
-20. **Proof contains verification.** proof.verification.passed and proof.verification.checks must be present.
-21. **Proof hash is recomputable.** proof.hash must be verifiable by recomputing from canonical proof payload.
-22. **Proof DB and file consistent.** SQLite proof_json and proofs/ file must match.
+13. The developer-preview default is one Runtime, one default session, one
+    default shared profile, and one active mutating agent lease.
+14. Browser-changing calls from another agent during an active lease must return
+    `agent_busy`.
+15. Read-only state may expose the active agent id and shared profile metadata,
+    but never profile internals or credentials.
 
-## Audit Completeness
+## Runtime Boundary
 
-23. **Audit records full chain.** Minimum events: plan.created, plan.previewed, policy.checked, approval.created, approval.approved, execution.created, execution.started, execution.step.succeeded, execution.verifying, execution.verified, proof.created.
-24. **Audit records failures.** Policy blocks, execution failures, and verification failures must be audited.
-25. **Audit timestamps ordered.** Events must be chronologically correct.
+16. The Python Runtime owns BrowserState generation, element registry, profile
+    use, auth takeover, leases, and safety checks.
+17. MCP is a protocol adapter only. It does not write DB state, bypass leases,
+    create hidden capabilities, or call browser protocols directly.
+18. Electron and future visualizers are optional observation/takeover surfaces;
+    they must not become the core agent interface.
 
-## Architecture Boundary
+## Legacy Isolation
 
-26. **Electron does not contain business logic.** Electron main process: spawn/stop runtime, window, tray, IPC status only.
-27. **Runtime is the business core.** All plan/policy/approval/execution/verification/proof/audit logic lives in Python Runtime.
-28. **MCP is protocol adapter only.** MCP server does not write DB, does not generate hashes, does not bypass approval.
+19. Historical transaction tools remain disabled unless
+    `WEBFA_ENABLE_LEGACY_TRANSACTION=1`.
+20. Legacy provider, approval, proof, and audit code must not appear in the
+    default MCP tool list.
+21. Legacy docs must be marked as historical or abandoned when they describe
+    behavior outside the current agent-browser runtime line.
 
-## Taint Tracking
+## Release Hygiene
 
-29. **External content is tainted.** GitHub issue body, comments, README; HF model card, README, discussion.
-30. **Tainted content cannot:** expand permissions, modify target repo, skip approval, modify blocked paths, cross provider write, change credential scope.
+22. Public docs must not contain local filesystem paths, personal account names,
+    screenshots from private sessions, raw credentials, or private test data.
+23. Build artifacts, virtual environments, local reports, and generated scratch
+    specs must not be committed.
+24. Before a developer-preview release, run the checklist in
+    `RELEASE_CHECKLIST.md`.

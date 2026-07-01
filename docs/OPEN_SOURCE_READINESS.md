@@ -1,6 +1,7 @@
 # Open Source Readiness
 
-P8.9 prepares WebFA for a developer-preview open source release.
+P8.11 keeps WebFA ready for a developer-preview open source release after the
+agent integration hardening and visible-host stability work.
 
 ## Release Positioning
 
@@ -48,9 +49,13 @@ webfa.switch_tab
 - Personal local paths and account names were removed from public validation
   reports.
 - Local login test reports are ignored by `.gitignore`.
+- Local Superpowers planning drafts are ignored by `.gitignore`.
+- Local Runtime HTTP calls bypass system proxy environment variables for
+  loopback URLs, so MCP clients are not broken by user-level SOCKS proxies.
 - Security policy states that credentials, cookies, storage, tokens, passwords,
   raw CDP, raw Playwright, selectors, XPath, and full DOM/HTML must not be
   exposed to agents.
+- Historical GitHub/provider transaction docs are marked as legacy or abandoned.
 
 ## Verification
 
@@ -62,3 +67,5 @@ npm run typecheck:renderer
 npm run typecheck:electron
 python -m build
 ```
+
+Use `RELEASE_CHECKLIST.md` for the full publish gate.

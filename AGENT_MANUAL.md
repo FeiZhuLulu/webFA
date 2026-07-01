@@ -96,14 +96,13 @@ working from the new BrowserState.
 
 Do not blindly copy human browser behavior. Humans click through menus because URLs and page state are awkward for them. Agents can read and modify structured text.
 
-Prefer this order:
+Consider these routes and choose based on the task and current page state:
 
 ```text
-1. If the target page can be expressed as a URL, use webfa.open_url directly.
-2. If the page has a normal form, use fill_form -> submit_form.
-3. If object operations are not available, fall back to type -> press Enter.
-4. If Enter does not work, click the stable submit button.
-5. Avoid clicking dynamic suggestions unless they appear as interactive_elements.
+URL navigation when the target is encoded in the URL
+form object operations when WebFA exposes a clear form
+type/press/click primitives when object operations are not enough
+fresh observe after dynamic page changes
 ```
 
 Good URL-first candidates:
