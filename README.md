@@ -1,53 +1,43 @@
 # WebFA
 
-WebFA is a local **agent-native browser runtime**.
+WebFA 是一个本地运行的 **agent-native browser runtime**。
 
-It lets external agents use the web through a small MCP interface:
+它的目标不是做一个“更适合 agent 操作的传统浏览器”，而是给 agent 一个原生的网页访问接口：
 
 ```text
 agent -> webfa.open_url -> webfa.observe -> webfa.act -> webfa.observe
 ```
 
-WebFA is not a traditional browser UI, not a site-specific API wrapper, and not
-an autonomous agent. The agent decides what to do. WebFA opens real websites,
-keeps the local user's login profile, returns structured page state, and
-performs generic web-object actions.
+WebFA 不是传统浏览器 UI，不是站点 API wrapper，也不是内置智能体。
+agent 决定要做什么；WebFA 负责打开真实网页、维护本地用户登录态、返回结构化页面状态，并执行通用网页对象操作。
 
-Status: **developer preview**. APIs and behavior may change.
+当前状态：**Developer Preview**。API 和行为仍可能变化。
 
-## What Works Today
+## 当前能力
 
-- MCP stdio entry point for external agents.
-- Five default MCP tools:
+- 通过 MCP stdio 接入外部 agent。
+- 默认只暴露 5 个 MCP 工具：
   - `webfa.open_url`
   - `webfa.observe`
   - `webfa.act`
   - `webfa.get_tabs`
   - `webfa.switch_tab`
-- Managed Chromium runtime path with persistent local profile.
-- Agent-readable `BrowserState` with URL parts, forms, elements, content blocks,
-  auth status, and active agent lease metadata.
-- Generic actions for forms, links, controls, lists, blocks, and fallback
-  primitives such as click/type/press.
-- Visible managed Chromium host by default for user-assisted login, QR,
-  verification, 2FA, and authorization pages.
-- Single active agent lease so multiple connected agents do not silently fight
-  over one browser session.
+- 使用本地 managed Chromium runtime，并持久化默认用户 profile。
+- 返回 agent 可读的 `BrowserState`，包含 URL 结构、表单、元素、内容块、登录状态、active agent lease 等信息。
+- 支持通用网页对象动作，包括表单、链接、控件、列表、内容块，以及 click/type/press 等 fallback primitive。
+- 默认使用可见 managed Chromium host，方便用户完成登录、扫码、验证码、2FA 和授权。
+- 通过 active agent lease 限制同一时间只有一个 agent 修改浏览器状态，避免多个 agent 同时抢同一个页面。
 
-## Current Limits
+## 当前限制
 
-- The visible host is still a managed Chromium window until WebFA Visualizer
-  replaces the product-facing takeover surface.
-- All agents connected to the same Runtime and `WEBFA_HOME` share the default
-  browser profile and website login state.
-- Multi-profile and multi-session isolation are not implemented yet.
-- WebFA does not bypass anti-bot or platform risk systems.
-- High-risk final actions such as send, delete, purchase, publish, or settings
-  changes do not yet have a complete confirmation layer.
-- Some historical transaction/provider code remains in the repository as
-  legacy code and is disabled from the default MCP surface.
+- 当前可见窗口仍是 managed Chromium window。后续会用 WebFA Visualizer 替换面向用户的接管界面。
+- 连接同一个 Runtime 和 `WEBFA_HOME` 的所有 agent 默认共享同一个浏览器 profile，也就是共享同一组网站登录态。
+- 多 profile、多 session 隔离尚未实现。
+- WebFA 不绕过反爬、验证码、风控或平台安全系统。
+- 发送、删除、购买、发布、修改设置等高风险最终动作还没有完整的人类确认层。
+- 仓库里仍保留少量历史 transaction/provider 代码作为 legacy；默认 MCP surface 不会暴露这些能力。
 
-## Install
+## 安装
 
 ```powershell
 python -m venv .venv
@@ -56,74 +46,65 @@ pip install -e ".[dev]"
 npm install
 ```
 
-Run a local self-test:
+运行本地自检：
 
 ```powershell
 webfa doctor
 ```
 
-Start the Runtime manually:
+手动启动 Runtime：
 
 ```powershell
 webfa-runtime
 ```
 
-Run the MCP stdio server:
+启动 MCP stdio server：
 
 ```powershell
 webfa-mcp
 ```
 
-`webfa-mcp` reuses an already-running Runtime. If none is reachable at
-`WEBFA_RUNTIME_URL`, it starts one automatically.
+`webfa-mcp` 会复用已经运行的 Runtime。如果 `WEBFA_RUNTIME_URL` 指向的位置没有可用 Runtime，它会自动启动一个。
 
-## Configure an Agent
+## 接入 Agent
 
-Generate a standard MCP config:
+生成标准 MCP 配置：
 
 ```powershell
 webfa mcp-config --agent-id codex
 ```
 
-Generate an opencode config:
+生成 opencode 配置：
 
 ```powershell
 webfa mcp-config --client opencode --agent-id opencode
 ```
 
-Each agent should use a distinct `WEBFA_AGENT_ID`. WebFA allows one active
-agent to change browser state at a time. Other agents can still observe and
-will see the active lease in `BrowserState` and `/health`.
+每个 agent 应该配置独立的 `WEBFA_AGENT_ID`。WebFA 同一时间只允许一个 active agent 修改浏览器状态。其他 agent 仍然可以 observe，并会在 `BrowserState` 和 `/health` 中看到当前 active lease。
 
-Integration docs:
+接入文档：
 
 - `docs/agent-integrations/opencode.md`
 - `docs/agent-integrations/kimi-code.md`
 - `docs/agent-integrations/claude-code.md`
 - `docs/agent-integrations/codex.md`
 
-## Login
+## 登录
 
-Open a manual login window for the default WebFA profile:
+为默认 WebFA profile 打开手动登录窗口：
 
 ```powershell
 webfa login github
 webfa login --url https://example.com/login
 ```
 
-Developer preview uses a visible managed Chromium host by default. Agents
-should not type passwords or verification codes. The user completes
-authentication manually in the visible window, then the agent continues with
-`webfa.observe`.
+Developer Preview 默认使用可见 managed Chromium host。agent 不应该输入密码、验证码或 2FA。用户在可见窗口中手动完成认证，之后 agent 继续调用 `webfa.observe` 读取登录后的页面状态。
 
-If the visible window is closed during a task, the current browser host is
-ended. `webfa.observe`, `webfa.act`, `webfa.get_tabs`, and `webfa.switch_tab`
-will return `browser_host_closed`. Use `webfa.open_url` to restart with the
-same default profile; page memory and old element ids are lost.
+如果用户在任务中关闭了可见窗口，当前 browser host 会结束。此时 `webfa.observe`、`webfa.act`、`webfa.get_tabs` 和 `webfa.switch_tab` 会返回 `browser_host_closed`。再次调用 `webfa.open_url` 会用同一个默认 profile 重新启动 host，但页面内存状态和旧 element id 会失效。
 
-## Environment
+## 环境变量
 
-Copy `.env.example` for local notes if needed. Common variables:
+如有需要，可以复制 `.env.example` 作为本地记录。常用变量：
 
 ```powershell
 $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
@@ -134,9 +115,9 @@ $env:WEBFA_AUTH_TAKEOVER="auto"
 $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
 ```
 
-If `WEBFA_HOME` is unset on Windows, WebFA uses `%APPDATA%\WebFA`.
+Windows 上如果没有设置 `WEBFA_HOME`，WebFA 默认使用 `%APPDATA%\WebFA`。
 
-## Local Development
+## 本地开发
 
 ```powershell
 python -m pytest -q
@@ -145,31 +126,30 @@ npm run typecheck:electron
 python -m build
 ```
 
-## Safety Contract
+## 安全边界
 
-WebFA should not expose these to agents:
+WebFA 默认不应该向 agent 暴露：
 
 - cookies
-- localStorage/sessionStorage values
-- tokens or authorization headers
-- password values
+- localStorage / sessionStorage 值
+- token 或 authorization header
+- password value
 - raw Playwright
 - raw CDP
-- selector/XPath/evaluate escape hatches
-- full DOM/HTML by default
+- selector / XPath / evaluate escape hatch
+- 完整 DOM / HTML
 
-Default MCP tools must remain exactly the five browser tools. Legacy
-transaction MCP tools appear only when explicitly enabled:
+默认 MCP 工具必须保持为 5 个 browser tools。历史 transaction MCP tools 只有在显式开启时才会出现：
 
 ```powershell
 $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 ```
 
-## Roadmap
+## 路线图
 
-See `docs/browser-runtime-roadmap.md`.
+见 `docs/browser-runtime-roadmap.md`。
 
-Near-term work:
+近期方向：
 
 - P9 WebFA Visualizer
 - P10 Element Registry v2
