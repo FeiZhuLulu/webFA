@@ -1,5 +1,7 @@
 # WebFA
 
+**语言 / Language**：中文 | [English](README.en.md)
+
 WebFA 是一个本地运行的 **agent-native browser runtime**。
 
 它的目标不是做一个“更适合 agent 操作的传统浏览器”，而是给 agent 一个原生的网页访问接口：
