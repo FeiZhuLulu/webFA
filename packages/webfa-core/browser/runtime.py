@@ -57,6 +57,22 @@ class BrowserRuntime:
         self._agent_lease.acquire(agent_id)
         return self._with_agent_state(self._call("switch_tab", tab_id))
 
+    def capture_preview(self) -> str | None:
+        if self._closed:
+            return None
+        if self._thread is None:
+            return None
+        try:
+            return self._call("capture_preview")
+        except Exception:
+            return None
+
+    def restart_host(self) -> BrowserState:
+        return self._with_agent_state(self._call("restart_host"))
+
+    def relaunch_visible_host(self) -> BrowserState:
+        return self._with_agent_state(self._call("relaunch_visible_host"))
+
     def status(self) -> dict[str, Any]:
         lease = self._agent_lease.snapshot().as_dict()
         base = {
@@ -144,6 +160,9 @@ class _BrowserWorker:
             "switch_tab": self.switch_tab,
             "close": self.close,
             "status": self.status,
+            "capture_preview": self.capture_preview,
+            "restart_host": self.restart_host,
+            "relaunch_visible_host": self.relaunch_visible_host,
         }
         while True:
             job = jobs.get()
@@ -210,6 +229,47 @@ class _BrowserWorker:
             if isinstance(status, dict):
                 return status
         return {"host_status": "running"}
+
+    def capture_preview(self) -> str | None:
+        if self._session.driver is None:
+            return None
+        self._raise_if_host_exited()
+        capture = getattr(self._session.driver, "capture_screenshot", None)
+        if not callable(capture):
+            return None
+        return capture()
+
+    def restart_host(self) -> BrowserState:
+        url = self._current_url_or_blank()
+        self._session.reset()
+        driver = self._ensure_driver()
+        driver.open(url)
+        return self._state_after_navigation(driver)
+
+    def relaunch_visible_host(self) -> BrowserState:
+        url = self._current_url_or_blank()
+        self._session.reset()
+        driver = self._ensure_driver()
+        relaunch = getattr(driver, "relaunch_visible", None)
+        if callable(relaunch):
+            relaunch(url)
+        else:
+            driver.open(url)
+        state = self._state_from_raw(driver.observe_raw())
+        if state.auth.surface_detected or state.auth.user_action_required:
+            state.auth.takeover = "visible_window"
+        return state
+
+    def _current_url_or_blank(self) -> str:
+        if self._session.driver is None:
+            return "about:blank"
+        if self._host_is_exited():
+            return "about:blank"
+        try:
+            raw = self._session.driver.observe_raw()
+            return raw.url or "about:blank"
+        except Exception:
+            return "about:blank"
 
     def _ensure_driver(self) -> BrowserDriver:
         return self._session.ensure_driver()

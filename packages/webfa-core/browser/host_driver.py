@@ -100,6 +100,12 @@ class HostBrowserDriver:
             raise RuntimeError("browser host does not support visible relaunch")
         self._host.relaunch_visible(url)
 
+    def capture_screenshot(self) -> str | None:
+        capture = getattr(self._host, "capture_screenshot", None)
+        if not callable(capture):
+            return None
+        return capture()
+
     def _focus(self, element_id: str | None) -> None:
         if not element_id:
             raise ValueError("target is required")

@@ -161,8 +161,13 @@ P8.11
 
 P9
   WebFA Visualizer.
-  Show WebFA's own runtime state: URL, title, BrowserState, content_blocks, elements, screenshots, highlights, action log, and takeover controls.
+  Show WebFA's own runtime state: URL, title, BrowserState,
+  content_blocks, elements, screenshots, action log, and takeover controls.
   Keep it focused on observation and takeover, not general human browsing.
+  Status: implemented as MVP — /v1/visualizer/state, local preview cache,
+  action log, host restart/open controls, and Electron/Next three-column
+  inspector UI. Element highlight overlay and productized tab switching are
+  intentionally left for follow-up work.
 
 P10
   Element Registry v2.

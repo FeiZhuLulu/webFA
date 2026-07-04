@@ -95,6 +95,15 @@ class ManagedChromiumHost:
         self._headless = False
         self.navigate(url)
 
+    def capture_screenshot(self) -> str | None:
+        if not self._process_is_running():
+            return None
+        client = self._ensure_page_client()
+        client.call("Page.enable")
+        result = client.call("Page.captureScreenshot", {"format": "png", "fromSurface": True})
+        data = result.get("data")
+        return data if isinstance(data, str) and data else None
+
     def status(self) -> dict[str, Any]:
         executable_found, executable_name = self._executable_status()
         status = "running" if self._process_is_running() else "not_started"

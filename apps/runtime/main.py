@@ -27,6 +27,7 @@ from apps.runtime.api.routes.proofs import router as proofs_router
 from apps.runtime.api.routes.provider_connections import router as provider_connections_router
 from apps.runtime.api.routes.providers import router as providers_router
 from apps.runtime.api.routes.transactions import router as transactions_router
+from apps.runtime.api.routes.visualizer import router as visualizer_router
 from apps.runtime.api.routes.workspaces import router as workspaces_router
 from registry.transaction_registry import build_default_registry
 from storage.db import init_db, upsert_transactions
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(provider_connections_router, prefix="/v1")
     app.include_router(providers_router, prefix="/v1")
     app.include_router(transactions_router, prefix="/v1")
+    app.include_router(visualizer_router, prefix="/v1")
     app.include_router(workspaces_router, prefix="/v1")
     return app
 

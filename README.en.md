@@ -29,10 +29,11 @@ Status: **Developer Preview**. APIs and behavior may change.
 - Generic actions for forms, links, controls, lists, blocks, and fallback primitives such as click/type/press.
 - Visible managed Chromium host by default for user-assisted login, QR, verification, 2FA, and authorization pages.
 - Single active agent lease so multiple connected agents do not silently fight over one browser session.
+- WebFA Visualizer MVP for Runtime status, page preview, Agent View, content blocks, and action log.
 
 ## Current Limits
 
-- The visible host is still a managed Chromium window. WebFA Visualizer will replace this user-facing takeover surface later.
+- The Visualizer is currently an inspector and takeover panel, not a complete desktop browser. Login and QR flows may still require the visible managed Chromium host.
 - All agents connected to the same Runtime and `WEBFA_HOME` share the default browser profile and website login state.
 - Multi-profile and multi-session isolation are not implemented yet.
 - WebFA does not bypass anti-bot, CAPTCHA, risk-control, or platform safety systems.
@@ -67,6 +68,18 @@ webfa-mcp
 ```
 
 `webfa-mcp` reuses an already-running Runtime. If none is reachable at `WEBFA_RUNTIME_URL`, it starts one automatically.
+
+Start the development Visualizer:
+
+```powershell
+npm run dev:renderer
+```
+
+Default URL:
+
+```text
+http://127.0.0.1:8788
+```
 
 ## Configure an Agent
 
@@ -153,7 +166,6 @@ See `docs/browser-runtime-roadmap.md`.
 
 Near-term work:
 
-- P9 WebFA Visualizer
 - P10 Element Registry v2
 - P11 Multi Session / Multi Profile
 - P12 Real Task Safety Layer

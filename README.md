@@ -29,10 +29,11 @@ agent 决定要做什么；WebFA 负责打开真实网页、维护本地用户�
 - 支持通用网页对象动作，包括表单、链接、控件、列表、内容块，以及 click/type/press 等 fallback primitive。
 - 默认使用可见 managed Chromium host，方便用户完成登录、扫码、验证码、2FA 和授权。
 - 通过 active agent lease 限制同一时间只有一个 agent 修改浏览器状态，避免多个 agent 同时抢同一个页面。
+- 提供 WebFA Visualizer MVP，用于查看 Runtime 状态、当前页面预览、Agent View、内容块和操作日志。
 
 ## 当前限制
 
-- 当前可见窗口仍是 managed Chromium window。后续会用 WebFA Visualizer 替换面向用户的接管界面。
+- Visualizer 目前是观察和接管面板，不是完整桌面浏览器；登录/扫码仍可能需要可见 managed Chromium host。
 - 连接同一个 Runtime 和 `WEBFA_HOME` 的所有 agent 默认共享同一个浏览器 profile，也就是共享同一组网站登录态。
 - 多 profile、多 session 隔离尚未实现。
 - WebFA 不绕过反爬、验证码、风控或平台安全系统。
@@ -67,6 +68,18 @@ webfa-mcp
 ```
 
 `webfa-mcp` 会复用已经运行的 Runtime。如果 `WEBFA_RUNTIME_URL` 指向的位置没有可用 Runtime，它会自动启动一个。
+
+启动开发版 Visualizer：
+
+```powershell
+npm run dev:renderer
+```
+
+默认访问：
+
+```text
+http://127.0.0.1:8788
+```
 
 ## 接入 Agent
 
@@ -153,7 +166,6 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 近期方向：
 
-- P9 WebFA Visualizer
 - P10 Element Registry v2
 - P11 Multi Session / Multi Profile
 - P12 Real Task Safety Layer

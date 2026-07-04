@@ -1,244 +1,248 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { McpStatus, RuntimeStatus } from "../types/webfa-desktop";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { VisualizerShell } from "../components/Layout/VisualizerShell";
+import { ActionLogger } from "../components/Inspector/ActionLogger";
+import { AgentStateInspector } from "../components/Inspector/AgentStateInspector";
+import { ContentBlocksList } from "../components/Inspector/ContentBlocksList";
+import { ElementTable } from "../components/Inspector/ElementTable";
+import { PagePreview } from "../components/Preview/PagePreview";
+import { ControlPanel } from "../components/Runtime/ControlPanel";
+import { StatusPanel } from "../components/Runtime/StatusPanel";
+import { fetchVisualizerState, openVisibleHost, resolveApiUrl, restartHost } from "../lib/visualizer-api";
+import type { VisualizerState } from "../types/visualizer";
+import type { RuntimeState } from "../types/webfa-desktop";
 
-const API_FALLBACK = "http://127.0.0.1:8787";
+const POLL_MS = 2500;
 
-type BrowserElement = {
-  id: string;
-  role: string;
-  tag: string;
-  name: string;
-  value: string;
-  placeholder: string;
-  visible: boolean;
-  enabled: boolean;
-  actions: string[];
-};
+function mapDesktopRuntimeState(state: RuntimeState): "running" | "stopped" | "error" {
+  if (state === "running") return "running";
+  if (state === "error") return "error";
+  return "stopped";
+}
 
-type BrowserState = {
-  session_id: string;
-  url: string;
-  title: string;
-  page_status: "idle" | "loading";
-  focused_element_id: string | null;
-  tabs: Array<{ id: string; url: string; title: string; active: boolean }>;
-  visible_text: string;
-  interactive_elements: BrowserElement[];
-  error: Record<string, unknown> | null;
-};
-
-type HealthResponse = {
-  status: "ok";
-  runtime: "running";
-  api: { host: string; port: number; url: string };
-  storage: { data_dir: string; db_path: string; logs_dir: string };
-  mcp: { status: string; transport: string };
-};
-
-export default function DashboardPage() {
-  const [runtime, setRuntime] = useState<RuntimeStatus>({ state: "stopped", apiUrl: API_FALLBACK });
-  const [mcpStatus, setMcpStatus] = useState<McpStatus>({ state: "stopped", transport: "stdio", runtimeUrl: API_FALLBACK });
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [mcpTools, setMcpTools] = useState<string[]>([]);
-  const [url, setUrl] = useState("https://example.com");
-  const [actionJson, setActionJson] = useState('{"action":"click","target":"el_1"}');
-  const [state, setState] = useState<BrowserState | null>(null);
-  const [lastError, setLastError] = useState<string | null>(null);
+export default function VisualizerPage() {
+  const [apiUrl, setApiUrl] = useState(resolveApiUrl());
+  const apiUrlRef = useRef(apiUrl);
+  const [runtimeState, setRuntimeState] = useState<"running" | "stopped" | "error">("stopped");
+  const [visualizerState, setVisualizerState] = useState<VisualizerState | null>(null);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [jsonExpanded, setJsonExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
 
-  const apiUrl = useMemo(() => runtime.apiUrl || health?.api.url || API_FALLBACK, [runtime.apiUrl, health?.api.url]);
-
-  const refreshStatus = useCallback(async () => {
-    try {
-      const healthResponse = await fetch(`${apiUrl}/health`, { cache: "no-store" });
-      if (!healthResponse.ok) throw new Error(`Health failed: ${healthResponse.status}`);
-      const nextHealth = (await healthResponse.json()) as HealthResponse;
-      setHealth(nextHealth);
-      setRuntime((current) => ({ ...current, state: "running", apiUrl: nextHealth.api.url, dbPath: nextHealth.storage.db_path }));
-
-      const mcpResponse = await fetch(`${apiUrl}/v1/mcp/status`, { cache: "no-store" });
-      if (mcpResponse.ok) setMcpTools(((await mcpResponse.json()) as { tools: string[] }).tools);
-      setLastError(null);
-    } catch (error) {
-      setHealth(null);
-      setRuntime((current) => ({ ...current, state: current.state === "error" ? "error" : "stopped" }));
-      setLastError(error instanceof Error ? error.message : String(error));
-    }
-  }, [apiUrl]);
-
-  async function observe() {
-    const response = await fetch(`${apiUrl}/v1/browser/observe`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Observe failed: ${response.status}`);
-    setState((await response.json()) as BrowserState);
-  }
-
-  async function openUrl() {
-    setBusy(true);
-    try {
-      const response = await fetch(`${apiUrl}/v1/browser/open`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      if (!response.ok) throw new Error(`Open failed: ${response.status}`);
-      setState(((await response.json()) as { state: BrowserState }).state);
-      setLastError(null);
-    } catch (error) {
-      setLastError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function runAction() {
-    setBusy(true);
-    try {
-      const payload = JSON.parse(actionJson) as Record<string, unknown>;
-      const response = await fetch(`${apiUrl}/v1/browser/act`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error(`Act failed: ${response.status} ${await response.text()}`);
-      setState(((await response.json()) as { state: BrowserState }).state);
-      setLastError(null);
-    } catch (error) {
-      setLastError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const browserState = visualizerState?.browser_state ?? null;
 
   useEffect(() => {
-    refreshStatus();
-    const statusId = window.setInterval(refreshStatus, 3000);
-    const pollMcp = async () => {
+    apiUrlRef.current = apiUrl;
+  }, [apiUrl]);
+
+  const refresh = useCallback(async (preferredApiUrl?: string) => {
+    const targetApiUrl = resolveApiUrl(preferredApiUrl || apiUrlRef.current);
+    try {
+      const health = await fetch(`${targetApiUrl}/health`, { cache: "no-store" });
+      if (!health.ok) throw new Error(`Health failed: ${health.status}`);
+      const healthJson = (await health.json()) as { api?: { url?: string } };
+      const resolved = resolveApiUrl(healthJson.api?.url || targetApiUrl);
+      apiUrlRef.current = resolved;
+      setApiUrl(resolved);
+      setRuntimeState("running");
+      const next = await fetchVisualizerState(resolved);
+      setVisualizerState(next);
+      setLastError(null);
+    } catch (error) {
+      setRuntimeState((current) => (current === "running" ? "error" : "stopped"));
+      setLastError(error instanceof Error ? error.message : String(error));
+    }
+  }, []);
+
+  const runControl = useCallback(async (action: () => Promise<VisualizerState>) => {
+    setBusy(true);
+    try {
+      const next = await action();
+      setVisualizerState(next);
+      setRuntimeState("running");
+      setLastError(null);
+    } catch (error) {
+      setLastError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const copyJson = useCallback(async () => {
+    if (!browserState) {
+      setToast("尚无 BrowserState 可复制");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(browserState, null, 2));
+      setToast("BrowserState JSON 已复制");
+    } catch {
+      setToast("复制失败");
+    }
+  }, [browserState]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
       try {
-        const status = await window.webfaDesktop?.getMcpStatus();
-        if (status) setMcpStatus(status);
-      } catch {}
-    };
-    pollMcp();
-    const mcpId = window.setInterval(pollMcp, 3000);
+        const config = await window.webfaDesktop?.getDesktopConfig();
+        if (!cancelled && config?.apiUrl) {
+          apiUrlRef.current = config.apiUrl;
+          setApiUrl(config.apiUrl);
+        }
+      } catch {
+        // browser-only mode
+      }
+
+      const status = await window.webfaDesktop?.getRuntimeStatus();
+      if (!cancelled && status) {
+        setRuntimeState(mapDesktopRuntimeState(status.state));
+      }
+
+      if (!cancelled) {
+        await refresh(apiUrlRef.current);
+      }
+    }
+
+    void bootstrap();
+    const id = window.setInterval(() => void refresh(), POLL_MS);
+    const unsubscribe = window.webfaDesktop?.onRuntimeStatus((status) => {
+      setRuntimeState(mapDesktopRuntimeState(status.state));
+      if (status.state === "running") {
+        void refresh(status.apiUrl);
+      }
+    });
+
     return () => {
-      window.clearInterval(statusId);
-      window.clearInterval(mcpId);
+      cancelled = true;
+      window.clearInterval(id);
+      unsubscribe?.();
     };
-  }, [refreshStatus]);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), 2400);
+    return () => window.clearTimeout(id);
+  }, [toast]);
+
+  const header = useMemo(
+    () => (
+      <header className="viz-app-header">
+        <div className="viz-brand">
+          <span className="viz-brand-name">WebFA Visualizer</span>
+          <span className="viz-tag-version">P9 MVP</span>
+        </div>
+        <div className="viz-header-status">
+          <span className={`viz-header-pill ${runtimeState}`}>{runtimeState}</span>
+          {visualizerState?.agent.active_agent_id && (
+            <span className="viz-header-pill agent">agent: {visualizerState.agent.active_agent_id}</span>
+          )}
+        </div>
+      </header>
+    ),
+    [runtimeState, visualizerState?.agent.active_agent_id],
+  );
 
   return (
-    <main className="min-h-screen bg-slate-950 p-6 text-slate-100">
-      <section className="mx-auto max-w-7xl space-y-5">
-        <header className="flex flex-col gap-3 border-b border-slate-800 pb-5 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">WebFA P4</p>
-            <h1 className="mt-2 text-3xl font-semibold">Agent Browser Runtime</h1>
-          </div>
-          <div className="flex gap-2">
-            <button className="rounded-md border border-slate-700 px-3 py-2 text-sm" onClick={() => window.webfaDesktop?.startRuntime()}>
-              Start Runtime
-            </button>
-            <button className="rounded-md border border-slate-700 px-3 py-2 text-sm" onClick={() => window.webfaDesktop?.stopRuntime()}>
-              Stop Runtime
-            </button>
-          </div>
-        </header>
-
-        {lastError && <div className="rounded-md border border-red-900 bg-red-950/40 p-3 text-sm text-red-200">{lastError}</div>}
-
-        <div className="grid gap-3 md:grid-cols-4">
-          <StatusCard label="Runtime" value={runtime.state} detail={runtime.pid ? `pid ${runtime.pid}` : apiUrl} />
-          <StatusCard label="MCP" value={mcpStatus.state} detail={mcpStatus.transport} />
-          <StatusCard label="Page" value={state?.page_status ?? "idle"} detail={state?.title || "no page"} />
-          <StatusCard label="Elements" value={String(state?.interactive_elements.length ?? 0)} detail={state?.focused_element_id ?? "none focused"} />
-        </div>
-
-        <Panel title="Open">
-          <div className="flex gap-2">
-            <input
-              className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm"
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-            />
-            <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium disabled:opacity-50" onClick={openUrl} disabled={busy || runtime.state !== "running"}>
-              Open
-            </button>
-            <button className="rounded-md border border-slate-700 px-4 py-2 text-sm disabled:opacity-50" onClick={() => observe().catch((error) => setLastError(String(error)))} disabled={busy}>
-              Observe
-            </button>
-          </div>
-        </Panel>
-
-        <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-          <Panel title="Interactive Elements">
-            <div className="max-h-[520px] overflow-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="sticky top-0 bg-slate-950 text-slate-500">
-                  <tr>
-                    <th className="py-2 pr-3">ID</th>
-                    <th className="py-2 pr-3">Role</th>
-                    <th className="py-2 pr-3">Name</th>
-                    <th className="py-2 pr-3">Value</th>
-                    <th className="py-2 pr-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(state?.interactive_elements ?? []).map((element) => (
-                    <tr key={element.id} className="border-t border-slate-800">
-                      <td className="py-2 pr-3 font-mono text-emerald-300">{element.id}</td>
-                      <td className="py-2 pr-3">{element.role}</td>
-                      <td className="py-2 pr-3">{element.name || element.placeholder}</td>
-                      <td className="py-2 pr-3">{element.value}</td>
-                      <td className="py-2 pr-3 text-slate-400">{element.actions.join(", ")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-
-          <Panel title="Action">
-            <div className="space-y-3">
-              <textarea
-                className="h-40 w-full rounded-md border border-slate-700 bg-slate-900 p-3 font-mono text-xs"
-                value={actionJson}
-                onChange={(event) => setActionJson(event.target.value)}
-              />
-              <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium disabled:opacity-50" onClick={runAction} disabled={busy || !state}>
-                Run Action
+    <>
+      <VisualizerShell
+        header={header}
+        leftCollapsed={leftCollapsed}
+        rightCollapsed={rightCollapsed}
+        onToggleLeft={() => setLeftCollapsed((value) => !value)}
+        onToggleRight={() => setRightCollapsed((value) => !value)}
+        left={
+          <>
+            <div className="viz-column-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+              <span className="viz-column-title">Runtime</span>
+              <button type="button" className="viz-sidebar-toggle-arrow" onClick={() => setLeftCollapsed(true)} title="收起左侧">
+                <svg className="viz-icon" viewBox="0 0 24 24" width="14" height="14">
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
               </button>
-              <div className="text-xs text-slate-500">MCP tools: {mcpTools.join(", ")}</div>
             </div>
-          </Panel>
+            <StatusPanel state={visualizerState} runtimeState={runtimeState} apiUrl={apiUrl} />
+            <div className="viz-column-header">
+              <span className="viz-column-title">Controls</span>
+            </div>
+            <ControlPanel
+              busy={busy}
+              hostActionsDisabled={runtimeState !== "running"}
+              onRefresh={() => runControl(() => fetchVisualizerState(apiUrlRef.current))}
+              onRestartHost={() => runControl(() => restartHost(apiUrlRef.current))}
+              onOpenHost={() => runControl(() => openVisibleHost(apiUrlRef.current))}
+              onCopyJson={() => void copyJson()}
+              onStartRuntime={async () => {
+                const status = await window.webfaDesktop?.startRuntime();
+                if (status) {
+                  setRuntimeState(mapDesktopRuntimeState(status.state));
+                  if (status.apiUrl) {
+                    apiUrlRef.current = status.apiUrl;
+                    setApiUrl(status.apiUrl);
+                  }
+                  if (status.state === "running") {
+                    await refresh(status.apiUrl);
+                  }
+                }
+              }}
+              onStopRuntime={async () => {
+                const status = await window.webfaDesktop?.stopRuntime();
+                if (status) {
+                  setRuntimeState(mapDesktopRuntimeState(status.state));
+                }
+              }}
+            />
+          </>
+        }
+        main={<PagePreview state={visualizerState} />}
+        right={
+          <>
+            <div className="viz-panel-section">
+              <div className="viz-column-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                <span className="viz-column-title">Agent View</span>
+                <button type="button" className="viz-sidebar-toggle-arrow" onClick={() => setRightCollapsed(true)} title="收起右侧">
+                  <svg className="viz-icon" viewBox="0 0 24 24" width="14" height="14">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                </button>
+              </div>
+              <div className="viz-column-content compact">
+                <ElementTable elements={browserState?.interactive_elements ?? []} focusedId={browserState?.focused_element_id ?? null} />
+              </div>
+            </div>
+            <div className="viz-panel-section blocks">
+              <div className="viz-column-header">
+                <span className="viz-column-title">Content Blocks</span>
+              </div>
+              <div className="viz-column-content compact">
+                <ContentBlocksList blocks={browserState?.content_blocks ?? []} />
+              </div>
+            </div>
+            <div className="viz-panel-section console">
+              <div className="viz-column-header">
+                <span className="viz-column-title">Action Log</span>
+              </div>
+              <ActionLogger entries={visualizerState?.recent_actions ?? []} />
+            </div>
+            <div className="viz-panel-section json">
+              <AgentStateInspector browserState={browserState} expanded={jsonExpanded} onToggle={() => setJsonExpanded((value) => !value)} />
+            </div>
+          </>
+        }
+      />
+
+      {(lastError || toast) && (
+        <div className="viz-toast-stack">
+          {lastError && <div className="viz-toast error">{lastError}</div>}
+          {toast && <div className="viz-toast ok">{toast}</div>}
         </div>
-
-        <Panel title="BrowserState">
-          <pre className="max-h-[520px] overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 text-xs text-slate-300">
-            {JSON.stringify(state, null, 2)}
-          </pre>
-        </Panel>
-      </section>
-    </main>
-  );
-}
-
-function StatusCard({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-      <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</div>
-      <div className="mt-2 break-all text-lg font-semibold">{value}</div>
-      <div className="mt-1 break-all text-sm text-slate-500">{detail}</div>
-    </div>
-  );
-}
-
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/40 p-5">
-      <h2 className="mb-4 text-lg font-semibold">{title}</h2>
-      {children}
-    </section>
+      )}
+    </>
   );
 }

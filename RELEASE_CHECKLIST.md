@@ -11,6 +11,8 @@ Use this checklist before publishing a developer-preview release.
   layer yet.
 - [ ] Roadmap points to P9 Visualizer, P10 Element Registry v2, P11 multi
   profile/session, and P12 safety confirmation.
+- [ ] If Visualizer is included, docs state that it is an inspector/takeover
+  panel, not a traditional browser UI.
 
 ## Agent Interface
 
@@ -33,6 +35,8 @@ Use this checklist before publishing a developer-preview release.
   config.
 - [ ] `webfa doctor` completes on a machine with a Chromium executable.
 - [ ] Local Runtime calls bypass system proxy env vars for loopback URLs.
+- [ ] Visualizer dev entry works with `npm run dev:renderer` when Runtime is
+  available.
 
 ## Repository Hygiene
 
