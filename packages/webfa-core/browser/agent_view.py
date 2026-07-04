@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from browser.driver import VISIBLE_TEXT_MAX_CHARS, RawPageSnapshot
+from browser.url_policy import evaluate_url_security
 from schemas.browser import (
     BrowserAuthState,
     BrowserContentBlock,
+    BrowserDialog,
     BrowserElement,
     BrowserForm,
+    BrowserFrame,
     BrowserState,
+    BrowserUrlSecurity,
     parse_browser_url_parts,
 )
 
@@ -30,8 +34,24 @@ class AgentViewBuilder:
             forms=[BrowserForm(**item) for item in forms],
             interactive_elements=[BrowserElement(**item) for item in interactive_elements],
             auth=_detect_auth_surface(raw, interactive_elements, forms),
+            security=evaluate_url_security(raw.url),
+            dialogs=[BrowserDialog(**item) for item in raw.dialogs],
+            frames=[_build_frame(item) for item in raw.frames],
             error=None,
         )
+
+
+def _build_frame(item: dict) -> BrowserFrame:
+    url = str(item.get("url", ""))
+    return BrowserFrame(
+        id=str(item.get("id", "frame_1")),
+        parent_id=item.get("parent_id"),
+        url=url,
+        title=str(item.get("title", "")),
+        same_origin=bool(item.get("same_origin", True)),
+        visible=bool(item.get("visible", True)),
+        security=evaluate_url_security(url) if url else BrowserUrlSecurity(),
+    )
 
 
 def _sanitize_element(item: dict) -> dict:
@@ -58,10 +78,12 @@ def _detect_auth_surface(raw: RawPageSnapshot, elements: list[dict], forms: list
     visible_text = (raw.visible_text or "").lower()
     url = (raw.url or "").lower()
     title = (raw.title or "").lower()
+    frame_text = " ".join(str(frame.get("title") or "").lower() for frame in raw.frames)
     combined_text = " ".join(
         [
             visible_text,
             title,
+            frame_text,
             " ".join(str(element.get("name") or "").lower() for element in elements),
             " ".join(str(element.get("placeholder") or "").lower() for element in elements),
         ]

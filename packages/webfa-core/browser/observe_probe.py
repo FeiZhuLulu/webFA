@@ -169,13 +169,134 @@ OBSERVE_PROBE = r"""
   }
   const active = document.activeElement && document.activeElement.getAttribute('data-webfa-id');
   const visibleText = (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').trim().slice(0, maxChars);
+  const frames = [{
+    id: 'frame_1',
+    parent_id: null,
+    url: window.location.href,
+    title: document.title || '',
+    same_origin: true,
+    visible: true
+  }];
+  const collectFromDocument = (doc, frameId, nextIdRef) => {
+    const localElements = [];
+    const localForms = [];
+    const localBlocks = [];
+    const localSelector = selector;
+    const localUsedIds = new Set(Array.from(document.querySelectorAll('[data-webfa-id]')).map((el) => el.getAttribute('data-webfa-id')));
+    const localAllocateId = (el) => {
+      let id = el.getAttribute('data-webfa-id') || '';
+      if (!idPattern.test(id) || localUsedIds.has(id)) {
+        do {
+          id = `el_${nextIdRef.value++}`;
+        } while (localUsedIds.has(id));
+        el.setAttribute('data-webfa-id', id);
+      }
+      localUsedIds.add(id);
+      return id;
+    };
+    Array.from(doc.querySelectorAll(localSelector))
+      .filter(isVisible)
+      .slice(0, 200)
+      .forEach((el) => {
+        const id = localAllocateId(el);
+        const role = roleOf(el);
+        const tag = el.tagName.toLowerCase();
+        localElements.push({
+          id, role, tag,
+          frame_id: frameId,
+          name: nameOf(el),
+          text: textOf(el),
+          value: el.value || '',
+          placeholder: el.getAttribute('placeholder') || '',
+          input_type: tag === 'input' ? (el.getAttribute('type') || 'text') : null,
+          visible: true,
+          enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true',
+          checked: typeof el.checked === 'boolean' ? el.checked : null,
+          selected: typeof el.selected === 'boolean' ? el.selected : null,
+          href: el.href || null,
+          actions: actionsFor(el, role)
+        });
+      });
+    Array.from(doc.querySelectorAll('form')).slice(0, 50).forEach((form, index) => {
+      const formElements = Array.from(form.querySelectorAll('input, textarea, select')).filter(isVisible);
+      const fields = formElements.map((el) => el.getAttribute('data-webfa-id')).filter(Boolean);
+      const fieldDetails = formElements.map((el) => {
+        const tag = el.tagName.toLowerCase();
+        return {
+          id: el.getAttribute('data-webfa-id') || '',
+          key: fieldKeyFor(el),
+          label: labelFor(el),
+          name: el.getAttribute('name') || '',
+          placeholder: el.getAttribute('placeholder') || '',
+          value: el.value || '',
+          type: tag === 'input' ? (el.getAttribute('type') || 'text') : tag,
+          required: !!el.required,
+          enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true'
+        };
+      }).filter((field) => field.id && field.key);
+      const submit = Array.from(form.querySelectorAll('button,input[type="submit"]')).map((el) => el.getAttribute('data-webfa-id')).find(Boolean) || null;
+      const text = textOf(form).slice(0, 500);
+      localForms.push({
+        id: `form_${frameId}_${index + 1}`,
+        frame_id: frameId,
+        label: text.split(' ').slice(0, 8).join(' '),
+        text,
+        fields,
+        field_details: fieldDetails,
+        submit
+      });
+    });
+    return { elements: localElements, forms: localForms, blocks: localBlocks };
+  };
+  let frameCounter = 2;
+  const nextGlobalId = { value: nextId };
+  const frameOriginsMatch = (iframe) => {
+    if (iframe.hasAttribute('srcdoc')) return true;
+    try {
+      const childWin = iframe.contentWindow;
+      if (!childWin) return false;
+      const childHref = childWin.location.href;
+      if (!childHref || childHref === 'about:blank') return false;
+      if (childHref.startsWith('about:')) return true;
+      return new URL(childHref).origin === new URL(window.location.href).origin;
+    } catch (err) {
+      return false;
+    }
+  };
+  for (const iframe of Array.from(document.querySelectorAll('iframe')).slice(0, 20)) {
+    const frameId = `frame_${frameCounter++}`;
+    iframe.setAttribute('data-webfa-frame-id', frameId);
+    let sameOrigin = false;
+    let frameUrl = iframe.getAttribute('src') || iframe.src || '';
+    let frameTitle = '';
+    let frameVisible = isVisible(iframe);
+    try {
+      const childDoc = iframe.contentDocument;
+      const childWin = iframe.contentWindow;
+      if (childDoc && childWin && frameOriginsMatch(iframe)) {
+        sameOrigin = true;
+        frameUrl = childWin.location.href;
+        frameTitle = childDoc.title || '';
+        frames.push({ id: frameId, parent_id: 'frame_1', url: frameUrl, title: frameTitle, same_origin: true, visible: frameVisible });
+        const collected = collectFromDocument(childDoc, frameId, nextGlobalId);
+        elements.push(...collected.elements);
+        forms.push(...collected.forms);
+        contentBlocks.push(...collected.blocks);
+        continue;
+      }
+    } catch (err) {
+      sameOrigin = false;
+    }
+    frames.push({ id: frameId, parent_id: 'frame_1', url: frameUrl, title: frameTitle, same_origin: sameOrigin, visible: frameVisible });
+  }
   return {
     loading: document.readyState !== 'complete',
     focused_element_id: active || null,
     visible_text: visibleText,
     interactive_elements: elements,
     content_blocks: contentBlocks,
-    forms
+    forms,
+    frames
   };
 }
 """

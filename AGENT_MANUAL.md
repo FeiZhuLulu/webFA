@@ -92,6 +92,56 @@ If the page is still a login or verification page, report the current state and
 wait for the user to finish. If the page changed to the authenticated app, keep
 working from the new BrowserState.
 
+## Runtime Safety (Developer Preview)
+
+P9.2 adds structured errors, URL metadata, dialog handling, and frame metadata.
+This is **developer-preview hardening**, not production-grade network isolation.
+The default driver is WebFA-managed Chromium. `WEBFA_BROWSER_DRIVER=playwright`
+is a legacy fallback for basic `open_url` / `observe` / `act` only; do not
+expect dialog, iframe, or URL-policy parity on Playwright.
+
+## URL Safety
+
+`state.security` reports URL class, policy, and risk flags. When navigation is
+blocked, WebFA returns a structured error such as `private_url_blocked` or
+`sensitive_url_blocked` with a `recover_hint`. Do not bypass policy by guessing
+alternate hosts or embedding credentials in query strings.
+
+Policy is **lightweight**: it classifies the URL string (hostname, scheme,
+sensitive query keys). It does not resolve DNS or normalize exotic IP literal
+forms. Hostnames that resolve to loopback or private networks may still be
+reachable under `block` until a later hardening phase.
+
+## JavaScript Dialogs
+
+When a page opens `alert`, `confirm`, or `prompt`, WebFA exposes it in
+`state.dialogs` and blocks ordinary `webfa.act` calls with `dialog_required`.
+Resolve the dialog through `webfa.act`:
+
+```json
+{ "action": "dismiss_dialog", "target": "dialog_1" }
+```
+
+```json
+{ "action": "accept_dialog", "target": "dialog_1" }
+```
+
+Call `webfa.observe` after handling the dialog before continuing with page
+actions.
+
+Dialog support is an **MVP on managed Chromium**:
+
+- `alert` and `confirm` are supported.
+- `prompt` is detected, but `accept_dialog` cannot supply custom prompt text yet.
+- Very slow or delayed dialogs may occasionally be missed before the next act.
+
+## Frames
+
+`state.frames` lists frame metadata. Same-origin iframe elements may include a
+`frame_id`. Cross-origin iframe contents are not exposed; do not try to act on
+hidden cross-origin elements. Only top-level iframes are scanned; nested iframes
+are not supported in this phase.
+
 ## URL-First Navigation
 
 Do not blindly copy human browser behavior. Humans click through menus because URLs and page state are awkward for them. Agents can read and modify structured text.

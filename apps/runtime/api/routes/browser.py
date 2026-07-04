@@ -6,6 +6,7 @@ from apps.runtime.api.action_log import get_action_log
 from browser.agent_lease import AgentLeaseBusyError
 from browser.exceptions import BrowserHostClosedError
 from browser.runtime import BrowserRuntime
+from browser.runtime_errors import BrowserRuntimeError, browser_host_closed, from_value_error
 from schemas.browser import BrowserActionRequest, BrowserOpenRequest
 
 router = APIRouter(tags=["browser"])
@@ -23,12 +24,17 @@ def get_agent_id(request: Request) -> str | None:
     return request.headers.get("X-WebFA-Agent-Id")
 
 
+def runtime_error_response(exc: BrowserRuntimeError) -> HTTPException:
+    return HTTPException(status_code=exc.http_status, detail=exc.to_detail())
+
+
 def busy_response(exc: AgentLeaseBusyError) -> HTTPException:
     return HTTPException(
         status_code=409,
         detail={
             "code": "agent_busy",
             "message": str(exc),
+            "recover_hint": "Wait for the active agent lease to expire or coordinate with the active agent",
             "active_agent_id": exc.active_agent_id,
             "agent_lease_expires_at": exc.expires_at.isoformat(),
         },
@@ -36,10 +42,7 @@ def busy_response(exc: AgentLeaseBusyError) -> HTTPException:
 
 
 def host_closed_response(exc: BrowserHostClosedError) -> HTTPException:
-    return HTTPException(
-        status_code=503,
-        detail={"code": "browser_host_closed", "message": str(exc)},
-    )
+    return runtime_error_response(browser_host_closed(str(exc)))
 
 
 def _record_browser_action(
@@ -59,60 +62,76 @@ def _record_browser_action(
     )
 
 
+def _record_runtime_error(request: Request, *, tool: str, exc: BrowserRuntimeError) -> None:
+    _record_browser_action(
+        request,
+        tool=tool,
+        status="error",
+        code=exc.code,
+        message=exc.message,
+    )
+
+
+def _handle_browser_errors(request: Request, tool: str, action):
+    try:
+        return action()
+    except AgentLeaseBusyError as exc:
+        _record_browser_action(request, tool=tool, status="error", code="agent_busy", message=str(exc))
+        raise busy_response(exc) from exc
+    except BrowserHostClosedError as exc:
+        _record_browser_action(request, tool=tool, status="error", code="browser_host_closed", message=str(exc))
+        raise host_closed_response(exc) from exc
+    except BrowserRuntimeError as exc:
+        _record_runtime_error(request, tool=tool, exc=exc)
+        raise runtime_error_response(exc) from exc
+    except ValueError as exc:
+        mapped = from_value_error(exc)
+        if mapped is not None:
+            _record_runtime_error(request, tool=tool, exc=mapped)
+            raise runtime_error_response(mapped) from exc
+        _record_browser_action(request, tool=tool, status="error", message=str(exc))
+        raise HTTPException(status_code=400, detail={"code": "invalid_request", "message": str(exc)}) from exc
+    except Exception as exc:
+        _record_browser_action(request, tool=tool, status="error", message=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "runtime_error", "message": str(exc)},
+        ) from exc
+
+
 @router.post("/browser/open")
 def open_url(payload: BrowserOpenRequest, request: Request):
-    try:
+    def action():
         result = get_browser_runtime(request).open(payload.url, agent_id=get_agent_id(request)).model_dump()
         _record_browser_action(request, tool="webfa.open_url", message=payload.url)
         return result
-    except AgentLeaseBusyError as exc:
-        _record_browser_action(request, tool="webfa.open_url", status="error", code="agent_busy", message=str(exc))
-        raise busy_response(exc) from exc
-    except BrowserHostClosedError as exc:
-        _record_browser_action(request, tool="webfa.open_url", status="error", code="browser_host_closed", message=str(exc))
-        raise host_closed_response(exc) from exc
-    except Exception as exc:
-        _record_browser_action(request, tool="webfa.open_url", status="error", message=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _handle_browser_errors(request, "webfa.open_url", action)
 
 
 @router.get("/browser/observe")
 def observe(request: Request):
-    try:
+    def action():
         result = get_browser_runtime(request).observe().model_dump()
         _record_browser_action(request, tool="webfa.observe")
         return result
-    except BrowserHostClosedError as exc:
-        _record_browser_action(request, tool="webfa.observe", status="error", code="browser_host_closed", message=str(exc))
-        raise host_closed_response(exc) from exc
-    except Exception as exc:
-        _record_browser_action(request, tool="webfa.observe", status="error", message=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _handle_browser_errors(request, "webfa.observe", action)
 
 
 @router.post("/browser/act")
 def act(payload: BrowserActionRequest, request: Request):
-    try:
+    def action():
         result = get_browser_runtime(request).act(payload, agent_id=get_agent_id(request)).model_dump()
         _record_browser_action(request, tool="webfa.act", message=payload.action)
         return result
-    except AgentLeaseBusyError as exc:
-        _record_browser_action(request, tool="webfa.act", status="error", code="agent_busy", message=str(exc))
-        raise busy_response(exc) from exc
-    except BrowserHostClosedError as exc:
-        _record_browser_action(request, tool="webfa.act", status="error", code="browser_host_closed", message=str(exc))
-        raise host_closed_response(exc) from exc
-    except ValueError as exc:
-        _record_browser_action(request, tool="webfa.act", status="error", code="stale_element", message=str(exc))
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        _record_browser_action(request, tool="webfa.act", status="error", message=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _handle_browser_errors(request, "webfa.act", action)
 
 
 @router.get("/browser/tabs")
 def tabs(request: Request):
-    try:
+    def action():
         runtime = get_browser_runtime(request)
         status = runtime.status()
         result = {
@@ -126,32 +145,18 @@ def tabs(request: Request):
         }
         _record_browser_action(request, tool="webfa.get_tabs")
         return result
-    except BrowserHostClosedError as exc:
-        _record_browser_action(request, tool="webfa.get_tabs", status="error", code="browser_host_closed", message=str(exc))
-        raise host_closed_response(exc) from exc
-    except Exception as exc:
-        _record_browser_action(request, tool="webfa.get_tabs", status="error", message=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _handle_browser_errors(request, "webfa.get_tabs", action)
 
 
 @router.post("/browser/tabs/switch")
 def switch_tab(payload: dict, request: Request):
-    try:
+    def action():
         tab_id = payload.get("tab_id")
         if not isinstance(tab_id, str):
             raise ValueError("tab_id is required")
         result = get_browser_runtime(request).switch_tab(tab_id, agent_id=get_agent_id(request)).model_dump()
         _record_browser_action(request, tool="webfa.switch_tab", message=tab_id)
         return result
-    except AgentLeaseBusyError as exc:
-        _record_browser_action(request, tool="webfa.switch_tab", status="error", code="agent_busy", message=str(exc))
-        raise busy_response(exc) from exc
-    except BrowserHostClosedError as exc:
-        _record_browser_action(request, tool="webfa.switch_tab", status="error", code="browser_host_closed", message=str(exc))
-        raise host_closed_response(exc) from exc
-    except ValueError as exc:
-        _record_browser_action(request, tool="webfa.switch_tab", status="error", message=str(exc))
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        _record_browser_action(request, tool="webfa.switch_tab", status="error", message=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return _handle_browser_errors(request, "webfa.switch_tab", action)

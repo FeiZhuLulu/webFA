@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Dialog Confirm Fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>Dialog Confirm Fixture</h1>
+      <button id="confirmButton" type="button">Show Confirm</button>
+      <p id="result">idle</p>
+      <script>
+        document.getElementById("confirmButton").addEventListener("click", () => {
+          window.__webfaPendingDialog = { type: "confirm", message: "Proceed with action?", default_value: "" };
+          const accepted = window.confirm("Proceed with action?");
+          delete window.__webfaPendingDialog;
+          document.getElementById("result").textContent = accepted ? "accepted" : "dismissed";
+        });
+      </script>
+    </main>
+  </body>
+</html>

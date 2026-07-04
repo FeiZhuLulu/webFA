@@ -110,7 +110,15 @@ def test_content_block_serializes_to_stable_json_shape():
         )
     )
     dumped = state.model_dump()["content_blocks"]
-    assert dumped == [{"id": "block_1", "type": "list_item", "text": "a result", "element_ids": ["el_3", "el_4"]}]
+    assert dumped == [
+        {
+            "id": "block_1",
+            "type": "list_item",
+            "text": "a result",
+            "element_ids": ["el_3", "el_4"],
+            "frame_id": None,
+        }
+    ]
 
 
 def test_content_block_rejects_html_or_dom_fields():

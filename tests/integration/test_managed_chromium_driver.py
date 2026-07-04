@@ -65,7 +65,8 @@ def test_managed_chromium_rejects_unsupported_actions(monkeypatch, tmp_path: Pat
         unsupported = client.post("/v1/browser/act", json={"action": "select", "target": name_el["id"], "value": "x"})
 
     assert unsupported.status_code == 400
-    assert "element is not a select" in unsupported.json()["detail"]
+    detail = unsupported.json()["detail"]
+    assert "element is not a select" in str(detail.get("message", detail))
 
 
 def test_managed_chromium_object_form_actions(monkeypatch, tmp_path: Path):

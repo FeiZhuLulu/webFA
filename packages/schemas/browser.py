@@ -27,7 +27,13 @@ BrowserActionName = Literal[
     "choose_option",
     "read_list",
     "inspect_block",
+    "accept_dialog",
+    "dismiss_dialog",
 ]
+
+UrlClass = Literal["public", "private", "local", "file", "blocked"]
+UrlPolicy = Literal["allow", "warn", "block"]
+DialogType = Literal["alert", "confirm", "prompt"]
 
 ContentBlockType = Literal[
     "heading",
@@ -54,6 +60,7 @@ class BrowserContentBlock(BaseModel):
     type: ContentBlockType
     text: str
     element_ids: list[str] = []
+    frame_id: str | None = None
 
 
 class BrowserOpenRequest(BaseModel):
@@ -85,7 +92,18 @@ class BrowserActionRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_shape(self) -> "BrowserActionRequest":
-        target_actions = {"click", "double_click", "type", "clear", "focus", "select", "check", "uncheck"}
+        target_actions = {
+            "click",
+            "double_click",
+            "type",
+            "clear",
+            "focus",
+            "select",
+            "check",
+            "uncheck",
+            "accept_dialog",
+            "dismiss_dialog",
+        }
         if self.action in target_actions and not self.target:
             raise ValueError(f"{self.action} requires target")
         if self.action == "type" and self.text is None:
@@ -140,11 +158,51 @@ def parse_browser_url_parts(url: str) -> BrowserUrlParts:
     )
 
 
+class BrowserUrlSecurity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url_class: UrlClass = "public"
+    risk_flags: list[str] = Field(default_factory=list)
+    policy: UrlPolicy = "allow"
+    message: str | None = None
+
+
+class BrowserStateError(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+    recover_hint: str | None = None
+
+
+class BrowserDialog(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: DialogType
+    message: str
+    default_value: str = ""
+    user_action_required: bool = True
+
+
+class BrowserFrame(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    parent_id: str | None = None
+    url: str = ""
+    title: str = ""
+    same_origin: bool = True
+    visible: bool = True
+    security: BrowserUrlSecurity = BrowserUrlSecurity()
+
+
 class BrowserElement(BaseModel):
     id: str
     role: str
     tag: str
     name: str
+    frame_id: str | None = None
     text: str = ""
     value: str = ""
     placeholder: str = ""
@@ -176,6 +234,7 @@ class BrowserForm(BaseModel):
     fields: list[str] = []
     field_details: list[BrowserFormField] = []
     submit: str | None = None
+    frame_id: str | None = None
 
 
 class BrowserAuthState(BaseModel):
@@ -207,7 +266,10 @@ class BrowserState(BaseModel):
     interactive_elements: list[BrowserElement] = []
     auth: BrowserAuthState = BrowserAuthState()
     agent: BrowserAgentState = BrowserAgentState()
-    error: dict | None = None
+    security: BrowserUrlSecurity = BrowserUrlSecurity()
+    dialogs: list[BrowserDialog] = Field(default_factory=list)
+    frames: list[BrowserFrame] = Field(default_factory=list)
+    error: BrowserStateError | None = None
 
 
 class BrowserActionResult(BaseModel):

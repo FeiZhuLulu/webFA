@@ -5,6 +5,37 @@ export type BrowserAuthState = {
   user_action_required: boolean;
 };
 
+export type BrowserUrlSecurity = {
+  url_class: "public" | "private" | "local" | "file" | "blocked";
+  risk_flags: string[];
+  policy: "allow" | "warn" | "block";
+  message?: string | null;
+};
+
+export type BrowserStateError = {
+  code: string;
+  message: string;
+  recover_hint?: string | null;
+};
+
+export type BrowserDialog = {
+  id: string;
+  type: "alert" | "confirm" | "prompt";
+  message: string;
+  default_value: string;
+  user_action_required: boolean;
+};
+
+export type BrowserFrame = {
+  id: string;
+  parent_id: string | null;
+  url: string;
+  title: string;
+  same_origin: boolean;
+  visible: boolean;
+  security: BrowserUrlSecurity;
+};
+
 export type BrowserElement = {
   id: string;
   role: string;
@@ -14,6 +45,7 @@ export type BrowserElement = {
   value: string;
   placeholder: string;
   input_type?: string | null;
+  frame_id?: string | null;
   visible: boolean;
   enabled: boolean;
   actions: string[];
@@ -24,6 +56,7 @@ export type BrowserContentBlock = {
   type: string;
   text: string;
   element_ids: string[];
+  frame_id?: string | null;
 };
 
 export type BrowserState = {
@@ -44,7 +77,10 @@ export type BrowserState = {
     profile_shared: boolean;
     profile_id: string;
   };
-  error: Record<string, unknown> | null;
+  security: BrowserUrlSecurity;
+  dialogs: BrowserDialog[];
+  frames: BrowserFrame[];
+  error: BrowserStateError | null;
 };
 
 export type VisualizerActionEntry = {

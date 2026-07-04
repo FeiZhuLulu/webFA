@@ -6,12 +6,20 @@ import shutil
 import subprocess
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from browser.exceptions import BrowserHostClosedError
 from schemas.browser import BrowserTab
 from storage.file_store import ensure_webfa_data_dir
+
+
+@dataclass
+class PendingJavaScriptDialog:
+    dialog_type: str
+    message: str
+    default_value: str = ""
 
 
 class ManagedChromiumHost:
@@ -26,24 +34,105 @@ class ManagedChromiumHost:
         self._last_error: str | None = None
         self._executable: Path | None = None
         self._profile_dir: Path | None = None
+        self._pending_dialog: PendingJavaScriptDialog | None = None
+        self._handling_dialog: bool = False
 
     def navigate(self, url: str) -> None:
         client = self._ensure_page_client()
-        client.call("Page.enable")
-        client.call("Runtime.enable")
+        self._ensure_page_domains(client)
+        self._pending_dialog = None
         client.call("Page.navigate", {"url": url})
         self._wait_for_document_ready()
 
-    def evaluate(self, expression: str) -> object:
+    def get_pending_dialog(self) -> PendingJavaScriptDialog | None:
+        self._ensure_page_client()
+        return self._pending_dialog
+
+    def accept_javascript_dialog(self, prompt_text: str | None = None) -> None:
+        params: dict[str, Any] = {"accept": True}
+        if prompt_text is not None:
+            params["promptText"] = prompt_text
+        self._handle_javascript_dialog(params)
+        self._pending_dialog = None
+
+    def dismiss_javascript_dialog(self) -> None:
+        self._handle_javascript_dialog({"accept": False})
+        self._pending_dialog = None
+
+    def _handle_javascript_dialog(self, params: dict[str, Any]) -> None:
+        self._handling_dialog = True
+        try:
+            if self._page_client is not None:
+                try:
+                    self._page_client.call("Page.handleJavaScriptDialog", params)
+                    return
+                except RuntimeError:
+                    pass
+            client = self._dialog_client()
+            try:
+                client.call("Page.enable")
+                client.call("Page.handleJavaScriptDialog", params)
+            finally:
+                client.close()
+        finally:
+            self._handling_dialog = False
+
+    def _dialog_client(self) -> "_CDPClient":
+        target = self._first_page_target()
+        return _CDPClient(target["webSocketDebuggerUrl"])
+
+    def get_frame_tree(self) -> list[dict[str, Any]]:
         client = self._ensure_page_client()
-        response = client.call(
-            "Runtime.evaluate",
-            {
-                "expression": expression,
-                "returnByValue": True,
-                "awaitPromise": True,
-            },
+        self._ensure_page_domains(client)
+        result = client.call("Page.getFrameTree")
+        return _flatten_frame_tree(result.get("frameTree", {}))
+
+    def _on_javascript_dialog_opening(self, params: dict[str, Any]) -> None:
+        dialog_type = str(params.get("type", "alert")).lower()
+        if dialog_type == "beforeunload":
+            dialog_type = "confirm"
+        self._pending_dialog = PendingJavaScriptDialog(
+            dialog_type=dialog_type,
+            message=str(params.get("message", "")),
+            default_value=str(params.get("defaultPrompt") or ""),
         )
+
+    def _ensure_page_domains(self, client: "_CDPClient") -> None:
+        client.call("Page.enable")
+        client.call("Runtime.enable")
+
+    def wait_for_pending_dialog(self, timeout_s: float = 1.0) -> PendingJavaScriptDialog | None:
+        if self._pending_dialog is not None:
+            return self._pending_dialog
+        client = self._page_client
+        if client is None:
+            return None
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if self._pending_dialog is not None:
+                return self._pending_dialog
+            client.pump_events(min(0.1, deadline - time.monotonic()))
+        return self._pending_dialog
+
+    def evaluate(self, expression: str) -> object:
+        from browser.runtime_errors import dialog_required
+
+        client = self._ensure_page_client()
+        try:
+            response = client.call(
+                "Runtime.evaluate",
+                {
+                    "expression": expression,
+                    "returnByValue": True,
+                    "awaitPromise": True,
+                },
+            )
+        except (RuntimeError, TimeoutError, OSError) as exc:
+            if self._pending_dialog is not None:
+                raise dialog_required() from exc
+            if _is_timeout_error(exc) and self._probe_for_blocking_dialog():
+                raise dialog_required() from exc
+            raise
         result = response.get("result", {})
         if "exceptionDetails" in response:
             details = response["exceptionDetails"]
@@ -79,6 +168,8 @@ class ManagedChromiumHost:
                 pass
         self._page_client = None
         self._page_target_id = None
+        self._pending_dialog = None
+        self._handling_dialog = False
         if self._process is not None:
             if self._process.poll() is None:
                 self._process.terminate()
@@ -125,8 +216,35 @@ class ManagedChromiumHost:
             return self._page_client
         target = self._first_page_target()
         self._page_target_id = target["id"]
-        self._page_client = _CDPClient(target["webSocketDebuggerUrl"])
+        self._page_client = _CDPClient(
+            target["webSocketDebuggerUrl"],
+            event_handler=self._handle_cdp_event,
+            should_abort=self._dialog_blocks_execution,
+        )
+        self._ensure_page_domains(self._page_client)
         return self._page_client
+
+    def _handle_cdp_event(self, method: str, params: dict[str, Any]) -> None:
+        if method == "Page.javascriptDialogOpening":
+            self._on_javascript_dialog_opening(params)
+
+    def _dialog_blocks_execution(self) -> bool:
+        if self._handling_dialog:
+            return False
+        return self._pending_dialog is not None
+
+    def _probe_for_blocking_dialog(self, timeout_s: float = 0.5) -> bool:
+        if self._pending_dialog is not None:
+            return True
+        client = self._page_client
+        if client is None:
+            return False
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            client.pump_events(min(0.1, deadline - time.monotonic()))
+            if self._pending_dialog is not None:
+                return True
+        return False
 
     def _ensure_started(self) -> None:
         if self._process_is_running():
@@ -151,7 +269,7 @@ class ManagedChromiumHost:
             "about:blank",
             f"--user-data-dir={profile_dir}",
             "--remote-debugging-port=0",
-            "--remote-allow-origins=*",
+            "--remote-allow-origins=*",  # dev-preview: tighten before public release
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-background-networking",
@@ -196,11 +314,30 @@ class ManagedChromiumHost:
         raise RuntimeError("managed chromium page target was not created")
 
     def _wait_for_document_ready(self) -> None:
+        ready_expression = """
+        (() => {
+          const state = document.readyState;
+          if (state !== 'interactive' && state !== 'complete') return false;
+          const interactiveSelector = 'input, textarea, select, button, a, [role="button"], [role="link"]';
+          for (const iframe of Array.from(document.querySelectorAll('iframe'))) {
+            if (!iframe.hasAttribute('srcdoc') && !iframe.getAttribute('src')) continue;
+            try {
+              const doc = iframe.contentDocument;
+              if (!doc || !doc.body) return false;
+              if (iframe.hasAttribute('srcdoc') && !doc.querySelector(interactiveSelector)) {
+                return false;
+              }
+            } catch (err) {
+              return false;
+            }
+          }
+          return true;
+        })()
+        """
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             try:
-                ready = self.evaluate("document.readyState")
-                if ready in ("interactive", "complete"):
+                if self.evaluate(ready_expression):
                     return
             except Exception:
                 pass
@@ -226,6 +363,8 @@ class ManagedChromiumHost:
         self._last_error = f"managed chromium process exited (exit code {code})"
         self._page_client = None
         self._page_target_id = None
+        self._pending_dialog = None
+        self._handling_dialog = False
         self._process = None
         self._port = None
 
@@ -236,10 +375,18 @@ class ManagedChromiumHost:
 
 
 class _CDPClient:
-    def __init__(self, websocket_url: str) -> None:
+    def __init__(
+        self,
+        websocket_url: str,
+        *,
+        event_handler: Callable[[str, dict[str, Any]], None] | None = None,
+        should_abort: Callable[[], bool] | None = None,
+    ) -> None:
         self._websocket_url = websocket_url
         self._next_id = 1
         self._ws = None
+        self._event_handler = event_handler
+        self._should_abort = should_abort
         self._connect()
 
     def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -264,6 +411,25 @@ class _CDPClient:
                 pass
         self._ws = None
 
+    def pump_events(self, timeout: float) -> None:
+        if self._ws is None:
+            return
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                raw = self._ws.recv(timeout=max(0.01, deadline - time.monotonic()))
+            except TimeoutError:
+                return
+            except Exception:
+                return
+            message = json.loads(raw)
+            if "method" not in message or message.get("id") is not None:
+                continue
+            if self._event_handler is not None:
+                params = message.get("params")
+                if isinstance(params, dict):
+                    self._event_handler(str(message["method"]), params)
+
     def _connect(self) -> None:
         from websockets.sync.client import connect
 
@@ -275,16 +441,31 @@ class _CDPClient:
         message_id = self._next_id
         self._next_id += 1
         self._ws.send(json.dumps({"id": message_id, "method": method, "params": params or {}}))
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             raw = self._ws.recv(timeout=max(0.1, deadline - time.monotonic()))
             message = json.loads(raw)
+            if "method" in message and message.get("id") is None:
+                if self._event_handler is not None:
+                    params = message.get("params")
+                    if isinstance(params, dict):
+                        self._event_handler(str(message["method"]), params)
+                if self._should_abort is not None and self._should_abort():
+                    raise RuntimeError("javascript dialog blocked execution")
+                continue
             if message.get("id") != message_id:
                 continue
             if "error" in message:
                 raise RuntimeError(message["error"].get("message", "CDP call failed"))
             return message.get("result", {})
         raise RuntimeError(f"CDP call timed out: {method}")
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    message = str(exc).lower()
+    return "timed out" in message or "timeout" in message
 
 
 def _find_chromium_executable() -> Path:
@@ -316,6 +497,24 @@ def _find_chromium_executable() -> Path:
         if candidate.exists():
             return candidate
     raise RuntimeError("Chromium executable not found; set WEBFA_CHROMIUM_EXECUTABLE")
+
+
+def _flatten_frame_tree(node: dict[str, Any], *, parent_id: str | None = None, items: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    collected = items if items is not None else []
+    frame = node.get("frame", {})
+    frame_id = str(frame.get("id", ""))
+    if frame_id:
+        collected.append(
+            {
+                "cdp_frame_id": frame_id,
+                "parent_cdp_frame_id": parent_id,
+                "url": str(frame.get("url", "")),
+                "title": "",
+            }
+        )
+    for child in node.get("childFrames", []):
+        _flatten_frame_tree(child, parent_id=frame_id or parent_id, items=collected)
+    return collected
 
 
 def chromium_executable_status() -> tuple[bool, str | None]:

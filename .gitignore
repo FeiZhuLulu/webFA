@@ -12,5 +12,6 @@ coverage/
 .env.local
 docs/superpowers/
 .tmp/
+*.tsbuildinfo
 *_login_test_report.md
 webfa_*_test_report.md

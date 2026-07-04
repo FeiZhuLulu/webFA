@@ -41,14 +41,17 @@ def map_runtime_error(exc: RuntimeErrorResponse) -> dict[str, Any]:
         if "hash" in str(detail).lower() or "tamper" in str(detail).lower():
             code = "hash_mismatch"
 
-    return {
-        "ok": False,
-        "error": {
-            "code": code,
-            "message": detail,
-            "runtime_status": exc.status_code,
-        },
+    error: dict[str, Any] = {
+        "code": code,
+        "message": detail,
+        "runtime_status": exc.status_code,
     }
+    if isinstance(detail, dict):
+        if isinstance(detail.get("recover_hint"), str):
+            error["recover_hint"] = detail["recover_hint"]
+        if isinstance(detail.get("message"), str):
+            error["message"] = detail["message"]
+    return {"ok": False, "error": error}
 
 
 def map_unavailable_error(exc: RuntimeUnavailableError) -> dict[str, Any]:

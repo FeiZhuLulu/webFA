@@ -1,3 +1,6 @@
+import pytest
+
+from browser.runtime_errors import BrowserRuntimeError
 from browser.session import BrowserSession
 
 
@@ -39,9 +42,5 @@ def test_browser_session_reset_closes_driver_and_clears_registry():
 
     assert driver.closed is True
     assert session.driver is None
-    try:
+    with pytest.raises(BrowserRuntimeError):
         session.registry.require("el_1")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("registry should be cleared after reset")

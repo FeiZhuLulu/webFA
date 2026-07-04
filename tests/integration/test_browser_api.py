@@ -185,7 +185,9 @@ def test_browser_stale_element_after_navigation(monkeypatch, tmp_path: Path):
         stale = client.post("/v1/browser/act", json={"action": "click", "target": link["id"]})
 
     assert stale.status_code == 400
-    assert "call observe again" in stale.json()["detail"]
+    detail = stale.json()["detail"]
+    assert detail["code"] == "stale_element"
+    assert "observe" in detail["message"].lower()
 
 
 def test_browser_keeps_element_ids_stable_after_dom_insert(monkeypatch, tmp_path: Path):

@@ -24,6 +24,7 @@ from storage.db import reset_engine_for_tests
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "agent_validation_page.html"
+DIALOG_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "dialog_confirm_page.html"
 EXPECTED_BROWSER_TOOLS = {
     "webfa.open_url",
     "webfa.observe",
@@ -57,6 +58,53 @@ def test_mcp_stdio_browser_observe_act_observe(monkeypatch, tmp_path: Path):
     reset_engine_for_tests()
 
     _run_runtime_with_mcp_flow(tmp_path)
+
+
+def test_mcp_stdio_dialog_required_and_dismiss(monkeypatch, tmp_path: Path):
+    pytest.importorskip("websockets.sync.client")
+    try:
+        _find_chromium_executable()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
+    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
+    monkeypatch.delenv("WEBFA_ENABLE_LEGACY_TRANSACTION", raising=False)
+    reset_engine_for_tests()
+
+    port = _free_port()
+    server = uvicorn.Server(
+        uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="warning")
+    )
+    thread = threading.Thread(target=server.run, name="webfa-test-runtime", daemon=True)
+    thread.start()
+    try:
+        _wait_for_runtime(port)
+        asyncio.run(_run_mcp_dialog_flow(port, tmp_path))
+    finally:
+        server.should_exit = True
+        thread.join(timeout=20)
+
+
+def test_mcp_stdio_private_url_blocked(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_PRIVATE_URL_POLICY", "block")
+    monkeypatch.delenv("WEBFA_ENABLE_LEGACY_TRANSACTION", raising=False)
+    reset_engine_for_tests()
+
+    port = _free_port()
+    server = uvicorn.Server(
+        uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="warning")
+    )
+    thread = threading.Thread(target=server.run, name="webfa-test-runtime", daemon=True)
+    thread.start()
+    try:
+        _wait_for_runtime(port)
+        asyncio.run(_run_mcp_blocked_url_flow(port, tmp_path))
+    finally:
+        server.should_exit = True
+        thread.join(timeout=20)
 
 
 def test_mcp_stdio_managed_chromium_observe_act_observe(monkeypatch, tmp_path: Path):
@@ -152,10 +200,83 @@ async def _run_mcp_browser_flow(port: int, tmp_path: Path) -> None:
             assert "Hello Fei" in observed["state"]["visible_text"]
 
 
+async def _run_mcp_dialog_flow(port: int, tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["WEBFA_RUNTIME_URL"] = f"http://127.0.0.1:{port}"
+    env["WEBFA_HOME"] = str(tmp_path / "WebFA")
+    env["WEBFA_BROWSER_HEADLESS"] = "1"
+    env.pop("WEBFA_ENABLE_LEGACY_TRANSACTION", None)
+
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "apps.runtime.mcp.server"],
+        cwd=ROOT,
+        env=env,
+    )
+
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            opened = _tool_json(await session.call_tool("webfa.open_url", {"url": DIALOG_PAGE.as_uri()}))
+            button = next(
+                el for el in opened["state"]["interactive_elements"] if el.get("role") == "button"
+            )
+            blocked = await session.call_tool(
+                "webfa.act",
+                {"action": "click", "target": button["id"]},
+            )
+            payload = _tool_error_json(blocked)
+            assert payload["error"]["code"] == "dialog_required"
+            assert payload["error"].get("recover_hint")
+
+            dismissed = _tool_json(
+                await session.call_tool(
+                    "webfa.act",
+                    {"action": "dismiss_dialog", "target": "dialog_1"},
+                )
+            )
+            assert dismissed["state"]["dialogs"] == []
+            observed = _tool_json(await session.call_tool("webfa.observe"))
+            assert "dismissed" in observed["state"]["visible_text"].lower()
+
+
+async def _run_mcp_blocked_url_flow(port: int, tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["WEBFA_RUNTIME_URL"] = f"http://127.0.0.1:{port}"
+    env["WEBFA_HOME"] = str(tmp_path / "WebFA")
+    env["WEBFA_PRIVATE_URL_POLICY"] = "block"
+    env.pop("WEBFA_ENABLE_LEGACY_TRANSACTION", None)
+
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "apps.runtime.mcp.server"],
+        cwd=ROOT,
+        env=env,
+    )
+
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            blocked = await session.call_tool("webfa.open_url", {"url": "http://127.0.0.1:8787/"})
+            payload = _tool_error_json(blocked)
+            assert payload["error"]["code"] == "private_url_blocked"
+            assert payload["error"].get("recover_hint")
+
+
 def _tool_json(result: Any) -> dict[str, Any]:
     assert not getattr(result, "isError", False)
     assert result.content
-    return json.loads(result.content[0].text)
+    payload = json.loads(result.content[0].text)
+    assert payload.get("ok") is not False
+    return payload
+
+
+def _tool_error_json(result: Any) -> dict[str, Any]:
+    assert result.content
+    payload = json.loads(result.content[0].text)
+    assert payload.get("ok") is False
+    assert "error" in payload
+    return payload
 
 
 def _find_element(state: dict[str, Any], **criteria: str) -> dict[str, Any]:

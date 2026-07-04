@@ -2,6 +2,7 @@ import pytest
 
 from browser.driver import RawPageSnapshot
 from browser.element_registry import ElementRegistry
+from browser.runtime_errors import BrowserRuntimeError
 from schemas.browser import BrowserViewport
 
 
@@ -13,8 +14,10 @@ def test_element_registry_keeps_current_page_ids_and_clears_on_navigation():
 
     registry.update(_raw("https://example.com/b", ["el_3"]))
 
-    with pytest.raises(ValueError, match="call observe again"):
+    with pytest.raises(BrowserRuntimeError) as excinfo:
         registry.require("el_1")
+    assert excinfo.value.code == "stale_element"
+    assert "observe" in excinfo.value.message.lower()
     registry.require("el_3")
 
 

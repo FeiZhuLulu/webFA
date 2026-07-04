@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from browser.driver import RawPageSnapshot
+from browser.runtime_errors import stale_element
 
 
 class ElementRegistry:
@@ -20,7 +21,7 @@ class ElementRegistry:
 
     def require(self, element_id: str | None) -> None:
         if not element_id or element_id not in self._ids:
-            raise ValueError("element id is stale; call observe again")
+            raise stale_element()
 
     def clear(self) -> None:
         self._url = None

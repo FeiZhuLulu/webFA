@@ -174,6 +174,20 @@ P9.1
   destroys the embedded WebContents and restarts the hidden host with the same
   profile. Separate visible Chromium hosts remain legacy fallback only.
 
+P9.2
+  Runtime Safety + Page Surface Hardening (Developer Preview).
+  Add URL safety policy (`WEBFA_PRIVATE_URL_POLICY`), structured runtime errors
+  with `recover_hint`, JavaScript dialog MVP (`accept_dialog` / `dismiss_dialog`
+  through `webfa.act`), same-origin iframe frame metadata, and Agent View
+  hardening for security/dialog/frame fields. Managed Chromium is the complete
+  implementation path for P9.2; Playwright remains an explicit fallback driver
+  for basic open/observe/act only — dialog, frame, and URL-policy behaviors are
+  not required to match on Playwright. MCP tool count stays at five.
+  Scope note: this phase improves agent-facing safety contracts; it is not
+  production-grade network isolation (no DNS-aware SSRF blocking yet).
+  Follow-up: DNS/IP literal hardening, tighten managed-chromium CDP origins,
+  `prompt` text input for `accept_dialog`.
+
 P10
   Element Registry v2.
   Reduce dependence on data-webfa-id injection with role/name/text/tag/dom_path/bbox/nearby_text hints.

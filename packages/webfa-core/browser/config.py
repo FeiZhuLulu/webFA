@@ -8,6 +8,8 @@ DEFAULT_BROWSER_DRIVER = "managed-chromium"
 SUPPORTED_BROWSER_DRIVERS = {"managed-chromium", "playwright"}
 DEFAULT_AUTH_SURFACE_MODE = "electron"
 SUPPORTED_AUTH_SURFACE_MODES = {"electron", "legacy"}
+DEFAULT_PRIVATE_URL_POLICY = "warn"
+SUPPORTED_PRIVATE_URL_POLICIES = {"allow", "warn", "block"}
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,7 @@ class BrowserRuntimeConfig:
     headless: bool
     auth_takeover: str
     auth_surface_mode: str
+    private_url_policy: str
 
 
 def resolve_browser_runtime_config(headless: bool | None = None) -> BrowserRuntimeConfig:
@@ -33,11 +36,16 @@ def resolve_browser_runtime_config(headless: bool | None = None) -> BrowserRunti
     if auth_surface_mode not in SUPPORTED_AUTH_SURFACE_MODES:
         supported = "', '".join(sorted(SUPPORTED_AUTH_SURFACE_MODES))
         raise ValueError(f"WEBFA_AUTH_SURFACE_MODE must be '{supported}'")
+    private_url_policy = os.getenv("WEBFA_PRIVATE_URL_POLICY", DEFAULT_PRIVATE_URL_POLICY).lower()
+    if private_url_policy not in SUPPORTED_PRIVATE_URL_POLICIES:
+        supported = "', '".join(sorted(SUPPORTED_PRIVATE_URL_POLICIES))
+        raise ValueError(f"WEBFA_PRIVATE_URL_POLICY must be '{supported}'")
     return BrowserRuntimeConfig(
         driver_name=driver_name,
         headless=headless,
         auth_takeover=auth_takeover,
         auth_surface_mode=auth_surface_mode,
+        private_url_policy=private_url_policy,
     )
 
 

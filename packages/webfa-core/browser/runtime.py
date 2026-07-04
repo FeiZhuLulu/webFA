@@ -10,6 +10,12 @@ from browser.config import resolve_browser_runtime_config
 from browser.driver import BrowserDriver, RawPageSnapshot
 from browser.driver_factory import create_default_driver_factory
 from browser.exceptions import BrowserHostClosedError
+from browser.runtime_errors import BrowserRuntimeError
+from browser.runtime_errors import auth_surface_active as auth_surface_active_error
+from browser.runtime_errors import dialog_not_found
+from browser.runtime_errors import dialog_required as dialog_required_error
+from browser.runtime_errors import stale_element as stale_element_error
+from browser.url_policy import enforce_navigation_allowed
 from browser.session import BrowserSession
 from schemas.browser import (
     BrowserActionRequest,
@@ -35,6 +41,7 @@ class BrowserRuntime:
         self._headless = config.headless
         self._auth_takeover = config.auth_takeover
         self._auth_surface_mode = config.auth_surface_mode
+        self._private_url_policy = config.private_url_policy
         self._driver_factory = driver_factory or create_default_driver_factory(self._driver_name, self._headless)
         self._jobs: queue.Queue[tuple[str, tuple, queue.Queue] | None] = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -136,6 +143,7 @@ class BrowserRuntime:
             headless=self._headless,
             auth_takeover=self._auth_takeover,
             auth_surface_mode=self._auth_surface_mode,
+            private_url_policy=self._private_url_policy,
         )
         self._thread = threading.Thread(target=worker.run, args=(self._jobs,), name="webfa-browser", daemon=True)
         self._thread.start()
@@ -159,12 +167,20 @@ def _agent_state_from_snapshot(snapshot: AgentLeaseSnapshot) -> BrowserAgentStat
 
 
 class _BrowserWorker:
-    def __init__(self, driver_factory: DriverFactory, headless: bool, auth_takeover: str, auth_surface_mode: str) -> None:
+    def __init__(
+        self,
+        driver_factory: DriverFactory,
+        headless: bool,
+        auth_takeover: str,
+        auth_surface_mode: str,
+        private_url_policy: str,
+    ) -> None:
         self._session = BrowserSession(driver_factory=driver_factory)
         self._view_builder = AgentViewBuilder()
         self._headless = headless
         self._auth_takeover = auth_takeover
         self._auth_surface_mode = auth_surface_mode
+        self._private_url_policy = private_url_policy
         self._auth_surface_active = False
         self._auth_surface_url: str | None = None
 
@@ -199,6 +215,7 @@ class _BrowserWorker:
     def open(self, url: str) -> BrowserActionResult:
         self._auth_surface_active = False
         self._auth_surface_url = None
+        enforce_navigation_allowed(url, policy=self._private_url_policy)  # type: ignore[arg-type]
         if self._host_is_exited():
             self._session.reset()
         driver = self._ensure_driver()
@@ -215,9 +232,13 @@ class _BrowserWorker:
 
     def act(self, request: BrowserActionRequest) -> BrowserActionResult:
         if self._auth_surface_active:
-            raise ValueError("auth surface is active; complete WebFA auth takeover before agent actions")
+            raise auth_surface_active_error()
         self._raise_if_host_exited()
         driver = self._session.ensure_driver()
+        if request.action in {"accept_dialog", "dismiss_dialog"}:
+            return self._dialog_action(driver, request)
+        if self._driver_has_pending_dialog(driver):
+            raise dialog_required_error()
         if request.action in {"fill_form", "submit_form", "follow_link", "activate_control", "choose_option", "read_list", "inspect_block"}:
             return self._object_action(driver, request)
         if request.target:
@@ -225,9 +246,11 @@ class _BrowserWorker:
                 state = self._state_from_raw(driver.observe_raw())
                 element = _find_element(state, request.target)
                 if (element.input_type or "").lower() == "password":
-                    raise ValueError("password fields require user auth takeover")
+                    raise auth_surface_active_error()
             self._session.registry.require(request.target)
         driver.act(request)
+        if self._driver_has_pending_dialog(driver):
+            raise dialog_required_error()
         return BrowserActionResult(ok=True, action=request.action, state=self._state_after_navigation(driver))
 
     def tabs(self) -> list[BrowserTab]:
@@ -240,7 +263,7 @@ class _BrowserWorker:
 
     def switch_tab(self, tab_id: str) -> BrowserState:
         if self._auth_surface_active:
-            raise ValueError("auth surface is active; complete WebFA auth takeover before switching tabs")
+            raise auth_surface_active_error()
         self._raise_if_host_exited()
         driver = self._ensure_driver()
         driver.switch_tab(tab_id)
@@ -341,7 +364,13 @@ class _BrowserWorker:
         return self._view_builder.build(raw, session_id=self._session.session_id)
 
     def _state_after_navigation(self, driver: BrowserDriver) -> BrowserState:
-        state = self._state_from_raw(driver.observe_raw())
+        raw = driver.observe_raw()
+        try:
+            enforce_navigation_allowed(raw.url, policy=self._private_url_policy)  # type: ignore[arg-type]
+        except BrowserRuntimeError:
+            self._session.reset()
+            raise
+        state = self._state_from_raw(raw)
         if self._auth_surface_mode == "electron":
             return state
         if not self._should_takeover_auth(driver, state):
@@ -375,14 +404,28 @@ class _BrowserWorker:
             return False
         return True
 
+    def _driver_has_pending_dialog(self, driver: BrowserDriver) -> bool:
+        has_pending = getattr(driver, "has_pending_dialog", None)
+        if callable(has_pending):
+            return bool(has_pending())
+        return False
+
+    def _dialog_action(self, driver: BrowserDriver, request: BrowserActionRequest) -> BrowserActionResult:
+        if not request.target:
+            raise dialog_not_found(None)
+        driver.act(request)
+        return BrowserActionResult(ok=True, action=request.action, state=self._state_after_navigation(driver))
+
     def _object_action(self, driver: BrowserDriver, request: BrowserActionRequest) -> BrowserActionResult:
+        if self._driver_has_pending_dialog(driver):
+            raise dialog_required_error()
         state = self._state_from_raw(driver.observe_raw())
         if request.action == "fill_form":
             form = _find_form(state, request.target)
             for key, value in (request.fields or {}).items():
                 field = _find_field(form, key)
                 if (field.type or "").lower() == "password":
-                    raise ValueError("password fields require user auth takeover")
+                    raise auth_surface_active_error()
                 self._session.registry.require(field.id)
                 driver.act(BrowserActionRequest(action="clear", target=field.id))
                 driver.act(BrowserActionRequest(action="type", target=field.id, text=value))
@@ -424,7 +467,7 @@ def _find_form(state: BrowserState, form_id: str | None) -> BrowserForm:
     for form in state.forms:
         if form.id == form_id:
             return form
-    raise ValueError("form not found; call observe again")
+    raise stale_element_error()
 
 
 def _find_field(form: BrowserForm, key: str):
@@ -440,7 +483,7 @@ def _find_element(state: BrowserState, element_id: str | None) -> BrowserElement
     for element in state.interactive_elements:
         if element.id == element_id:
             return element
-    raise ValueError("element id is stale; call observe again")
+    raise stale_element_error()
 
 
 def _inspect_block(state: BrowserState, block_id: str | None) -> dict:
@@ -454,7 +497,7 @@ def _inspect_block(state: BrowserState, block_id: str | None) -> dict:
                 "element_ids": block.element_ids,
                 "elements": elements,
             }
-    raise ValueError("block not found; call observe again")
+    raise stale_element_error()
 
 
 def _read_list(state: BrowserState, block_id: str | None) -> dict:

@@ -49,7 +49,7 @@ def test_map_409_agent_busy():
     )
     result = map_runtime_error(exc)
     assert result["error"]["code"] == "agent_busy"
-    assert result["error"]["message"]["active_agent_id"] == "opencode"
+    assert result["error"]["message"] == "WebFA is currently controlled by agent 'opencode'"
 
 
 def test_map_browser_host_closed():
@@ -62,6 +62,24 @@ def test_map_browser_host_closed():
     assert result["ok"] is False
     assert result["error"]["code"] == "browser_host_closed"
     assert result["error"]["runtime_status"] == 503
+
+
+def test_map_structured_error_preserves_recover_hint():
+    exc = RuntimeErrorResponse(
+        409,
+        {
+            "detail": {
+                "code": "auth_surface_active",
+                "message": "Auth surface is active",
+                "recover_hint": "Finish WebFA auth takeover first",
+            }
+        },
+    )
+    result = map_runtime_error(exc)
+
+    assert result["error"]["code"] == "auth_surface_active"
+    assert result["error"]["message"] == "Auth surface is active"
+    assert result["error"]["recover_hint"] == "Finish WebFA auth takeover first"
 
 
 def test_map_404():

@@ -164,6 +164,32 @@ def test_browser_state_hides_password_values():
         assert forbidden not in body
 
 
+def test_browser_state_exposes_runtime_safety_fields_without_sensitive_payloads():
+    from schemas.browser import BrowserDialog, BrowserFrame, BrowserState, BrowserStateError, BrowserUrlSecurity
+
+    state = BrowserState(
+        security=BrowserUrlSecurity(url_class="local", risk_flags=["private_suffix"], policy="warn"),
+        dialogs=[
+            BrowserDialog(
+                id="dialog_1",
+                type="confirm",
+                message="Proceed?",
+                default_value="",
+                user_action_required=False,
+            )
+        ],
+        frames=[BrowserFrame(id="frame_1", parent_id=None, url="https://example.com", title="Example")],
+        error=BrowserStateError(code="dialog_required", message="dialog open", recover_hint="dismiss_dialog"),
+    )
+    body = str(state.model_dump()).lower()
+    for forbidden in ("cookie", "localstorage", "sessionstorage", "token", "full_html", "full_dom", "devtools"):
+        assert forbidden not in body
+    assert state.security.url_class == "local"
+    assert state.dialogs[0].id == "dialog_1"
+    assert state.frames[0].id == "frame_1"
+    assert state.error is not None and state.error.code == "dialog_required"
+
+
 def test_observe_script_does_not_read_html_or_storage():
     """The script that builds content_blocks must not read cookies,
     localStorage, sessionStorage, or emit raw HTML/DOM strings."""

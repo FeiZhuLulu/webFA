@@ -173,10 +173,12 @@ def test_open_auth_surface_marks_takeover(monkeypatch):
     observed = runtime.observe()
     assert observed.auth.takeover == "auth_surface"
 
+    from browser.runtime_errors import BrowserRuntimeError
+
     try:
         runtime.act(BrowserActionRequest(action="click", target="el_1"))
-    except ValueError as exc:
-        assert "auth surface is active" in str(exc)
+    except BrowserRuntimeError as exc:
+        assert exc.code == "auth_surface_active"
     else:
         raise AssertionError("agent actions must be rejected during auth surface takeover")
 
@@ -224,10 +226,12 @@ def test_runtime_rejects_agent_typing_password_field(monkeypatch):
     runtime = BrowserRuntime(headless=True, driver_factory=lambda: driver)
     runtime.open("https://example.com/login")
 
+    from browser.runtime_errors import BrowserRuntimeError
+
     try:
         runtime.act(BrowserActionRequest(action="type", target="el_1", text="secret"))
-    except ValueError as exc:
-        assert "password fields require user auth takeover" in str(exc)
+    except BrowserRuntimeError as exc:
+        assert exc.code == "auth_surface_active"
     else:
         raise AssertionError("agent typing password field must be rejected")
 
@@ -238,9 +242,11 @@ def test_runtime_rejects_fill_form_password_field(monkeypatch):
     runtime = BrowserRuntime(headless=True, driver_factory=lambda: driver)
     runtime.open("https://example.com/login")
 
+    from browser.runtime_errors import BrowserRuntimeError
+
     try:
         runtime.act(BrowserActionRequest(action="fill_form", target="form_1", fields={"password": "secret"}))
-    except ValueError as exc:
-        assert "password fields require user auth takeover" in str(exc)
+    except BrowserRuntimeError as exc:
+        assert exc.code == "auth_surface_active"
     else:
         raise AssertionError("fill_form password field must be rejected")

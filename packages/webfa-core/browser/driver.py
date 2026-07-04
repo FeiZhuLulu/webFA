@@ -24,6 +24,8 @@ class RawPageSnapshot:
     content_blocks: list[dict] = field(default_factory=list)
     forms: list[dict] = field(default_factory=list)
     interactive_elements: list[dict] = field(default_factory=list)
+    dialogs: list[dict] = field(default_factory=list)
+    frames: list[dict] = field(default_factory=list)
 
 
 class BrowserDriver(Protocol):

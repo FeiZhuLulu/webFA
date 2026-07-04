@@ -44,7 +44,7 @@ def test_content_blocks_structured_for_search_results(monkeypatch, tmp_path: Pat
 
         # Every block conforms to the typed schema.
         for block in blocks:
-            assert set(block.keys()) == {"id", "type", "text", "element_ids"}
+            assert set(block.keys()) == {"id", "type", "text", "element_ids", "frame_id"}
             assert block["id"].startswith("block_")
             assert block["type"] in {"heading", "paragraph", "list_item", "form", "nav", "generic"}
             assert isinstance(block["element_ids"], list)
