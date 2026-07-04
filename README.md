@@ -27,13 +27,13 @@ agent 决定要做什么；WebFA 负责打开真实网页、维护本地用户�
 - 使用本地 managed Chromium runtime，并持久化默认用户 profile。
 - 返回 agent 可读的 `BrowserState`，包含 URL 结构、表单、元素、内容块、登录状态、active agent lease 等信息。
 - 支持通用网页对象动作，包括表单、链接、控件、列表、内容块，以及 click/type/press 等 fallback primitive。
-- 默认使用可见 managed Chromium host，方便用户完成登录、扫码、验证码、2FA 和授权。
+- 默认使用 WebFA-owned Auth Surface，方便用户在 WebFA 接管区完成登录、扫码、验证码、2FA 和授权。
 - 通过 active agent lease 限制同一时间只有一个 agent 修改浏览器状态，避免多个 agent 同时抢同一个页面。
 - 提供 WebFA Visualizer MVP，用于查看 Runtime 状态、当前页面预览、Agent View、内容块和操作日志。
 
 ## 当前限制
 
-- Visualizer 目前是观察和接管面板，不是完整桌面浏览器；登录/扫码仍可能需要可见 managed Chromium host。
+- Visualizer 目前是观察和接管面板，不是完整桌面浏览器；登录/扫码应在 WebFA 接管区完成。
 - 连接同一个 Runtime 和 `WEBFA_HOME` 的所有 agent 默认共享同一个浏览器 profile，也就是共享同一组网站登录态。
 - 多 profile、多 session 隔离尚未实现。
 - WebFA 不绕过反爬、验证码、风控或平台安全系统。
@@ -106,16 +106,16 @@ webfa mcp-config --client opencode --agent-id opencode
 
 ## 登录
 
-为默认 WebFA profile 打开手动登录窗口：
+为默认 WebFA profile 预置登录态：
 
 ```powershell
 webfa login github
 webfa login --url https://example.com/login
 ```
 
-Developer Preview 默认使用可见 managed Chromium host。agent 不应该输入密码、验证码或 2FA。用户在可见窗口中手动完成认证，之后 agent 继续调用 `webfa.observe` 读取登录后的页面状态。
+Developer Preview 的主路径是 WebFA-owned Auth Surface。agent 不应该输入密码、验证码或 2FA；当页面进入登录、扫码、验证码、2FA 或授权流程时，用户应在 WebFA UI 中央的“接管区”完成认证，之后 agent 继续调用 `webfa.observe` 读取登录后的页面状态。
 
-如果用户在任务中关闭了可见窗口，当前 browser host 会结束。此时 `webfa.observe`、`webfa.act`、`webfa.get_tabs` 和 `webfa.switch_tab` 会返回 `browser_host_closed`。再次调用 `webfa.open_url` 会用同一个默认 profile 重新启动 host，但页面内存状态和旧 element id 会失效。
+`webfa login` 仍保留为手动预登录工具。独立可见 host 只作为 legacy fallback，需要显式设置 `WEBFA_AUTH_SURFACE_MODE=legacy`。
 
 ## 环境变量
 

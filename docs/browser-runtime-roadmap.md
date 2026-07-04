@@ -118,8 +118,8 @@ P8.6
   Automatic Auth Takeover UI.
   Move login handling into the Runtime path: when open_url or act lands on a
   login, QR-code, verification-code, 2FA, or authorization surface, WebFA marks
-  BrowserState.auth and automatically relaunches the current managed Chromium
-  page as a visible window using the same default profile.
+  BrowserState.auth and routes the user to the WebFA takeover surface using the
+  same default profile.
   The user completes password, QR, verification, or approval steps manually.
   Agents continue with observe and never receive credentials, cookies, storage,
   password values, tokens, or new login-specific MCP tools.
@@ -145,12 +145,9 @@ P8.8
 
 P8.10
   Visible Host Stability.
-  Default developer preview to visible managed Chromium so login, QR, 2FA, and
-  human takeover happen in one stable host. Auth takeover only relaunches when
-  Runtime is explicitly headless.
-  If the visible host window is closed, observe/act/tabs/switch_tab return
-  browser_host_closed. open_url restarts the host under the same default
-  session/profile, clears ElementRegistry, and invalidates old element ids.
+  Stabilize host lifecycle and define browser_host_closed recovery semantics.
+  This phase is retained as a lifecycle milestone; the product direction after
+  P9.1 is WebFA-owned takeover, not a separate always-visible Chromium host.
 
 P8.11
   Developer Preview Release Hardening.
@@ -168,6 +165,14 @@ P9
   action log, host restart/open controls, and Electron/Next three-column
   inspector UI. Element highlight overlay and productized tab switching are
   intentionally left for follow-up work.
+
+P9.1
+  WebFA-owned Auth Surface.
+  Login, QR-code, verification-code, 2FA, and authorization flows happen inside
+  the WebFA UI takeover area. Opening the takeover area closes the hidden
+  Runtime host to release the shared default profile; completing takeover
+  destroys the embedded WebContents and restarts the hidden host with the same
+  profile. Separate visible Chromium hosts remain legacy fallback only.
 
 P10
   Element Registry v2.

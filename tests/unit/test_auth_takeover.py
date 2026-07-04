@@ -10,6 +10,7 @@ class FakeAuthDriver:
         self.url = ""
         self.visible = False
         self.relaunches: list[str] = []
+        self.close_count = 0
 
     def open(self, url: str) -> None:
         self.url = url
@@ -56,7 +57,7 @@ class FakeAuthDriver:
         pass
 
     def close(self) -> None:
-        pass
+        self.close_count += 1
 
     def status(self) -> dict:
         return {"host_status": "running", "visible_window": self.visible, "headless": not self.visible}
@@ -101,6 +102,7 @@ class FakeDelayedAuthDriver(FakeAuthDriver):
 
 
 def test_auth_takeover_relaunches_visible_window(monkeypatch):
+    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "legacy")
     monkeypatch.setenv("WEBFA_AUTH_TAKEOVER", "auto")
     driver = FakeAuthDriver()
     runtime = BrowserRuntime(headless=True, driver_factory=lambda: driver)
@@ -115,6 +117,7 @@ def test_auth_takeover_relaunches_visible_window(monkeypatch):
 
 
 def test_auth_takeover_after_action_relaunches_visible_window(monkeypatch):
+    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "legacy")
     monkeypatch.setenv("WEBFA_AUTH_TAKEOVER", "auto")
     driver = FakeDelayedAuthDriver()
     runtime = BrowserRuntime(headless=True, driver_factory=lambda: driver)
@@ -140,7 +143,68 @@ def test_auth_takeover_off_does_not_relaunch(monkeypatch):
     assert result.state.auth.takeover == "none"
 
 
+def test_auth_takeover_electron_mode_does_not_relaunch(monkeypatch):
+    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "electron")
+    monkeypatch.setenv("WEBFA_AUTH_TAKEOVER", "auto")
+    driver = FakeAuthDriver()
+    runtime = BrowserRuntime(headless=True, driver_factory=lambda: driver)
+
+    result = runtime.open("https://example.com/login")
+
+    assert driver.relaunches == []
+    assert result.state.auth.surface_detected is True
+    assert result.state.auth.user_action_required is True
+    assert result.state.auth.takeover == "none"
+
+
+def test_open_auth_surface_marks_takeover(monkeypatch):
+    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "electron")
+    driver = FakeAuthDriver()
+    runtime = BrowserRuntime(headless=True, driver_factory=lambda: driver)
+    runtime.open("https://example.com/login")
+
+    state = runtime.open_auth_surface()
+
+    assert state.auth.takeover == "auth_surface"
+    assert state.auth.user_action_required is True
+    assert driver.relaunches == []
+    assert driver.close_count == 1
+
+    observed = runtime.observe()
+    assert observed.auth.takeover == "auth_surface"
+
+    try:
+        runtime.act(BrowserActionRequest(action="click", target="el_1"))
+    except ValueError as exc:
+        assert "auth surface is active" in str(exc)
+    else:
+        raise AssertionError("agent actions must be rejected during auth surface takeover")
+
+
+def test_close_auth_surface_restarts_hidden_host_with_final_url(monkeypatch):
+    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "electron")
+    drivers: list[FakeAuthDriver] = []
+
+    def factory() -> FakeAuthDriver:
+        driver = FakeAuthDriver()
+        drivers.append(driver)
+        return driver
+
+    runtime = BrowserRuntime(headless=True, driver_factory=factory)
+    runtime.open("https://example.com/login")
+    runtime.open_auth_surface()
+
+    state = runtime.close_auth_surface("https://example.com/dashboard")
+
+    assert state.url == "https://example.com/dashboard"
+    assert state.auth.takeover == "none"
+    assert len(drivers) == 2
+    assert drivers[0].close_count == 1
+    assert drivers[1].url == "https://example.com/dashboard"
+
+
 def test_auth_takeover_does_not_relaunch_in_visible_mode(monkeypatch):
+    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "legacy")
     monkeypatch.setenv("WEBFA_AUTH_TAKEOVER", "auto")
     driver = FakeAuthDriver()
     driver.visible = True

@@ -180,7 +180,7 @@ class BrowserForm(BaseModel):
 
 class BrowserAuthState(BaseModel):
     surface_detected: bool = False
-    takeover: Literal["none", "visible_window"] = "none"
+    takeover: Literal["none", "visible_window", "auth_surface"] = "none"
     reason: list[str] = []
     user_action_required: bool = False
 

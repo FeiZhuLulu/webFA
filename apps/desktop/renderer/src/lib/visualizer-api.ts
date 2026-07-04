@@ -40,10 +40,31 @@ export async function restartHost(apiUrl: string): Promise<VisualizerState> {
   return (await response.json()) as VisualizerState;
 }
 
-export async function openVisibleHost(apiUrl: string): Promise<VisualizerState> {
-  const response = await fetch(`${apiUrl}/v1/visualizer/open-host`, { method: "POST" });
+export async function openAuthSurface(apiUrl: string, url?: string | null): Promise<VisualizerState> {
+  const response = await fetch(`${apiUrl}/v1/visualizer/open-auth-surface`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(url ? { url } : {})
+  });
   if (!response.ok) {
-    throw new Error(await readApiError(response, "Open host failed"));
+    throw new Error(await readApiError(response, "Open auth surface failed"));
   }
   return (await response.json()) as VisualizerState;
+}
+
+export async function closeAuthSurface(apiUrl: string, url?: string | null): Promise<VisualizerState> {
+  const response = await fetch(`${apiUrl}/v1/visualizer/close-auth-surface`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(url ? { url } : {})
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Close auth surface failed"));
+  }
+  return (await response.json()) as VisualizerState;
+}
+
+/** @deprecated Use openAuthSurface */
+export async function openVisibleHost(apiUrl: string): Promise<VisualizerState> {
+  return openAuthSurface(apiUrl);
 }

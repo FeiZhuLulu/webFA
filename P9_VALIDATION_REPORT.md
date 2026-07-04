@@ -6,7 +6,7 @@ Date: 2026-07-04
 
 P9 Visualizer MVP has been integrated at the code level and passed the automated validation gate.
 
-Manual auth-takeover validation against real login/QR sites is still listed as a product smoke test because it requires user interaction and a live site. The implementation includes the auth banner and visible-host controls needed for that validation.
+Manual auth-takeover validation against real login/QR sites is still listed as a product smoke test because it requires user interaction and a live site. P9.1 changes the expected behavior: authentication should appear in the WebFA-owned takeover area, not an external Chromium window.
 
 ## Implemented
 
@@ -14,10 +14,11 @@ Backend:
 
 - `GET /v1/visualizer/state`
 - `POST /v1/visualizer/restart-host`
-- `POST /v1/visualizer/open-host`
+- `POST /v1/visualizer/open-auth-surface`
+- `POST /v1/visualizer/open-host` compatibility wrapper
 - In-memory recent action log
 - Screenshot preview with short server-side cache
-- BrowserRuntime preview/restart/relaunch hooks
+- BrowserRuntime preview/restart/auth-surface hooks
 
 Frontend:
 
@@ -77,7 +78,7 @@ Passed:
 - Visualizer does not add MCP tools.
 - Visualizer does not expose raw Playwright, raw CDP, DevTools console, selectors, XPath, or evaluate.
 - Visualizer UI is an inspector/takeover panel, not a traditional browser UI.
-- Visualizer controls are limited to refresh, open visible host, restart host, copy BrowserState JSON, and desktop Runtime start/stop.
+- Visualizer controls are limited to refresh, open WebFA takeover area, restart host, copy BrowserState JSON, and desktop Runtime start/stop.
 - Screenshot preview is not exposed through MCP.
 - Sensitive values are not intentionally exposed through BrowserState or action logs.
 
@@ -87,6 +88,7 @@ Known limits:
 - Element highlight overlay is not implemented yet.
 - Tabs are shown read-only; switching remains available through existing agent/browser APIs but is not productized in the Visualizer UI.
 - Real login/QR validation still needs a user-assisted smoke test.
+- P9.1 requires the takeover page to render inside the WebFA UI and use the same default profile as Runtime.
 
 ## Manual Smoke Checklist
 
@@ -96,8 +98,8 @@ Use this before marking P9 fully accepted:
 - [ ] Use an external agent to open `https://example.com`; confirm URL/title/preview/action log update.
 - [ ] Use the validation fixture to type `Fei` and submit; confirm `Hello Fei` appears in BrowserState/log.
 - [ ] Open an already logged-in GitHub page; confirm Visualizer shows logged-in page state without exposing credentials.
-- [ ] Open a login/QR/verification page; confirm auth takeover banner and visible-host instructions.
-- [ ] Close the visible host; confirm `browser_host_closed` is shown and restart guidance works.
+- [ ] Open a login/QR/verification page; confirm the login UI appears in the WebFA takeover area, not an external Chromium window.
+- [ ] Complete/cancel takeover; confirm `webfa.observe` works again with the same default profile.
 
 ## Decision
 

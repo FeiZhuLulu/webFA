@@ -380,9 +380,48 @@ body {
   background: #e8e6df;
   overflow: auto;
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
   padding: 16px;
+}
+
+.viz-auth-surface-host {
+  position: relative;
+  flex: 1;
+  min-height: 420px;
+  border: 1px dashed rgba(37, 99, 235, 0.35);
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.viz-auth-surface-host.active {
+  border-style: solid;
+  border-color: rgba(37, 99, 235, 0.25);
+}
+
+.viz-auth-surface-label {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 1;
+  font-size: 12px;
+  color: var(--viz-muted);
+  background: rgba(255, 255, 255, 0.88);
+  padding: 4px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.viz-complete-auth-btn {
+  margin-top: 6px;
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  background: rgba(13, 148, 136, 0.08);
+  color: var(--viz-emerald);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
 }
 
 .viz-preview-image {

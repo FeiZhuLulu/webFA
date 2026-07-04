@@ -27,13 +27,13 @@ Status: **Developer Preview**. APIs and behavior may change.
 - Managed Chromium runtime path with persistent local profile.
 - Agent-readable `BrowserState` with URL parts, forms, elements, content blocks, auth status, and active agent lease metadata.
 - Generic actions for forms, links, controls, lists, blocks, and fallback primitives such as click/type/press.
-- Visible managed Chromium host by default for user-assisted login, QR, verification, 2FA, and authorization pages.
+- WebFA-owned Auth Surface by default for user-assisted login, QR, verification, 2FA, and authorization pages.
 - Single active agent lease so multiple connected agents do not silently fight over one browser session.
 - WebFA Visualizer MVP for Runtime status, page preview, Agent View, content blocks, and action log.
 
 ## Current Limits
 
-- The Visualizer is currently an inspector and takeover panel, not a complete desktop browser. Login and QR flows may still require the visible managed Chromium host.
+- The Visualizer is currently an inspector and takeover panel, not a complete desktop browser. Login and QR flows should happen in the WebFA takeover area.
 - All agents connected to the same Runtime and `WEBFA_HOME` share the default browser profile and website login state.
 - Multi-profile and multi-session isolation are not implemented yet.
 - WebFA does not bypass anti-bot, CAPTCHA, risk-control, or platform safety systems.
@@ -106,16 +106,16 @@ Integration docs:
 
 ## Login
 
-Open a manual login window for the default WebFA profile:
+Preload a login session for the default WebFA profile:
 
 ```powershell
 webfa login github
 webfa login --url https://example.com/login
 ```
 
-Developer Preview uses a visible managed Chromium host by default. Agents should not type passwords, verification codes, or 2FA codes. The user completes authentication manually in the visible window, then the agent continues with `webfa.observe`.
+Developer Preview uses the WebFA-owned Auth Surface as the main authentication path. Agents should not type passwords, verification codes, or 2FA codes. When a page enters a login, QR-code, verification-code, 2FA, or authorization flow, the user completes authentication in the central WebFA takeover area, then the agent continues with `webfa.observe`.
 
-If the visible window is closed during a task, the current browser host is ended. `webfa.observe`, `webfa.act`, `webfa.get_tabs`, and `webfa.switch_tab` will return `browser_host_closed`. Use `webfa.open_url` to restart with the same default profile; page memory and old element ids are lost.
+`webfa login` remains as a manual pre-login helper. A separate visible host is only a legacy fallback and requires explicitly setting `WEBFA_AUTH_SURFACE_MODE=legacy`.
 
 ## Environment
 

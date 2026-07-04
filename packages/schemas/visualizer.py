@@ -40,6 +40,14 @@ class VisualizerPageInfo(BaseModel):
     auth: BrowserAuthState = BrowserAuthState()
 
 
+class VisualizerAuthSurface(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    active: bool = False
+    url: str | None = None
+    mode: Literal["electron", "legacy"] = "electron"
+
+
 class VisualizerPreview(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -75,5 +83,6 @@ class VisualizerState(BaseModel):
     page: VisualizerPageInfo = VisualizerPageInfo()
     browser_state: BrowserState | None = None
     preview: VisualizerPreview = VisualizerPreview()
+    auth_surface: VisualizerAuthSurface = VisualizerAuthSurface()
     recent_actions: list[VisualizerActionEntry] = Field(default_factory=list)
     errors: list[VisualizerError] = Field(default_factory=list)

@@ -19,6 +19,19 @@ def test_visualizer_state_has_no_sensitive_fields(monkeypatch, tmp_path: Path):
         assert forbidden not in body_str
 
 
+def test_open_host_compat_points_to_auth_surface_not_external_window(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "electron")
+    reset_engine_for_tests()
+
+    with TestClient(create_app()) as client:
+        body = client.post("/v1/visualizer/open-host").json()
+
+    assert body["auth_surface"]["mode"] == "electron"
+    assert body["runtime"]["visible_window"] is False
+    assert "chromium window" not in str(body).lower()
+
+
 def test_mcp_tool_count_unchanged_after_visualizer_route(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     reset_engine_for_tests()

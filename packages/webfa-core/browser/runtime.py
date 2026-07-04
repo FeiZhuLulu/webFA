@@ -15,6 +15,7 @@ from schemas.browser import (
     BrowserActionRequest,
     BrowserActionResult,
     BrowserAgentState,
+    BrowserAuthState,
     BrowserElement,
     BrowserForm,
     BrowserState,
@@ -33,6 +34,7 @@ class BrowserRuntime:
         self._driver_name = config.driver_name
         self._headless = config.headless
         self._auth_takeover = config.auth_takeover
+        self._auth_surface_mode = config.auth_surface_mode
         self._driver_factory = driver_factory or create_default_driver_factory(self._driver_name, self._headless)
         self._jobs: queue.Queue[tuple[str, tuple, queue.Queue] | None] = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -73,12 +75,19 @@ class BrowserRuntime:
     def relaunch_visible_host(self) -> BrowserState:
         return self._with_agent_state(self._call("relaunch_visible_host"))
 
+    def open_auth_surface(self, url: str | None = None) -> BrowserState:
+        return self._with_agent_state(self._call("open_auth_surface", url))
+
+    def close_auth_surface(self, url: str | None = None) -> BrowserState:
+        return self._with_agent_state(self._call("close_auth_surface", url))
+
     def status(self) -> dict[str, Any]:
         lease = self._agent_lease.snapshot().as_dict()
         base = {
             "selected_driver": self._driver_name,
             "headless": self._headless,
             "auth_takeover": self._auth_takeover,
+            "auth_surface_mode": self._auth_surface_mode,
             "visible_window": False,
             "session_id": "default",
             "profile_id": "default",
@@ -122,7 +131,12 @@ class BrowserRuntime:
     def _ensure_thread(self) -> None:
         if self._thread is not None:
             return
-        worker = _BrowserWorker(self._driver_factory, headless=self._headless, auth_takeover=self._auth_takeover)
+        worker = _BrowserWorker(
+            self._driver_factory,
+            headless=self._headless,
+            auth_takeover=self._auth_takeover,
+            auth_surface_mode=self._auth_surface_mode,
+        )
         self._thread = threading.Thread(target=worker.run, args=(self._jobs,), name="webfa-browser", daemon=True)
         self._thread.start()
 
@@ -145,11 +159,14 @@ def _agent_state_from_snapshot(snapshot: AgentLeaseSnapshot) -> BrowserAgentStat
 
 
 class _BrowserWorker:
-    def __init__(self, driver_factory: DriverFactory, headless: bool, auth_takeover: str) -> None:
+    def __init__(self, driver_factory: DriverFactory, headless: bool, auth_takeover: str, auth_surface_mode: str) -> None:
         self._session = BrowserSession(driver_factory=driver_factory)
         self._view_builder = AgentViewBuilder()
         self._headless = headless
         self._auth_takeover = auth_takeover
+        self._auth_surface_mode = auth_surface_mode
+        self._auth_surface_active = False
+        self._auth_surface_url: str | None = None
 
     def run(self, jobs: queue.Queue) -> None:
         handlers: dict[str, Callable[..., Any]] = {
@@ -163,6 +180,8 @@ class _BrowserWorker:
             "capture_preview": self.capture_preview,
             "restart_host": self.restart_host,
             "relaunch_visible_host": self.relaunch_visible_host,
+            "open_auth_surface": self.open_auth_surface,
+            "close_auth_surface": self.close_auth_surface,
         }
         while True:
             job = jobs.get()
@@ -178,6 +197,8 @@ class _BrowserWorker:
                 result.put((False, exc))
 
     def open(self, url: str) -> BrowserActionResult:
+        self._auth_surface_active = False
+        self._auth_surface_url = None
         if self._host_is_exited():
             self._session.reset()
         driver = self._ensure_driver()
@@ -185,12 +206,16 @@ class _BrowserWorker:
         return BrowserActionResult(ok=True, action="open_url", state=self._state_after_navigation(driver))
 
     def observe(self) -> BrowserState:
+        if self._auth_surface_active:
+            return self._auth_surface_state()
         if self._session.driver is None:
             return BrowserState()
         self._raise_if_host_exited()
         return self._state_from_raw(self._session.driver.observe_raw())
 
     def act(self, request: BrowserActionRequest) -> BrowserActionResult:
+        if self._auth_surface_active:
+            raise ValueError("auth surface is active; complete WebFA auth takeover before agent actions")
         self._raise_if_host_exited()
         driver = self._session.ensure_driver()
         if request.action in {"fill_form", "submit_form", "follow_link", "activate_control", "choose_option", "read_list", "inspect_block"}:
@@ -206,12 +231,16 @@ class _BrowserWorker:
         return BrowserActionResult(ok=True, action=request.action, state=self._state_after_navigation(driver))
 
     def tabs(self) -> list[BrowserTab]:
+        if self._auth_surface_active:
+            return []
         if self._session.driver is None:
             return []
         self._raise_if_host_exited()
         return self._session.driver.tabs()
 
     def switch_tab(self, tab_id: str) -> BrowserState:
+        if self._auth_surface_active:
+            raise ValueError("auth surface is active; complete WebFA auth takeover before switching tabs")
         self._raise_if_host_exited()
         driver = self._ensure_driver()
         driver.switch_tab(tab_id)
@@ -240,6 +269,8 @@ class _BrowserWorker:
         return capture()
 
     def restart_host(self) -> BrowserState:
+        self._auth_surface_active = False
+        self._auth_surface_url = None
         url = self._current_url_or_blank()
         self._session.reset()
         driver = self._ensure_driver()
@@ -247,18 +278,38 @@ class _BrowserWorker:
         return self._state_after_navigation(driver)
 
     def relaunch_visible_host(self) -> BrowserState:
-        url = self._current_url_or_blank()
+        return self.open_auth_surface()
+
+    def open_auth_surface(self, url: str | None = None) -> BrowserState:
+        target_url = (url or "").strip() or self._current_url_or_blank()
         self._session.reset()
+        self._auth_surface_active = True
+        self._auth_surface_url = target_url
+        return self._auth_surface_state(target_url)
+
+    def close_auth_surface(self, url: str | None = None) -> BrowserState:
+        target_url = (url or "").strip() or self._auth_surface_url or "about:blank"
+        self._auth_surface_active = False
+        self._auth_surface_url = None
+        self._session.reset()
+        if not target_url or target_url == "about:blank":
+            return BrowserState()
         driver = self._ensure_driver()
-        relaunch = getattr(driver, "relaunch_visible", None)
-        if callable(relaunch):
-            relaunch(url)
-        else:
-            driver.open(url)
-        state = self._state_from_raw(driver.observe_raw())
-        if state.auth.surface_detected or state.auth.user_action_required:
-            state.auth.takeover = "visible_window"
-        return state
+        driver.open(target_url)
+        return self._state_after_navigation(driver)
+
+    def _auth_surface_state(self, url: str | None = None) -> BrowserState:
+        return BrowserState(
+            session_id=self._session.session_id,
+            url=url or self._auth_surface_url or "about:blank",
+            title="WebFA Auth Surface",
+            auth=BrowserAuthState(
+                surface_detected=True,
+                takeover="auth_surface",
+                reason=["auth_surface_requested"],
+                user_action_required=True,
+            ),
+        )
 
     def _current_url_or_blank(self) -> str:
         if self._session.driver is None:
@@ -291,6 +342,8 @@ class _BrowserWorker:
 
     def _state_after_navigation(self, driver: BrowserDriver) -> BrowserState:
         state = self._state_from_raw(driver.observe_raw())
+        if self._auth_surface_mode == "electron":
+            return state
         if not self._should_takeover_auth(driver, state):
             return state
         relaunch = getattr(driver, "relaunch_visible", None)
@@ -307,6 +360,8 @@ class _BrowserWorker:
         return visible_state
 
     def _should_takeover_auth(self, driver: BrowserDriver, state: BrowserState) -> bool:
+        if self._auth_surface_mode == "electron":
+            return False
         if self._auth_takeover != "auto":
             return False
         if not self._headless:

@@ -1,11 +1,16 @@
+LICENSE
 README.md
 pyproject.toml
 apps/__init__.py
 apps/runtime/__init__.py
 apps/runtime/cli.py
+apps/runtime/login.py
 apps/runtime/main.py
 apps/runtime/process.py
 apps/runtime/api/__init__.py
+apps/runtime/api/action_log.py
+apps/runtime/api/auth_surface_session.py
+apps/runtime/api/preview_cache.py
 apps/runtime/api/routes/__init__.py
 apps/runtime/api/routes/approvals.py
 apps/runtime/api/routes/audits.py
@@ -19,6 +24,7 @@ apps/runtime/api/routes/proofs.py
 apps/runtime/api/routes/provider_connections.py
 apps/runtime/api/routes/providers.py
 apps/runtime/api/routes/transactions.py
+apps/runtime/api/routes/visualizer.py
 apps/runtime/api/routes/workspaces.py
 apps/runtime/mcp/__init__.py
 apps/runtime/mcp/config_generator.py
@@ -58,6 +64,7 @@ packages/schemas/plan.py
 packages/schemas/proof.py
 packages/schemas/resource_snapshot.py
 packages/schemas/transaction.py
+packages/schemas/visualizer.py
 packages/schemas/workspace.py
 packages/storage/__init__.py
 packages/storage/credential_store.py
@@ -69,11 +76,14 @@ packages/webfa-core/approvals/service.py
 packages/webfa-core/audit/__init__.py
 packages/webfa-core/audit/store.py
 packages/webfa-core/browser/__init__.py
+packages/webfa-core/browser/action_log.py
+packages/webfa-core/browser/agent_lease.py
 packages/webfa-core/browser/agent_view.py
 packages/webfa-core/browser/config.py
 packages/webfa-core/browser/driver.py
 packages/webfa-core/browser/driver_factory.py
 packages/webfa-core/browser/element_registry.py
+packages/webfa-core/browser/exceptions.py
 packages/webfa-core/browser/host.py
 packages/webfa-core/browser/host_driver.py
 packages/webfa-core/browser/managed_chromium_host.py

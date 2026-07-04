@@ -14,7 +14,7 @@ webfa.get_tabs
 webfa.switch_tab
 ```
 
-The Visualizer is for humans to observe runtime state, inspect agent-readable page state, see recent actions, and recover or open the visible host when human authentication is required. It is not a traditional browser UI and not a general human browsing product.
+The Visualizer is for humans to observe runtime state, inspect agent-readable page state, see recent actions, and complete authentication in the WebFA takeover area when human authentication is required. It is not a traditional browser UI and not a general human browsing product.
 
 ## Scope
 
@@ -22,7 +22,8 @@ P9 includes:
 
 - `GET /v1/visualizer/state`
 - `POST /v1/visualizer/restart-host`
-- `POST /v1/visualizer/open-host`
+- `POST /v1/visualizer/open-auth-surface`
+- `POST /v1/visualizer/open-host` compatibility wrapper
 - In-memory visualizer action log
 - Cached screenshot preview for the local Visualizer
 - Electron/Next renderer three-column Visualizer UI
@@ -76,9 +77,13 @@ Returns a structured `VisualizerState`:
 
 Restarts the current browser host with the current URL when possible. This is a human recovery control. It clears the screenshot cache and invalidates old element ids through the existing runtime restart semantics.
 
+### `POST /v1/visualizer/open-auth-surface`
+
+Enters WebFA UI authentication takeover. This closes the hidden Runtime host to release the shared default profile, then lets the Electron WebFA Auth Surface load the authentication page. It is used for login, QR, verification, 2FA, or authorization flows. It does not expose credentials to agents or the Visualizer API.
+
 ### `POST /v1/visualizer/open-host`
 
-Relaunches the visible managed host for human takeover. This is used for login, QR, verification, 2FA, or authorization flows. It does not expose credentials to agents or the Visualizer API.
+Compatibility wrapper for `open-auth-surface`. It no longer means opening an external Chromium window.
 
 ## Frontend
 
@@ -121,8 +126,8 @@ Manual:
 3. Verify Visualizer shows URL, title, preview, BrowserState, and action log.
 4. Use the local validation fixture and submit "Fei"; verify state/log update.
 5. Open a logged-in GitHub page; verify profile state and page state display.
-6. Open a login/QR/verification site; verify auth takeover banner and visible host guidance.
-7. Close the visible host; verify browser_host_closed display and restart guidance.
+6. Open a login/QR/verification site; verify the login UI appears in the WebFA takeover area, not an external Chromium window.
+7. Complete/cancel takeover; verify the hidden Runtime host can observe again with the same profile.
 ```
 
 ## Acceptance Criteria

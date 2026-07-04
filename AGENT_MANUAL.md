@@ -73,14 +73,14 @@ activation, such as legacy mail or file-list UIs.
 
 ## Auth Takeover
 
-WebFA may automatically open a visible WebFA-managed Chromium window when a page
-looks like a login, QR-code, verification-code, 2FA, or authorization surface.
+WebFA may mark a page as requiring human auth takeover when it looks like a
+login, QR-code, verification-code, 2FA, or authorization surface.
 
 When `state.auth.surface_detected` is true and
-`state.auth.takeover == "visible_window"`, a human is expected to finish the
-credential step in the visible window. Do not ask the user for passwords,
-verification codes, cookies, storage values, or tokens in chat. Do not try to
-fill password fields yourself.
+`state.auth.takeover == "auth_surface"`, a human is expected to finish the
+credential step in the WebFA UI takeover area. Do not ask the user for
+passwords, verification codes, cookies, storage values, or tokens in chat. Do
+not try to fill password fields yourself.
 
 After the user finishes signing in or approving access, continue with:
 

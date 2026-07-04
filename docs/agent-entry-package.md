@@ -115,17 +115,16 @@ $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
 Use `webfa login github` to put a GitHub login session into this profile before
 asking an agent to work on logged-in GitHub pages.
 
-Developer preview recommends visible managed Chromium. If the visible Chromium
-window is closed during a task, the current browser host has ended; subsequent
-`observe`, `act`, `get_tabs`, or `switch_tab` calls return
-`browser_host_closed`. Calling `webfa.open_url` restarts a new host with the
-same default profile, but page memory and old element ids are lost.
+Developer preview uses the WebFA-owned Auth Surface for authentication
+takeover. If an agent opens a login, QR-code, verification-code, 2FA, or
+authorization page, the user completes the credential step in the WebFA UI
+takeover area. The agent does not receive passwords, verification codes,
+cookies, storage values, or tokens. After the user finishes, the agent
+continues with `webfa.observe`.
 
-WebFA also keeps automatic auth takeover for headless fallback. If an agent
-opens a login, QR-code, verification-code, 2FA, or authorization page while the
-Runtime is headless, WebFA relaunches the same page in a visible managed
-Chromium window using the same default profile. The user completes the
-credential step manually, then the agent continues with `webfa.observe`.
+The takeover area shares the same default profile as the Runtime host. WebFA
+temporarily closes the hidden host while the takeover area is active, then
+restarts it with the same profile after takeover is completed.
 
 Disable this behavior only for tests or fully unattended local smoke runs:
 

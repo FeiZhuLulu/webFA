@@ -63,7 +63,9 @@ export class RuntimeProcessManager {
       ...process.env,
       PYTHONPATH: pythonPathParts.join(path.delimiter),
       WEBFA_API_HOST: this.host,
-      WEBFA_API_PORT: String(this.port)
+      WEBFA_API_PORT: String(this.port),
+      WEBFA_BROWSER_HEADLESS: process.env.WEBFA_BROWSER_HEADLESS ?? "1",
+      WEBFA_AUTH_SURFACE_MODE: process.env.WEBFA_AUTH_SURFACE_MODE ?? "electron"
     };
 
     const args = [

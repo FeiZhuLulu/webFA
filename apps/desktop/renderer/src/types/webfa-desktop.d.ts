@@ -30,7 +30,15 @@ declare global {
       startMcp: () => Promise<McpStatus>;
       stopMcp: () => Promise<McpStatus>;
       restartMcp: () => Promise<McpStatus>;
-      getDesktopConfig: () => Promise<{ apiUrl: string; consoleUrl: string }>;
+      getDesktopConfig: () => Promise<{ apiUrl: string; consoleUrl: string; authSurfaceProfilePath: string }>;
+      getAuthSurfaceStatus: () => Promise<{ active: boolean; url: string | null; profilePath: string }>;
+      showAuthSurface: (payload: {
+        url: string;
+        bounds: { x: number; y: number; width: number; height: number };
+      }) => Promise<{ active: boolean; url: string | null; profilePath: string }>;
+      hideAuthSurface: () => Promise<{ active: boolean; url: string | null; profilePath: string }>;
+      destroyAuthSurface: () => Promise<{ active: boolean; url: string | null; profilePath: string }>;
+      onAuthSurfaceRequestBounds: (callback: () => void) => () => void;
       onRuntimeStatus: (callback: (status: RuntimeStatus) => void) => () => void;
       onMcpStatus: (callback: (status: McpStatus) => void) => () => void;
     };

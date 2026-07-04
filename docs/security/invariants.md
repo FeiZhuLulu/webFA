@@ -28,15 +28,15 @@ surface.
 
 ## Authentication
 
-9. WebFA may open a visible managed Chromium host for human login, QR, 2FA, or
-   authorization.
+9. WebFA uses the WebFA-owned Auth Surface for human login, QR, 2FA, or
+   authorization. A separate visible host is legacy fallback only.
 10. Agents must not ask users for passwords, verification codes, cookies,
     storage values, or tokens in chat.
 11. Auth takeover must use the same local profile without exposing credential
     material to MCP, REST responses, logs, or docs.
-12. Closing the visible host ends the current browser host. `open_url` may
-    restart it with the same profile, but page memory and old element ids are
-    lost.
+12. Opening Auth Surface releases the hidden Runtime host while takeover is
+    active. Completing/canceling takeover restarts the host with the same
+    profile, but page memory and old element ids are lost.
 
 ## Agent Coordination
 

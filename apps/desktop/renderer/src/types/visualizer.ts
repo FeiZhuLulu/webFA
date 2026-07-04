@@ -1,6 +1,6 @@
 export type BrowserAuthState = {
   surface_detected: boolean;
-  takeover: "none" | "visible_window";
+  takeover: "none" | "visible_window" | "auth_surface";
   reason: string[];
   user_action_required: boolean;
 };
@@ -83,6 +83,11 @@ export type VisualizerState = {
     format: "png";
     data_url: string | null;
     captured_at: string | null;
+  };
+  auth_surface: {
+    active: boolean;
+    url: string | null;
+    mode: "electron" | "legacy";
   };
   recent_actions: VisualizerActionEntry[];
   errors: Array<{ code: string; message: string }>;

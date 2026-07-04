@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "path";
+import { AuthSurfaceBounds, AuthSurfaceManager } from "./authSurface";
 import { McpProcessManager, McpStatus } from "./mcpProcess";
 import { RuntimeProcessManager, RuntimeStatus } from "./runtimeProcess";
 
@@ -12,6 +13,7 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let runtimeManager: RuntimeProcessManager;
 let mcpManager: McpProcessManager;
+let authSurfaceManager: AuthSurfaceManager;
 let isQuitting = false;
 
 function broadcastRuntimeStatus(status: RuntimeStatus): void {
@@ -47,6 +49,12 @@ function createWindow(): void {
     if (!isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
+    }
+  });
+
+  mainWindow.on("resize", () => {
+    if (mainWindow && authSurfaceManager) {
+      mainWindow.webContents.send("auth-surface:request-bounds");
     }
   });
 }
@@ -92,6 +100,7 @@ function createTray(): void {
 }
 
 app.whenReady().then(() => {
+  authSurfaceManager = new AuthSurfaceManager();
   runtimeManager = new RuntimeProcessManager({
     appRoot: APP_ROOT,
     host: API_HOST,
@@ -114,8 +123,18 @@ app.whenReady().then(() => {
   ipcMain.handle("mcp:restart", () => mcpManager.restart());
   ipcMain.handle("desktop:getConfig", () => ({
     apiUrl: `http://${API_HOST}:${API_PORT}`,
-    consoleUrl: CONSOLE_URL
+    consoleUrl: CONSOLE_URL,
+    authSurfaceProfilePath: authSurfaceManager.getProfilePath()
   }));
+  ipcMain.handle("auth-surface:getStatus", () => authSurfaceManager.getStatus());
+  ipcMain.handle("auth-surface:show", (_event, payload: { url: string; bounds: AuthSurfaceBounds }) => {
+    if (!mainWindow) {
+      throw new Error("main window is not available");
+    }
+    return authSurfaceManager.show(mainWindow, payload.bounds, payload.url);
+  });
+  ipcMain.handle("auth-surface:hide", () => authSurfaceManager.hide());
+  ipcMain.handle("auth-surface:destroy", () => authSurfaceManager.destroy());
 
   createWindow();
   createTray();
@@ -130,6 +149,7 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  authSurfaceManager?.destroy();
   mcpManager?.stop();
   runtimeManager?.stop();
 });

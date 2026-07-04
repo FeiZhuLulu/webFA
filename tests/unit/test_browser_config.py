@@ -3,16 +3,18 @@ import pytest
 from browser.config import resolve_browser_runtime_config
 
 
-def test_browser_runtime_config_defaults_to_visible(monkeypatch):
+def test_browser_runtime_config_defaults_to_headless_auth_surface(monkeypatch):
     monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
     monkeypatch.delenv("WEBFA_BROWSER_HEADLESS", raising=False)
     monkeypatch.delenv("WEBFA_AUTH_TAKEOVER", raising=False)
+    monkeypatch.delenv("WEBFA_AUTH_SURFACE_MODE", raising=False)
 
     config = resolve_browser_runtime_config()
 
     assert config.driver_name == "managed-chromium"
-    assert config.headless is False
+    assert config.headless is True
     assert config.auth_takeover == "auto"
+    assert config.auth_surface_mode == "electron"
 
 
 def test_browser_runtime_config_headless_env_overrides_to_true(monkeypatch):
@@ -34,7 +36,7 @@ def test_browser_runtime_config_allows_playwright_fallback(monkeypatch):
     config = resolve_browser_runtime_config()
 
     assert config.driver_name == "playwright"
-    assert config.headless is False
+    assert config.headless is True
     assert config.auth_takeover == "off"
 
 

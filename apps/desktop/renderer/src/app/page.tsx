@@ -9,7 +9,7 @@ import { ElementTable } from "../components/Inspector/ElementTable";
 import { PagePreview } from "../components/Preview/PagePreview";
 import { ControlPanel } from "../components/Runtime/ControlPanel";
 import { StatusPanel } from "../components/Runtime/StatusPanel";
-import { fetchVisualizerState, openVisibleHost, resolveApiUrl, restartHost } from "../lib/visualizer-api";
+import { closeAuthSurface, fetchVisualizerState, openAuthSurface, resolveApiUrl, restartHost } from "../lib/visualizer-api";
 import type { VisualizerState } from "../types/visualizer";
 import type { RuntimeState } from "../types/webfa-desktop";
 
@@ -34,6 +34,9 @@ export default function VisualizerPage() {
   const [lastError, setLastError] = useState<string | null>(null);
 
   const browserState = visualizerState?.browser_state ?? null;
+  const authSurfaceActive = Boolean(visualizerState?.auth_surface?.active);
+  const authSurfaceUrl = visualizerState?.auth_surface?.url ?? visualizerState?.page.url ?? null;
+  const hasElectronAuthSurface = typeof window !== "undefined" && Boolean(window.webfaDesktop?.showAuthSurface);
 
   useEffect(() => {
     apiUrlRef.current = apiUrl;
@@ -131,6 +134,20 @@ export default function VisualizerPage() {
     return () => window.clearTimeout(id);
   }, [toast]);
 
+  useEffect(() => {
+    if (!hasElectronAuthSurface || !visualizerState) {
+      return;
+    }
+    if (visualizerState.page.auth.user_action_required && !authSurfaceActive) {
+      void runControl(() => openAuthSurface(apiUrlRef.current, visualizerState.page.url || null));
+    }
+  }, [hasElectronAuthSurface, visualizerState?.page.auth.user_action_required, authSurfaceActive, runControl, visualizerState]);
+
+  const completeAuth = useCallback(async () => {
+    const surfaceStatus = await window.webfaDesktop?.destroyAuthSurface();
+    await runControl(() => closeAuthSurface(apiUrlRef.current, surfaceStatus?.url ?? authSurfaceUrl));
+  }, [authSurfaceUrl, runControl]);
+
   const header = useMemo(
     () => (
       <header className="viz-app-header">
@@ -176,7 +193,7 @@ export default function VisualizerPage() {
               hostActionsDisabled={runtimeState !== "running"}
               onRefresh={() => runControl(() => fetchVisualizerState(apiUrlRef.current))}
               onRestartHost={() => runControl(() => restartHost(apiUrlRef.current))}
-              onOpenHost={() => runControl(() => openVisibleHost(apiUrlRef.current))}
+              onOpenAuthSurface={() => runControl(() => openAuthSurface(apiUrlRef.current, visualizerState?.page.url || null))}
               onCopyJson={() => void copyJson()}
               onStartRuntime={async () => {
                 const status = await window.webfaDesktop?.startRuntime();
@@ -200,7 +217,14 @@ export default function VisualizerPage() {
             />
           </>
         }
-        main={<PagePreview state={visualizerState} />}
+        main={
+          <PagePreview
+            state={visualizerState}
+            authSurfaceActive={authSurfaceActive && hasElectronAuthSurface}
+            authSurfaceUrl={authSurfaceUrl}
+            onCompleteAuth={hasElectronAuthSurface ? () => void completeAuth() : undefined}
+          />
+        }
         right={
           <>
             <div className="viz-panel-section">

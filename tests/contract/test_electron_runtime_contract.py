@@ -11,6 +11,21 @@ def test_electron_runtime_manager_starts_uvicorn_runtime():
     assert "WEBFA_PYTHON" in source
 
 
+def test_electron_auth_surface_ipc_exists():
+    main = (ROOT / "apps/desktop/electron/main.ts").read_text(encoding="utf-8")
+    preload = (ROOT / "apps/desktop/electron/preload.ts").read_text(encoding="utf-8")
+    auth_surface = (ROOT / "apps/desktop/electron/authSurface.ts").read_text(encoding="utf-8")
+    assert "auth-surface:show" in main
+    assert "WebContentsView" in auth_surface
+    assert "showAuthSurface" in preload
+    assert "devTools: false" in auth_surface
+    assert "contextIsolation: true" in auth_surface
+    assert 'action: "deny"' in auth_surface
+    assert "WEBFA_HOME" in auth_surface
+    assert "managed-chromium-profile-default" in auth_surface
+    assert "authSurfaceManager.destroy()" in main
+
+
 def test_electron_exposes_runtime_start_stop_ipc():
     source = (ROOT / "apps/desktop/electron/main.ts").read_text(encoding="utf-8")
     assert 'ipcMain.handle("runtime:start"' in source
@@ -26,6 +41,7 @@ def test_renderer_has_stopped_state_for_runtime_stop():
     assert "stopRuntime" in page
     assert "fetchVisualizerState" in page
     assert "/v1/visualizer/state" in api
+    assert "open-auth-surface" in api
 
 
 def test_electron_mcp_process_manager_exists():
