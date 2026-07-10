@@ -11,7 +11,7 @@ from browser.runtime import BrowserRuntime
 from browser.web_object_compiler import WebObjectCompiler
 from browser.web_observe import WebObserveService
 from schemas.browser import BrowserActionRequest
-from schemas.web import WebObserveQuery, WebObserveRequest
+from schemas.web import WebObserveQuery, WebObserveRequest, WebOperationRequest
 from storage.db import reset_engine_for_tests
 
 
@@ -158,8 +158,13 @@ def test_browser_runtime_internal_queryable_observe_coexists_with_legacy_state(m
         assert legacy_target
         assert initial.state.agent.active_agent_id == "p10-test"
 
-        runtime.act(
-            BrowserActionRequest(action="type", target=legacy_target, text="Fei"),
+        operation = runtime.act_web(
+            WebOperationRequest(
+                target=field.id,
+                operation="set_value",
+                arguments={"value": "Fei"},
+                expected_object_version=field.version,
+            ),
             agent_id="p10-test",
         )
         changes = runtime.observe_web(
@@ -171,6 +176,9 @@ def test_browser_runtime_internal_queryable_observe_coexists_with_legacy_state(m
         )
         legacy_state = runtime.observe()
 
+        assert operation.previous_object_version == field.version
+        assert operation.current_object_version == field.version + 1
+        assert operation.state.agent.active_agent_id == "p10-test"
         assert any(item.id == field.id for item in changes.state.objects)
         assert changes.state.changes.updated
         assert legacy_state.interactive_elements

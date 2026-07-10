@@ -95,8 +95,10 @@ packages/webfa-core/browser/raw_snapshot.py
 packages/webfa-core/browser/raw_snapshot_collector.py
 packages/webfa-core/browser/runtime.py
 packages/webfa-core/browser/runtime_errors.py
+packages/webfa-core/browser/semantic_operations.py
 packages/webfa-core/browser/session.py
 packages/webfa-core/browser/url_policy.py
+packages/webfa-core/browser/web_capabilities.py
 packages/webfa-core/browser/web_object_compiler.py
 packages/webfa-core/browser/web_observe.py
 packages/webfa-core/execution/__init__.py

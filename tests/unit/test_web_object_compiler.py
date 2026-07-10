@@ -280,7 +280,7 @@ def test_compiler_builds_web_objects_outline_regions_and_capabilities():
     assert any(region.role == "navigation" for region in state.regions)
 
     link = _object_by_role(compilation, "link")[0]
-    assert link.capabilities == ["open", "open_in_new_context"]
+    assert link.capabilities == ["open"]
     assert link.origin == "https://github.com"
 
     search = _object_by_role(compilation, "searchbox")[0]
@@ -297,6 +297,35 @@ def test_compiler_builds_web_objects_outline_regions_and_capabilities():
 
     forbidden = {"click", "double_click", "type", "press", "focus"}
     assert all(set(item.capabilities).isdisjoint(forbidden) for item in state.objects)
+
+
+def test_file_input_is_an_upload_target_but_does_not_claim_unimplemented_upload():
+    snapshot = _snapshot()
+    snapshot.interactive_elements.append(
+        {
+            "id": "el_file",
+            "role": "textbox",
+            "tag": "input",
+            "name": "Project archive",
+            "text": "",
+            "value": "",
+            "placeholder": "",
+            "input_type": "file",
+            "visible": True,
+            "enabled": True,
+            "checked": None,
+            "selected": None,
+            "href": None,
+            "actions": ["click", "focus"],
+            "frame_id": "frame_1",
+        }
+    )
+
+    compilation = WebObjectCompiler().compile(snapshot)
+    upload_target = _object_by_role(compilation, "upload_target")[0]
+
+    assert upload_target.capabilities == ["request_human_takeover"]
+    assert "upload" not in upload_target.capabilities
 
 
 def test_compiler_builds_form_relations_and_content_ownership():

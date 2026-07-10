@@ -702,6 +702,8 @@ def _interactive_spec(element: dict) -> _RoleSpec:
     role = _normalize_role(str(element.get("role", "")))
     tag = str(element.get("tag", "")).lower()
     input_type = str(element.get("input_type", "")).lower()
+    if input_type == "file":
+        return _RoleSpec("interactive", "upload_target")
     if role == "link" or tag == "a":
         return _RoleSpec("interactive", "link")
     if role == "button" or tag == "button":
@@ -755,14 +757,14 @@ def _capabilities_for_element(
     legacy_actions = {str(action) for action in element.get("actions", [])}
 
     if role == "link" and href:
-        capabilities.extend(["open", "open_in_new_context"])
+        capabilities.append("open")
+    elif role == "upload_target":
+        capabilities.append("request_human_takeover")
     elif role == "button":
         capabilities.append("activate")
     elif role in _EDITABLE_ROLES:
         if input_type == "password":
             capabilities.append("request_human_takeover")
-        elif input_type == "file":
-            capabilities.append("upload")
         elif state.readonly is not True:
             capabilities.extend(["set_value", "clear_value"])
     elif role in {"combobox", "option"}:
@@ -782,12 +784,10 @@ def _capabilities_for_element(
 
 
 def _capabilities_for_ax(role: ObjectRole, state: WebObjectState) -> list[ObjectCapabilityName]:
-    capabilities: list[ObjectCapabilityName] = []
-    if state.expanded is False:
-        capabilities.append("expand")
-    elif state.expanded is True:
-        capabilities.append("collapse")
-    return capabilities
+    # AX-only objects are readable evidence until the BrowserHost can target
+    # backend/AX node identities directly. Do not advertise operations that the
+    # semantic executor cannot currently dispatch.
+    return []
 
 
 def _state_from_element(

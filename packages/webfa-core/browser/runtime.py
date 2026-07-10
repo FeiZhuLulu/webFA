@@ -11,6 +11,7 @@ from browser.driver import BrowserDriver, RawPageSnapshot
 from browser.driver_factory import create_default_driver_factory
 from browser.exceptions import BrowserHostClosedError
 from browser.object_registry import ObjectRegistry
+from browser.semantic_operations import SemanticOperationExecutor, WebOperationPlan
 from browser.runtime_errors import BrowserRuntimeError
 from browser.runtime_errors import auth_surface_active as auth_surface_active_error
 from browser.runtime_errors import dialog_not_found
@@ -35,7 +36,13 @@ from schemas.browser import (
     BrowserState,
     BrowserTab,
 )
-from schemas.web import HumanTakeoverState, WebObserveRequest, WebState
+from schemas.web import (
+    HumanTakeoverState,
+    WebObserveRequest,
+    WebOperationRequest,
+    WebOperationResult,
+    WebState,
+)
 
 
 DriverFactory = Callable[[], BrowserDriver]
@@ -77,6 +84,12 @@ class BrowserRuntime:
     def act(self, request: BrowserActionRequest, agent_id: str | None = None) -> BrowserActionResult:
         self._agent_lease.acquire(agent_id)
         return self._with_agent_result(self._call("act", request))
+
+    def act_web(self, request: WebOperationRequest, agent_id: str | None = None) -> WebOperationResult:
+        self._agent_lease.acquire(agent_id)
+        result = self._call("act_web", request)
+        result.state.agent = _agent_state_from_snapshot(self._agent_lease.snapshot())
+        return result
 
     def tabs(self) -> list[BrowserTab]:
         return self._call("tabs")
@@ -199,6 +212,7 @@ class _BrowserWorker:
         self._web_compiler = WebObjectCompiler()
         self._object_registry = ObjectRegistry()
         self._web_observe = WebObserveService(self._object_registry)
+        self._semantic_operations = SemanticOperationExecutor(self._object_registry)
         self._headless = headless
         self._auth_takeover = auth_takeover
         self._auth_surface_mode = auth_surface_mode
@@ -212,6 +226,7 @@ class _BrowserWorker:
             "observe": self.observe,
             "observe_web": self.observe_web,
             "act": self.act,
+            "act_web": self.act_web,
             "tabs": self.tabs,
             "switch_tab": self.switch_tab,
             "close": self.close,
@@ -279,15 +294,50 @@ class _BrowserWorker:
             raise WebObserveUnavailableError("browser host has not started")
         self._raise_if_host_exited()
         driver = self._session.driver
-        observe_web_raw = getattr(driver, "observe_web_raw", None)
-        if not callable(observe_web_raw):
-            raise WebObserveUnavailableError("selected browser driver does not provide RawWebSnapshot")
-        compilation = self._web_compiler.compile(
-            observe_web_raw(),
-            session_id=self._session.session_id,
-        )
-        self._object_registry.update(compilation)
+        self._refresh_web_state(driver)
         return self._web_observe.observe(request, allow_debug=allow_debug)
+
+    def act_web(self, request: WebOperationRequest) -> WebOperationResult:
+        if self._auth_surface_active:
+            raise auth_surface_active_error()
+        self._raise_if_host_exited()
+        driver = self._session.ensure_driver()
+        if self._driver_has_pending_dialog(driver) and request.operation != "dismiss":
+            raise dialog_required_error()
+
+        plan = self._semantic_operations.plan(request)
+        previous_version = plan.target.version
+        if plan.takeover_reason is not None:
+            return self._request_web_takeover(plan)
+        if plan.no_op:
+            state = self._object_registry.current_state() or WebState(session_id=self._session.session_id)
+            return WebOperationResult(
+                ok=True,
+                target=request.target,
+                operation=request.operation,
+                previous_object_version=previous_version,
+                current_object_version=previous_version,
+                document_revision=state.document_revision,
+                state=state,
+                data={"no_op": True},
+            )
+
+        self._semantic_operations.execute(driver, plan)
+        registered = self._refresh_web_state(driver)
+        current_version: int | None = None
+        try:
+            current_version = self._object_registry.require(request.target).version
+        except Exception:
+            current_version = None
+        return WebOperationResult(
+            ok=True,
+            target=request.target,
+            operation=request.operation,
+            previous_object_version=previous_version,
+            current_object_version=current_version,
+            document_revision=registered.state.document_revision,
+            state=registered.state,
+        )
 
     def act(self, request: BrowserActionRequest) -> BrowserActionResult:
         if self._auth_surface_active:
@@ -417,6 +467,59 @@ class _BrowserWorker:
     def _raise_if_host_exited(self) -> None:
         if self._host_is_exited():
             raise BrowserHostClosedError()
+
+    def _refresh_web_state(self, driver: BrowserDriver):
+        observe_web_raw = getattr(driver, "observe_web_raw", None)
+        if not callable(observe_web_raw):
+            raise WebObserveUnavailableError("selected browser driver does not provide RawWebSnapshot")
+        snapshot = observe_web_raw()
+        try:
+            enforce_navigation_allowed(snapshot.url, policy=self._private_url_policy)  # type: ignore[arg-type]
+        except BrowserRuntimeError:
+            self._session.reset()
+            self._object_registry.clear()
+            raise
+        compilation = self._web_compiler.compile(
+            snapshot,
+            session_id=self._session.session_id,
+        )
+        return self._object_registry.update(compilation)
+
+    def _request_web_takeover(self, plan: WebOperationPlan) -> WebOperationResult:
+        current = self._object_registry.current_state() or WebState(session_id=self._session.session_id)
+        target_url = current.url or "about:blank"
+        self._session.reset()
+        self._auth_surface_active = True
+        self._auth_surface_url = target_url
+        state = current.model_copy(deep=True)
+        state.document_id = "human_takeover"
+        state.title = "WebFA Human Takeover"
+        state.objects = []
+        state.object_count = 0
+        state.changes = None
+        state.takeover = HumanTakeoverState(
+            required=True,
+            reason=plan.takeover_reason,
+            target=plan.target.id,
+            origin=plan.target.origin,
+        )
+        if plan.takeover_reason == "authentication":
+            state.auth = BrowserAuthState(
+                surface_detected=True,
+                takeover="auth_surface",
+                reason=["semantic_takeover_requested"],
+                user_action_required=True,
+            )
+        return WebOperationResult(
+            ok=True,
+            target=plan.request.target,
+            operation=plan.request.operation,
+            previous_object_version=plan.target.version,
+            current_object_version=plan.target.version,
+            document_revision=state.document_revision,
+            state=state,
+            data={"takeover_requested": True},
+        )
 
     def _state_from_raw(self, raw: RawPageSnapshot) -> BrowserState:
         self._session.registry.update(raw)
