@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
 from browser.agent_view import AgentViewBuilder
-from browser.raw_snapshot import RawAccessibilityNode, RawDOMNode, RawWebSnapshot
+from browser.raw_snapshot import RawAccessibilityNode, RawDOMNode, RawFrameEvidence, RawWebSnapshot
 from schemas.browser import BrowserAgentState, BrowserStateError
 from schemas.web import (
     HumanTakeoverState,
@@ -29,6 +29,7 @@ class WebObjectProvenance:
     sources: tuple[str, ...]
     compiler_rules: tuple[str, ...]
     legacy_id: str | None = None
+    engine_frame_id: str | None = None
     ax_node_id: str | None = None
     backend_dom_node_id: int | None = None
     dom_document_index: int | None = None
@@ -105,7 +106,7 @@ class WebObjectCompiler:
     ) -> WebObjectCompilation:
         legacy_state = self._legacy_builder.build(snapshot.to_page_snapshot(), session_id=session_id)
         origin = _origin_of(snapshot.url)
-        document_id = _document_id(snapshot.url)
+        document_id = _document_id(snapshot)
         objects: dict[str, WebObject] = {}
         provenance: dict[str, WebObjectProvenance] = {}
         allocator = _ObjectIdAllocator()
@@ -260,15 +261,9 @@ class WebObjectCompiler:
     ) -> tuple[dict[str, str], dict[str, str]]:
         frame_object_ids: dict[str, str] = {}
         frame_id_map: dict[str, str] = {}
-        legacy_by_url = {
-            str(frame.get("url", "")): str(frame.get("id", ""))
-            for frame in snapshot.frames
-            if isinstance(frame, dict) and frame.get("id")
-        }
-        for engine_frame in snapshot.engine_frames:
-            mapped = legacy_by_url.get(engine_frame.url)
-            if mapped:
-                frame_id_map[engine_frame.frame_id] = mapped
+        engine_by_legacy = _match_engine_frames(snapshot)
+        for legacy_id, engine_frame in engine_by_legacy.items():
+            frame_id_map[engine_frame.frame_id] = legacy_id
 
         for frame in snapshot.frames:
             if not isinstance(frame, dict):
@@ -293,10 +288,12 @@ class WebObjectCompiler:
                 lifetime="frame",
                 security=WebObjectSecurity(content_trust="untrusted", cross_origin=not same_origin),
             )
+            engine_frame = engine_by_legacy.get(frame_id)
             provenance[object_id] = WebObjectProvenance(
-                sources=("probe_frame",),
+                sources=("probe_frame", "engine_frame") if engine_frame else ("probe_frame",),
                 compiler_rules=("frame_metadata",),
                 legacy_id=frame_id,
+                engine_frame_id=engine_frame.frame_id if engine_frame else None,
             )
             frame_object_ids[frame_id] = object_id
         return frame_object_ids, frame_id_map
@@ -399,6 +396,7 @@ class WebObjectCompiler:
                         sources=previous.sources + ("content_block",),
                         compiler_rules=previous.compiler_rules + (f"block_type:{block_type}",),
                         legacy_id=block_id,
+                        engine_frame_id=previous.engine_frame_id,
                         ax_node_id=previous.ax_node_id,
                         backend_dom_node_id=previous.backend_dom_node_id,
                         dom_document_index=previous.dom_document_index,
@@ -927,6 +925,44 @@ def _compiler_errors(snapshot: RawWebSnapshot) -> list[BrowserStateError]:
     ]
 
 
+def _match_engine_frames(snapshot: RawWebSnapshot) -> dict[str, RawFrameEvidence]:
+    matches: dict[str, RawFrameEvidence] = {}
+    used_engine_ids: set[str] = set()
+    engine_parent_by_legacy: dict[str, str] = {}
+    for frame in snapshot.frames:
+        if not isinstance(frame, dict):
+            continue
+        legacy_id = str(frame.get("id", ""))
+        if not legacy_id:
+            continue
+        parent_legacy_id = str(frame.get("parent_id", "")) or None
+        expected_parent_engine = engine_parent_by_legacy.get(parent_legacy_id or "")
+        url = str(frame.get("url", ""))
+        candidates = [
+            item
+            for item in snapshot.engine_frames
+            if item.frame_id not in used_engine_ids
+            and item.url == url
+            and (
+                (parent_legacy_id is None and item.parent_id is None)
+                or (parent_legacy_id is not None and item.parent_id == expected_parent_engine)
+            )
+        ]
+        if not candidates:
+            candidates = [
+                item
+                for item in snapshot.engine_frames
+                if item.frame_id not in used_engine_ids and item.url == url
+            ]
+        if not candidates:
+            continue
+        selected = candidates[0]
+        matches[legacy_id] = selected
+        used_engine_ids.add(selected.frame_id)
+        engine_parent_by_legacy[legacy_id] = selected.frame_id
+    return matches
+
+
 def _root_frame_id(snapshot: RawWebSnapshot) -> str | None:
     for frame in snapshot.frames:
         if isinstance(frame, dict) and frame.get("id") and not frame.get("parent_id"):
@@ -934,8 +970,13 @@ def _root_frame_id(snapshot: RawWebSnapshot) -> str | None:
     return None
 
 
-def _document_id(url: str) -> str:
-    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
+def _document_id(snapshot: RawWebSnapshot) -> str:
+    root_engine_frame = next((item for item in snapshot.engine_frames if item.parent_id is None), None)
+    if root_engine_frame and root_engine_frame.loader_id:
+        identity = f"{root_engine_frame.frame_id}:{root_engine_frame.loader_id}"
+    else:
+        identity = snapshot.url
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
     return f"doc_{digest}"
 
 

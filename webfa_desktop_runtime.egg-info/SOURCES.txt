@@ -88,6 +88,7 @@ packages/webfa-core/browser/exceptions.py
 packages/webfa-core/browser/host.py
 packages/webfa-core/browser/host_driver.py
 packages/webfa-core/browser/managed_chromium_host.py
+packages/webfa-core/browser/object_registry.py
 packages/webfa-core/browser/observe_probe.py
 packages/webfa-core/browser/playwright_driver.py
 packages/webfa-core/browser/raw_snapshot.py

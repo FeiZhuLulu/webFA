@@ -89,6 +89,7 @@ def test_changeset_tracks_object_versions() -> None:
     changes = WebChangeSet(
         from_revision=4,
         to_revision=5,
+        document_changed_fields=["url"],
         added=[
             WebObjectSummary(
                 id="dialog_1",
@@ -109,6 +110,7 @@ def test_changeset_tracks_object_versions() -> None:
         ],
     )
 
+    assert changes.document_changed_fields == ["url"]
     assert changes.added[0].projection == "summary"
     assert changes.updated[0].changed_fields == ["value"]
 

@@ -100,6 +100,7 @@ class RawFrameEvidence:
     frame_id: str
     parent_id: str | None
     url: str
+    loader_id: str = ""
     name: str = ""
     security_origin: str = ""
     mime_type: str = ""
@@ -274,6 +275,7 @@ def parse_frame_tree(items: list[dict[str, Any]]) -> list[RawFrameEvidence]:
                 frame_id=frame_id,
                 parent_id=str(parent) if parent else None,
                 url=str(item.get("url", "")),
+                loader_id=str(item.get("loader_id", "")),
                 name=str(item.get("name", "")),
                 security_origin=str(item.get("security_origin", "")),
                 mime_type=str(item.get("mime_type", "")),

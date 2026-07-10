@@ -6,7 +6,9 @@ from fastapi.testclient import TestClient
 from apps.runtime.main import create_app
 from browser.host_driver import HostBrowserDriver
 from browser.managed_chromium_host import ManagedChromiumHost, _find_chromium_executable
+from browser.object_registry import ObjectRegistry
 from browser.web_object_compiler import WebObjectCompiler
+from schemas.browser import BrowserActionRequest
 from storage.db import reset_engine_for_tests
 
 
@@ -66,6 +68,43 @@ def test_managed_chromium_compiles_real_web_objects(monkeypatch, tmp_path: Path)
             not set(item.capabilities).intersection({"click", "double_click", "type", "press", "focus"})
             for item in compilation.state.objects
         )
+    finally:
+        driver.close()
+
+
+def test_managed_chromium_registry_keeps_identity_and_tracks_changes(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    host = ManagedChromiumHost(headless=True)
+    driver = HostBrowserDriver(host)
+    compiler = WebObjectCompiler()
+    registry = ObjectRegistry()
+    try:
+        driver.open(FIXTURE_PAGE.as_uri())
+        first = registry.update(compiler.compile(driver.observe_web_raw()))
+        field = next(item for item in first.state.objects if getattr(item, "role", None) == "textbox")
+        legacy_field = registry.legacy_target_for(field.id)
+        assert legacy_field
+
+        driver.act(BrowserActionRequest(action="type", target=legacy_field, text="Fei"))
+        second = registry.update(compiler.compile(driver.observe_web_raw()))
+        updated_field = next(item for item in second.state.objects if getattr(item, "role", None) == "textbox")
+
+        assert updated_field.id == field.id
+        assert updated_field.version == field.version + 1
+        assert second.state.document_id == first.state.document_id
+        assert second.state.document_revision == first.state.document_revision + 1
+        assert next(item for item in second.changes.updated if item.id == field.id)
+
+        host.evaluate("history.pushState({}, '', '?view=updated')")
+        third = registry.update(compiler.compile(driver.observe_web_raw()))
+        pushed_field = next(item for item in third.state.objects if getattr(item, "role", None) == "textbox")
+
+        assert third.state.document_id == second.state.document_id
+        assert pushed_field.id == updated_field.id
+        assert third.state.document_revision == second.state.document_revision + 1
+        assert third.changes.document_changed_fields == ["url"]
     finally:
         driver.close()
 

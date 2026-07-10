@@ -164,6 +164,7 @@ class RichFakeHost:
                 "cdp_frame_id": "frame-main",
                 "parent_cdp_frame_id": None,
                 "url": "https://example.com/login",
+                "loader_id": "loader-main",
                 "security_origin": "https://example.com",
                 "mime_type": "text/html",
             }
@@ -198,6 +199,7 @@ def test_collector_builds_rich_snapshot_and_legacy_projection():
     assert snapshot.viewport.width == 1440
     assert len(snapshot.accessibility_nodes) == 2
     assert len(snapshot.dom_documents) == 1
+    assert snapshot.engine_frames[0].loader_id == "loader-main"
     assert snapshot.engine_frames[0].security_origin == "https://example.com"
     assert snapshot.evidence_errors == []
     assert snapshot.interactive_elements[0]["value"] == ""

@@ -528,6 +528,7 @@ def _flatten_frame_tree(node: dict[str, Any], *, parent_id: str | None = None, i
                 "cdp_frame_id": frame_id,
                 "parent_cdp_frame_id": parent_id,
                 "url": str(frame.get("url", "")),
+                "loader_id": str(frame.get("loaderId", "")),
                 "name": str(frame.get("name", "")),
                 "security_origin": str(frame.get("securityOrigin", "")),
                 "mime_type": str(frame.get("mimeType", "")),

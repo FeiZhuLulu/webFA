@@ -294,6 +294,7 @@ class WebObjectUpdate(StrictModel):
 class WebChangeSet(StrictModel):
     from_revision: int = Field(ge=0)
     to_revision: int = Field(ge=0)
+    document_changed_fields: list[str] = Field(default_factory=list)
     added: list[WebObjectSummary] = Field(default_factory=list)
     updated: list[WebObjectUpdate] = Field(default_factory=list)
     removed: list[str] = Field(default_factory=list)

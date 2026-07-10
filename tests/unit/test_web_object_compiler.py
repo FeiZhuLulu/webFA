@@ -12,7 +12,7 @@ from browser.web_object_compiler import WebObjectCompiler
 from schemas.browser import BrowserTab, BrowserViewport
 
 
-def _snapshot(*, login: bool = False, degraded: bool = False) -> RawWebSnapshot:
+def _snapshot(*, login: bool = False, degraded: bool = False, loader_id: str = "loader-a") -> RawWebSnapshot:
     url = "https://example.com/login" if login else "https://example.com/search?q=webfa"
     password = {
         "id": "el_password",
@@ -229,6 +229,7 @@ def _snapshot(*, login: bool = False, degraded: bool = False) -> RawWebSnapshot:
                 frame_id="cdp-main",
                 parent_id=None,
                 url=url,
+                loader_id=loader_id,
                 security_origin="https://example.com",
                 mime_type="text/html",
             )
@@ -243,6 +244,21 @@ def _snapshot(*, login: bool = False, degraded: bool = False) -> RawWebSnapshot:
 
 def _object_by_role(compilation, role: str):
     return [item for item in compilation.state.objects if item.role == role]
+
+
+def test_document_identity_uses_loader_id_instead_of_url_only():
+    first_snapshot = _snapshot(loader_id="loader-a")
+    push_state_snapshot = _snapshot(loader_id="loader-a")
+    push_state_snapshot.url = "https://example.com/search?q=other"
+    navigation_snapshot = _snapshot(loader_id="loader-b")
+
+    compiler = WebObjectCompiler()
+    first = compiler.compile(first_snapshot)
+    pushed = compiler.compile(push_state_snapshot)
+    navigated = compiler.compile(navigation_snapshot)
+
+    assert pushed.state.document_id == first.state.document_id
+    assert navigated.state.document_id != first.state.document_id
 
 
 def test_compiler_builds_web_objects_outline_regions_and_capabilities():
@@ -308,10 +324,13 @@ def test_compiler_records_internal_provenance_without_exposing_it_in_web_state()
     compilation = WebObjectCompiler().compile(_snapshot())
     search = _object_by_role(compilation, "searchbox")[0]
     evidence = compilation.provenance[search.id]
+    frame = _object_by_role(compilation, "frame")[0]
+    frame_evidence = compilation.provenance[frame.id]
 
     assert evidence.ax_node_id == "ax_search"
     assert evidence.backend_dom_node_id == 101
     assert evidence.dom_node_index == 1
+    assert frame_evidence.engine_frame_id == "cdp-main"
     assert "provenance" not in compilation.state.model_dump()
     assert "backend_dom_node_id" not in compilation.state.model_dump_json()
 
