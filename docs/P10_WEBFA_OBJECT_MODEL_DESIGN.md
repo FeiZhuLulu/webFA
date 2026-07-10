@@ -1,14 +1,15 @@
 # P10 WebFA Object Model
 
-Status: design frozen; P10.0, P10.1, and P10.2 complete
+Status: design frozen; P10.0 through P10.3 complete
 
 Implementation status:
 
 - P10.0 Definition Freeze: complete
 - P10.1 Schema Foundation: complete (`packages/schemas/web.py`)
 - P10.2 Raw Snapshot Collector: complete (`browser/raw_snapshot.py`, `browser/raw_snapshot_collector.py`)
-- P10.3 WebObjectCompiler: next
-- Current Runtime remains on the BrowserState/P7 compatibility path until later migration phases
+- P10.3 WebObjectCompiler: complete (`browser/web_object_compiler.py`)
+- P10.4 Identity and ChangeSet: next
+- Current public Runtime remains on the BrowserState/P7 compatibility path until later migration phases
 
 P10 is the next core architecture phase for WebFA. It does not add more browser-automation primitives. It upgrades WebFA from a DOM-element-oriented runtime into an agent-native web-object runtime.
 

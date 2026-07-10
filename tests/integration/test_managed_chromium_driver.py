@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from apps.runtime.main import create_app
 from browser.host_driver import HostBrowserDriver
 from browser.managed_chromium_host import ManagedChromiumHost, _find_chromium_executable
+from browser.web_object_compiler import WebObjectCompiler
 from storage.db import reset_engine_for_tests
 
 
@@ -41,6 +42,30 @@ def test_managed_chromium_collects_p10_raw_web_snapshot(monkeypatch, tmp_path: P
         legacy = snapshot.to_page_snapshot()
         assert legacy.title == "WebFA Agent Validation"
         assert legacy.interactive_elements
+    finally:
+        driver.close()
+
+
+def test_managed_chromium_compiles_real_web_objects(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    host = ManagedChromiumHost(headless=True)
+    driver = HostBrowserDriver(host)
+    try:
+        driver.open(FIXTURE_PAGE.as_uri())
+        snapshot = driver.observe_web_raw()
+        compilation = WebObjectCompiler().compile(snapshot)
+        roles = {item.role for item in compilation.state.objects}
+
+        assert {"document", "frame", "heading", "form", "textbox", "button"}.issubset(roles)
+        assert compilation.state.outline
+        assert compilation.state.object_count == len(compilation.state.objects)
+        assert compilation.provenance
+        assert all(
+            not set(item.capabilities).intersection({"click", "double_click", "type", "press", "focus"})
+            for item in compilation.state.objects
+        )
     finally:
         driver.close()
 

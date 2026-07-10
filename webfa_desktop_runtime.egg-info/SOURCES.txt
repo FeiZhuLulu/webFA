@@ -96,6 +96,7 @@ packages/webfa-core/browser/runtime.py
 packages/webfa-core/browser/runtime_errors.py
 packages/webfa-core/browser/session.py
 packages/webfa-core/browser/url_policy.py
+packages/webfa-core/browser/web_object_compiler.py
 packages/webfa-core/execution/__init__.py
 packages/webfa-core/execution/engine.py
 packages/webfa-core/planner/__init__.py
