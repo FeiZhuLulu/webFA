@@ -7,8 +7,11 @@ from apps.runtime.main import create_app
 from browser.host_driver import HostBrowserDriver
 from browser.managed_chromium_host import ManagedChromiumHost, _find_chromium_executable
 from browser.object_registry import ObjectRegistry
+from browser.runtime import BrowserRuntime
 from browser.web_object_compiler import WebObjectCompiler
+from browser.web_observe import WebObserveService
 from schemas.browser import BrowserActionRequest
+from schemas.web import WebObserveQuery, WebObserveRequest
 from storage.db import reset_engine_for_tests
 
 
@@ -97,6 +100,29 @@ def test_managed_chromium_registry_keeps_identity_and_tracks_changes(monkeypatch
         assert second.state.document_revision == first.state.document_revision + 1
         assert next(item for item in second.changes.updated if item.id == field.id)
 
+        observe_service = WebObserveService(registry)
+        page_view = observe_service.observe(
+            WebObserveRequest(mode="page", detail="summary", limit=10)
+        )
+        query_view = observe_service.observe(
+            WebObserveRequest(
+                mode="query",
+                query=WebObserveQuery(capability="set_value", visible=True),
+                detail="summary",
+            )
+        )
+        changes_view = observe_service.observe(
+            WebObserveRequest(
+                mode="changes",
+                since_revision=first.state.document_revision,
+                detail="summary",
+            )
+        )
+
+        assert page_view.state.objects
+        assert any(item.role in {"textbox", "searchbox"} for item in query_view.state.objects)
+        assert any(item.id == field.id for item in changes_view.state.objects)
+
         host.evaluate("history.pushState({}, '', '?view=updated')")
         third = registry.update(compiler.compile(driver.observe_web_raw()))
         pushed_field = next(item for item in third.state.objects if getattr(item, "role", None) == "textbox")
@@ -107,6 +133,50 @@ def test_managed_chromium_registry_keeps_identity_and_tracks_changes(monkeypatch
         assert third.changes.document_changed_fields == ["url"]
     finally:
         driver.close()
+
+
+def test_browser_runtime_internal_queryable_observe_coexists_with_legacy_state(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    runtime = BrowserRuntime(
+        headless=True,
+        driver_factory=lambda: HostBrowserDriver(ManagedChromiumHost(headless=True)),
+    )
+    try:
+        runtime.open(FIXTURE_PAGE.as_uri(), agent_id="p10-test")
+        initial = runtime.observe_web(
+            WebObserveRequest(mode="page", detail="debug", limit=20),
+            allow_debug=True,
+        )
+        field = next(
+            item
+            for item in initial.state.objects
+            if getattr(item, "role", None) in {"textbox", "searchbox"}
+        )
+        legacy_target = initial.debug_provenance[field.id].legacy_id
+        assert legacy_target
+        assert initial.state.agent.active_agent_id == "p10-test"
+
+        runtime.act(
+            BrowserActionRequest(action="type", target=legacy_target, text="Fei"),
+            agent_id="p10-test",
+        )
+        changes = runtime.observe_web(
+            WebObserveRequest(
+                mode="changes",
+                since_revision=initial.state.document_revision,
+                detail="summary",
+            )
+        )
+        legacy_state = runtime.observe()
+
+        assert any(item.id == field.id for item in changes.state.objects)
+        assert changes.state.changes.updated
+        assert legacy_state.interactive_elements
+        assert changes.state.agent.active_agent_id == "p10-test"
+    finally:
+        runtime.close()
 
 
 def test_managed_chromium_open_observe_act_loop(monkeypatch, tmp_path: Path):

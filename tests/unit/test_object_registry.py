@@ -214,6 +214,18 @@ def test_navigation_invalidates_previous_document_objects():
     assert second.state.document_revision == 2
 
 
+def test_changes_since_zero_returns_current_state_as_initial_additions():
+    registry = ObjectRegistry()
+    current = registry.update(_compilation())
+
+    changes = registry.changes_since(0)
+
+    assert changes.from_revision == 0
+    assert changes.to_revision == current.state.document_revision
+    assert len(changes.added) == current.state.object_count
+    assert {"document_id", "url", "title"}.issubset(set(changes.document_changed_fields))
+
+
 def test_changes_since_aggregates_from_retained_revision():
     registry = ObjectRegistry()
     first = registry.update(_compilation(field_value=""))

@@ -185,6 +185,14 @@ class ObjectRegistry:
         current_revision = self._current.state.document_revision
         if revision == current_revision:
             return WebChangeSet(from_revision=revision, to_revision=revision)
+        if revision == 0:
+            current_objects = _full_objects(self._current.state)
+            return WebChangeSet(
+                from_revision=0,
+                to_revision=current_revision,
+                document_changed_fields=_changed_document_fields(WebState(), self._current.state),
+                added=[_summary(item) for item in current_objects.values()],
+            )
         baseline = self._history.get(revision)
         if baseline is None:
             raise WebRevisionUnavailableError(revision)

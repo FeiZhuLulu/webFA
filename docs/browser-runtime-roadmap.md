@@ -202,10 +202,12 @@ P10
   low-level browser events remain internal execution strategies only.
   Managed Chromium becomes the only formal BrowserHost path and the Playwright
   fallback is removed during P10 migration.
-  Status: P10.0 through P10.4 are complete: definition freeze, schema foundation,
-  RawWebSnapshot collection, WebObject compilation, and stable identity/version/
-  revision/ChangeSet tracking. The public Runtime still uses the BrowserState/P7
-  compatibility path; P10.5 queryable observe projections are next.
+  Status: P10.0 through P10.5 are complete: definition freeze, schema foundation,
+  RawWebSnapshot collection, WebObject compilation, stable identity/version/
+  revision/ChangeSet tracking, and bounded queryable observe projections. The
+  new path is available internally through BrowserRuntime.observe_web(); the
+  public MCP/REST surface remains BrowserState/P7-compatible until migration.
+  P10.6 semantic operations are next.
   Full design: docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md.
 
 P11

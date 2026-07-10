@@ -10,11 +10,19 @@ from browser.config import resolve_browser_runtime_config
 from browser.driver import BrowserDriver, RawPageSnapshot
 from browser.driver_factory import create_default_driver_factory
 from browser.exceptions import BrowserHostClosedError
+from browser.object_registry import ObjectRegistry
 from browser.runtime_errors import BrowserRuntimeError
 from browser.runtime_errors import auth_surface_active as auth_surface_active_error
 from browser.runtime_errors import dialog_not_found
 from browser.runtime_errors import dialog_required as dialog_required_error
 from browser.runtime_errors import stale_element as stale_element_error
+from browser.web_object_compiler import WebObjectCompiler
+from browser.web_observe import (
+    WebObserveDebugForbiddenError,
+    WebObserveResult,
+    WebObserveService,
+    WebObserveUnavailableError,
+)
 from browser.url_policy import enforce_navigation_allowed
 from browser.session import BrowserSession
 from schemas.browser import (
@@ -27,6 +35,7 @@ from schemas.browser import (
     BrowserState,
     BrowserTab,
 )
+from schemas.web import HumanTakeoverState, WebObserveRequest, WebState
 
 
 DriverFactory = Callable[[], BrowserDriver]
@@ -54,6 +63,16 @@ class BrowserRuntime:
 
     def observe(self) -> BrowserState:
         return self._with_agent_state(self._call("observe"))
+
+    def observe_web(
+        self,
+        request: WebObserveRequest | None = None,
+        *,
+        allow_debug: bool = False,
+    ) -> WebObserveResult:
+        result = self._call("observe_web", request or WebObserveRequest(), allow_debug)
+        result.state.agent = _agent_state_from_snapshot(self._agent_lease.snapshot())
+        return result
 
     def act(self, request: BrowserActionRequest, agent_id: str | None = None) -> BrowserActionResult:
         self._agent_lease.acquire(agent_id)
@@ -177,6 +196,9 @@ class _BrowserWorker:
     ) -> None:
         self._session = BrowserSession(driver_factory=driver_factory)
         self._view_builder = AgentViewBuilder()
+        self._web_compiler = WebObjectCompiler()
+        self._object_registry = ObjectRegistry()
+        self._web_observe = WebObserveService(self._object_registry)
         self._headless = headless
         self._auth_takeover = auth_takeover
         self._auth_surface_mode = auth_surface_mode
@@ -188,6 +210,7 @@ class _BrowserWorker:
         handlers: dict[str, Callable[..., Any]] = {
             "open": self.open,
             "observe": self.observe,
+            "observe_web": self.observe_web,
             "act": self.act,
             "tabs": self.tabs,
             "switch_tab": self.switch_tab,
@@ -229,6 +252,42 @@ class _BrowserWorker:
             return BrowserState()
         self._raise_if_host_exited()
         return self._state_from_raw(self._session.driver.observe_raw())
+
+    def observe_web(self, request: WebObserveRequest, allow_debug: bool = False) -> WebObserveResult:
+        if request.detail == "debug" and not allow_debug:
+            raise WebObserveDebugForbiddenError("debug observe is local-only")
+        if self._auth_surface_active:
+            if request.mode == "changes":
+                raise WebObserveUnavailableError("changes are unavailable while auth takeover is active")
+            legacy = self._auth_surface_state()
+            return WebObserveResult(
+                state=WebState(
+                    session_id=legacy.session_id,
+                    document_id="auth_surface",
+                    document_revision=self._object_registry.current_revision,
+                    url=legacy.url,
+                    title=legacy.title,
+                    auth=legacy.auth,
+                    takeover=HumanTakeoverState(
+                        required=True,
+                        reason="authentication",
+                        origin="",
+                    ),
+                )
+            )
+        if self._session.driver is None:
+            raise WebObserveUnavailableError("browser host has not started")
+        self._raise_if_host_exited()
+        driver = self._session.driver
+        observe_web_raw = getattr(driver, "observe_web_raw", None)
+        if not callable(observe_web_raw):
+            raise WebObserveUnavailableError("selected browser driver does not provide RawWebSnapshot")
+        compilation = self._web_compiler.compile(
+            observe_web_raw(),
+            session_id=self._session.session_id,
+        )
+        self._object_registry.update(compilation)
+        return self._web_observe.observe(request, allow_debug=allow_debug)
 
     def act(self, request: BrowserActionRequest) -> BrowserActionResult:
         if self._auth_surface_active:
