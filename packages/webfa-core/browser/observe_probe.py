@@ -12,13 +12,15 @@ OBSERVE_PROBE = r"""
     return style && style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
   };
   const textOf = (el) => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+  const inputTypeOf = (el) => el.tagName.toLowerCase() === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : null;
+  const valueOf = (el) => inputTypeOf(el) === 'password' ? '' : (el.value || '');
   const nameOf = (el) => (
     el.getAttribute('aria-label') ||
     el.getAttribute('title') ||
     el.getAttribute('placeholder') ||
     el.getAttribute('name') ||
     textOf(el) ||
-    el.value ||
+    valueOf(el) ||
     ''
   ).trim();
   const roleOf = (el) => {
@@ -30,7 +32,7 @@ OBSERVE_PROBE = r"""
     if (tag === 'textarea') return 'textbox';
     if (tag === 'select') return 'combobox';
     if (tag === 'input') {
-      const type = (el.getAttribute('type') || 'text').toLowerCase();
+      const type = inputTypeOf(el) || 'text';
       if (type === 'checkbox') return 'checkbox';
       if (type === 'radio') return 'radio';
       if (type === 'submit' || type === 'button') return 'button';
@@ -99,9 +101,9 @@ OBSERVE_PROBE = r"""
         id, role, tag,
         name: nameOf(el),
         text: textOf(el),
-        value: el.value || '',
+        value: valueOf(el),
         placeholder: el.getAttribute('placeholder') || '',
-        input_type: tag === 'input' ? (el.getAttribute('type') || 'text') : null,
+        input_type: inputTypeOf(el),
         visible: true,
         enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true',
         checked: typeof el.checked === 'boolean' ? el.checked : null,
@@ -121,8 +123,8 @@ OBSERVE_PROBE = r"""
         label: labelFor(el),
         name: el.getAttribute('name') || '',
         placeholder: el.getAttribute('placeholder') || '',
-        value: el.value || '',
-        type: tag === 'input' ? (el.getAttribute('type') || 'text') : tag,
+        value: valueOf(el),
+        type: inputTypeOf(el) || tag,
         required: !!el.required,
         enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true'
       };
@@ -206,9 +208,9 @@ OBSERVE_PROBE = r"""
           frame_id: frameId,
           name: nameOf(el),
           text: textOf(el),
-          value: el.value || '',
+          value: valueOf(el),
           placeholder: el.getAttribute('placeholder') || '',
-          input_type: tag === 'input' ? (el.getAttribute('type') || 'text') : null,
+          input_type: inputTypeOf(el),
           visible: true,
           enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true',
           checked: typeof el.checked === 'boolean' ? el.checked : null,
@@ -228,8 +230,8 @@ OBSERVE_PROBE = r"""
           label: labelFor(el),
           name: el.getAttribute('name') || '',
           placeholder: el.getAttribute('placeholder') || '',
-          value: el.value || '',
-          type: tag === 'input' ? (el.getAttribute('type') || 'text') : tag,
+          value: valueOf(el),
+          type: inputTypeOf(el) || tag,
           required: !!el.required,
           enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true'
         };

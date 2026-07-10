@@ -29,6 +29,13 @@ FORBIDDEN_AGENT_FIELDS = {
     "evaluate",
     "coordinates",
     "screenshot",
+    "accessibility_nodes",
+    "dom_documents",
+    "engine_frames",
+    "backend_node_id",
+    "backend_dom_node_id",
+    "ax_node_id",
+    "provenance",
 }
 
 FORBIDDEN_PRIMITIVES = {

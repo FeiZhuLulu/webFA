@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
+from browser.host_driver import HostBrowserDriver
 from browser.managed_chromium_host import ManagedChromiumHost, _find_chromium_executable
 from storage.db import reset_engine_for_tests
 
@@ -17,6 +18,31 @@ def _require_managed_chromium() -> None:
         _find_chromium_executable()
     except RuntimeError as exc:
         pytest.skip(str(exc))
+
+
+def test_managed_chromium_collects_p10_raw_web_snapshot(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    host = ManagedChromiumHost(headless=True)
+    driver = HostBrowserDriver(host)
+    try:
+        driver.open(FIXTURE_PAGE.as_uri())
+        snapshot = driver.observe_web_raw()
+
+        assert snapshot.url == FIXTURE_PAGE.as_uri()
+        assert snapshot.accessibility_nodes
+        assert snapshot.dom_documents
+        assert snapshot.engine_frames
+        assert snapshot.evidence_errors == []
+        assert any(node.backend_dom_node_id is not None for node in snapshot.accessibility_nodes)
+        assert any(document.nodes for document in snapshot.dom_documents)
+
+        legacy = snapshot.to_page_snapshot()
+        assert legacy.title == "WebFA Agent Validation"
+        assert legacy.interactive_elements
+    finally:
+        driver.close()
 
 
 def test_managed_chromium_open_observe_act_loop(monkeypatch, tmp_path: Path):

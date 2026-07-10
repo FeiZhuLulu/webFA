@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from schemas.browser import BrowserTab
 
@@ -15,6 +15,12 @@ class BrowserHost(Protocol):
     def navigate(self, url: str) -> None: ...
 
     def evaluate(self, expression: str) -> object: ...
+
+    def capture_accessibility_tree(self) -> dict[str, Any]: ...
+
+    def capture_dom_snapshot(self) -> dict[str, Any]: ...
+
+    def get_frame_tree(self) -> list[dict[str, Any]]: ...
 
     def tabs(self) -> list[BrowserTab]: ...
 

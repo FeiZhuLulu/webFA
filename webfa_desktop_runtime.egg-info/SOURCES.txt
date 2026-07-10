@@ -90,6 +90,8 @@ packages/webfa-core/browser/host_driver.py
 packages/webfa-core/browser/managed_chromium_host.py
 packages/webfa-core/browser/observe_probe.py
 packages/webfa-core/browser/playwright_driver.py
+packages/webfa-core/browser/raw_snapshot.py
+packages/webfa-core/browser/raw_snapshot_collector.py
 packages/webfa-core/browser/runtime.py
 packages/webfa-core/browser/runtime_errors.py
 packages/webfa-core/browser/session.py

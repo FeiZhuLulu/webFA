@@ -87,6 +87,25 @@ class ManagedChromiumHost:
         result = client.call("Page.getFrameTree")
         return _flatten_frame_tree(result.get("frameTree", {}))
 
+    def capture_accessibility_tree(self) -> dict[str, Any]:
+        client = self._ensure_page_client()
+        client.call("Accessibility.enable")
+        return client.call("Accessibility.getFullAXTree")
+
+    def capture_dom_snapshot(self) -> dict[str, Any]:
+        client = self._ensure_page_client()
+        client.call("DOMSnapshot.enable")
+        return client.call(
+            "DOMSnapshot.captureSnapshot",
+            {
+                "computedStyles": [],
+                "includePaintOrder": True,
+                "includeDOMRects": True,
+                "includeBlendedBackgroundColors": False,
+                "includeTextColorOpacities": False,
+            },
+        )
+
     def _on_javascript_dialog_opening(self, params: dict[str, Any]) -> None:
         dialog_type = str(params.get("type", "alert")).lower()
         if dialog_type == "beforeunload":
@@ -509,7 +528,10 @@ def _flatten_frame_tree(node: dict[str, Any], *, parent_id: str | None = None, i
                 "cdp_frame_id": frame_id,
                 "parent_cdp_frame_id": parent_id,
                 "url": str(frame.get("url", "")),
-                "title": "",
+                "name": str(frame.get("name", "")),
+                "security_origin": str(frame.get("securityOrigin", "")),
+                "mime_type": str(frame.get("mimeType", "")),
+                "unreachable_url": str(frame.get("unreachableUrl", "")),
             }
         )
     for child in node.get("childFrames", []):
