@@ -15,6 +15,23 @@ The agent decides what to do. WebFA opens real websites, keeps the local user's 
 
 Status: **Developer Preview**. APIs and behavior may change.
 
+## P10 Architecture Direction
+
+The next phase is not about adding more browser-automation primitives. It establishes the formal **WebFA Object Model**:
+
+```text
+real web page
+  -> WebObjectCompiler
+  -> WebState / WebObjects / Capabilities
+  -> Agent Semantic Operations
+```
+
+The target agent interface is based on web objects, object state, relations, capabilities, versions, and changes. DOM, selectors, coordinates, mouse/keyboard events, CDP, and browser-engine protocols remain Runtime implementation details.
+
+P10 incrementally introduces queryable `observe(page/object/query/changes)`, stable object identity, object versions, document revisions, ChangeSets, structured collections/tables/forms, and explicit `opaque_surface` objects with Human Takeover instead of screenshot-coordinate control.
+
+The current Developer Preview still uses `BrowserState` and the P7 compatibility actions. They are the migration base, not the final protocol. See `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`.
+
 ## What Works Today
 
 - MCP stdio entry point for external agents.
@@ -124,7 +141,7 @@ Copy `.env.example` for local notes if needed. Common variables:
 ```powershell
 $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
 $env:WEBFA_AGENT_ID="opencode"
-$env:WEBFA_BROWSER_DRIVER="managed-chromium"
+$env:WEBFA_BROWSER_DRIVER="managed-chromium"  # becomes the only formal path after P10
 $env:WEBFA_BROWSER_HEADLESS="0"
 $env:WEBFA_AUTH_TAKEOVER="auto"
 $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
@@ -166,9 +183,10 @@ See `docs/browser-runtime-roadmap.md`.
 
 Near-term work:
 
-- P10 Element Registry v2
-- P11 Multi Session / Multi Profile
-- P12 Real Task Safety Layer
+- P10 WebFA Object Model
+- P11 Real Task Safety Layer
+- P12 Multi Session / Multi Profile
+- P13 Durable Trace / Resume
 
 ## License
 

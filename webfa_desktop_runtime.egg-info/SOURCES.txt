@@ -65,6 +65,7 @@ packages/schemas/proof.py
 packages/schemas/resource_snapshot.py
 packages/schemas/transaction.py
 packages/schemas/visualizer.py
+packages/schemas/web.py
 packages/schemas/workspace.py
 packages/storage/__init__.py
 packages/storage/credential_store.py

@@ -15,12 +15,14 @@ Agent Interface
   MCP / REST / Console calls: open_url, observe, act, tabs
 
 WebFA Browser Runtime
-  sessions, page_state, element ids, agent-native web operations, safety contracts
+  sessions, WebState, WebObject identity, semantic operations, safety contracts
 
-Browser Driver
-  stable fallback driver
-  managed Chromium host driver
-  future BrowserHost implementations
+Web Object Layer
+  RawWebSnapshot -> WebObjectCompiler -> ObjectRegistry -> ChangeSet
+
+Browser Host
+  managed Chromium as the formal implementation path
+  future BrowserHost implementations must preserve the Web Object contract
 
 Browser Engine
   runs real HTML, CSS, JavaScript, storage, cookies, and web APIs
@@ -189,21 +191,45 @@ P9.2
   `prompt` text input for `accept_dialog`.
 
 P10
-  Element Registry v2.
-  Reduce dependence on data-webfa-id injection with role/name/text/tag/dom_path/bbox/nearby_text hints.
+  WebFA Object Model.
+  Upgrade the runtime from DOM-like elements and a global action enum to
+  WebState, WebObjects, object capabilities, semantic operations, stable object
+  identity, object versions, document revisions, and compact ChangeSets.
+  Add queryable observe modes (page, object, query, changes), structured
+  document/collection/table/form/dialog/frame reading, and explicit
+  opaque_surface objects for regions that WebFA cannot reliably compile.
+  Agent-facing click/type/press are removed from the formal target protocol;
+  low-level browser events remain internal execution strategies only.
+  Managed Chromium becomes the only formal BrowserHost path and the Playwright
+  fallback is removed during P10 migration.
+  Status: P10.0 definition freeze and P10.1 schema foundation are complete.
+  Runtime integration still uses the BrowserState/P7 compatibility path; P10.2
+  RawWebSnapshot Collector is next.
+  Full design: docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md.
 
 P11
-  Multi Session / Multi Profile.
-  Expose session_id/profile_id only after default session is stable.
+  Real Task Safety Layer.
+  Use P10 capability effects, object origins, content-trust metadata, semantic
+  operations, and takeover contracts to add scoped authority, confirmation,
+  policy, audit, and proof for final high-risk writes such as send, create,
+  delete, purchase, publish, upload, or settings changes.
 
 P12
-  Real Task Safety Layer.
-  Add human confirmation before final high-risk writes such as send, create, delete, purchase, publish, or settings changes.
+  Multi Session / Multi Profile.
+  Add isolated ObjectRegistries, profile binding, session lifecycle, profile
+  locks, and explicit agent-to-session leases after the single-session Web
+  Object model is stable.
+
+P13
+  Durable Trace / Resume.
+  Persist semantic operations, WebState revisions, object versions, ChangeSets,
+  takeover and approval events, and bounded artifacts so interrupted agent tasks
+  can be inspected and resumed.
 
 Long term
-  Keep mature web engines such as Chromium/Blink/V8 where useful.
-  Keep WebFA centered on agent-readable state, URL-native navigation, and
-  generic web-object operations.
+  Keep mature web engines such as Chromium/Blink/V8 as implementation details.
+  Keep WebFA centered on agent-readable WebObjects, semantic operations, and
+  explicit capability and safety contracts.
 ```
 
 ## Constraints

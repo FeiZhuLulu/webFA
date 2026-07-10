@@ -15,6 +15,23 @@ agent 决定要做什么；WebFA 负责打开真实网页、维护本地用户�
 
 当前状态：**Developer Preview**。API 和行为仍可能变化。
 
+## P10 架构方向
+
+WebFA 下一阶段不是增加更多 `click/type` 类浏览器自动化动作，而是建立正式的 **WebFA Object Model**：
+
+```text
+真实网页
+  -> WebObjectCompiler
+  -> WebState / WebObjects / Capabilities
+  -> Agent Semantic Operations
+```
+
+Agent 的正式目标接口是网页对象、对象状态、对象关系和语义操作。DOM、selector、坐标、鼠标键盘事件、CDP 和浏览器引擎协议都属于 Runtime 内部实现。
+
+P10 会逐步引入可查询的 `observe(page/object/query/changes)`、稳定对象身份、对象版本、文档 revision、ChangeSet、结构化集合/表格/表单，并在无法可靠理解页面区域时返回 `opaque_surface` 和 Human Takeover，而不是退回截图坐标操作。
+
+当前 Developer Preview 仍使用 `BrowserState` 和 P7 兼容 action；它们是迁移基础，不是最终协议。完整设计见 `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`。
+
 ## 当前能力
 
 - 通过 MCP stdio 接入外部 agent。
@@ -124,7 +141,7 @@ Developer Preview 的主路径是 WebFA-owned Auth Surface。agent 不应该输�
 ```powershell
 $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
 $env:WEBFA_AGENT_ID="opencode"
-$env:WEBFA_BROWSER_DRIVER="managed-chromium"
+$env:WEBFA_BROWSER_DRIVER="managed-chromium"  # P10 后将成为唯一正式路径
 $env:WEBFA_BROWSER_HEADLESS="0"
 $env:WEBFA_AUTH_TAKEOVER="auto"
 $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
@@ -166,9 +183,10 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 近期方向：
 
-- P10 Element Registry v2
-- P11 Multi Session / Multi Profile
-- P12 Real Task Safety Layer
+- P10 WebFA Object Model
+- P11 Real Task Safety Layer
+- P12 Multi Session / Multi Profile
+- P13 Durable Trace / Resume
 
 ## License
 

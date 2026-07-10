@@ -31,6 +31,27 @@ webfa.switch_tab
 
 Do not use raw selectors, XPath, Playwright, CDP, browser devtools, site APIs, or site-specific wrappers.
 
+## P10 Direction Freeze
+
+WebFA's formal target interface is based on `WebState`, `WebObject`, object
+capabilities, and semantic operations. DOM elements, selectors, mouse/keyboard
+primitives, and browser-engine protocols are implementation details.
+
+P10 is being delivered incrementally, so the current Developer Preview still
+returns `BrowserState` and accepts the P7 compatibility actions documented
+below. Do not treat that compatibility surface as the final WebFA model, and do
+not add new agent-facing primitives to it.
+
+The target behavior is:
+
+```text
+observe WebObjects and their capabilities
+act through semantic operations
+let WebFA choose the internal browser event strategy
+```
+
+The complete design is in `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`.
+
 ## Reading Page Content
 
 After `webfa.observe`, the state has both `visible_text` and `content_blocks`.
@@ -45,7 +66,8 @@ For real listing pages (search results, dashboards, feeds), read `content_blocks
 
 ## Object Operations
 
-Prefer object-level actions when WebFA exposes the needed page object:
+The current P7 compatibility surface provides these first-generation object
+operations:
 
 ```text
 fill_form(form_id, fields)
@@ -57,19 +79,26 @@ read_list(block_id)
 inspect_block(block_id)
 ```
 
-Use them through `webfa.act`:
+Use them through `webfa.act` while P10 is under implementation:
 
 ```json
-{ "action": "fill_form", "target": "form_1", "payload": { "fields": { "name": "Fei" } } }
+{ "action": "fill_form", "target": "form_1", "fields": { "name": "Fei" } }
 ```
 
 ```json
 { "action": "submit_form", "target": "form_1" }
 ```
 
-Use `click`, `type`, and `press` as fallback primitives when the page object is not clear enough.
-Use `double_click` only when the page clearly requires row-style double-click
-activation, such as legacy mail or file-list UIs.
+P10 replaces the global action list with capabilities attached to WebObjects.
+The target semantic operations include `open`, `activate`, `set_value`,
+`clear_value`, `choose`, `toggle`, `submit`, `expand`, `collapse`, and `dismiss`.
+Reading, inspecting, querying, and collection ranges belong to `webfa.observe`,
+not mutation actions.
+
+`click`, `type`, `press`, and `double_click` are compatibility primitives in the
+current implementation. They are not the target Agent API and must not be used
+as the basis for new public features. P10 moves them behind the Runtime as
+internal execution strategies.
 
 ## Auth Takeover
 
@@ -96,9 +125,10 @@ working from the new BrowserState.
 
 P9.2 adds structured errors, URL metadata, dialog handling, and frame metadata.
 This is **developer-preview hardening**, not production-grade network isolation.
-The default driver is WebFA-managed Chromium. `WEBFA_BROWSER_DRIVER=playwright`
-is a legacy fallback for basic `open_url` / `observe` / `act` only; do not
-expect dialog, iframe, or URL-policy parity on Playwright.
+The default driver is WebFA-managed Chromium. The current repository still has
+an explicit Playwright compatibility fallback for basic `open_url` / `observe`
+/ `act`, without dialog, iframe, or URL-policy parity. P10 removes that fallback;
+new behavior must target Managed Chromium only.
 
 ## URL Safety
 
@@ -150,10 +180,13 @@ Consider these routes and choose based on the task and current page state:
 
 ```text
 URL navigation when the target is encoded in the URL
-form object operations when WebFA exposes a clear form
-type/press/click primitives when object operations are not enough
+semantic object operations when WebFA exposes a clear object capability
 fresh observe after dynamic page changes
+human takeover when the page is opaque or requires a human-only step
 ```
+
+During the P10 migration, existing primitive actions may still appear in the
+compatibility schema. They are not the preferred or final route.
 
 Good URL-first candidates:
 
@@ -205,25 +238,17 @@ The second route is valid because the search target is fully represented by the 
 
 ## Handling Dynamic Pages
 
-Modern web pages can change their DOM after every input. Element IDs may become stale after navigation or major UI changes.
+Modern web pages can change after every input. In the current compatibility
+model, element IDs may become stale after navigation or major UI changes.
+Observe again when a target disappears or WebFA reports a stale element.
 
-Use this pattern:
+P10 replaces this coarse behavior with stable object identity, object versions,
+document revisions, and `observe(mode="changes")`. Agents will act on a
+WebObject capability and can supply an expected object version when strict
+concurrency is required.
 
-```text
-1. observe
-2. act on an element_id
-3. read the returned state
-4. if the target changed or disappeared, observe again and pick a fresh element_id
-```
-
-For search boxes and comboboxes, prefer:
-
-```text
-webfa.act({ "action": "type", "target": "el_*", "text": "query" })
-webfa.act({ "action": "press", "target": "el_*", "key": "Enter" })
-```
-
-Avoid dynamic autocomplete suggestions unless WebFA exposes them in `interactive_elements`.
+Until that protocol is implemented, do not infer stability from an element ID.
+Always use the latest returned state after a dynamic operation.
 
 ## Safety
 
