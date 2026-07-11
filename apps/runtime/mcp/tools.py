@@ -39,27 +39,55 @@ def tool_open_url(url: str) -> dict[str, Any]:
         return map_runtime_error(e)
 
 
-def tool_observe() -> dict[str, Any]:
-    """Return agent-readable page state, including URL parts and interactive elements."""
+def tool_observe(
+    mode: str = "page",
+    target: str | None = None,
+    query: dict[str, Any] | None = None,
+    range: dict[str, int] | None = None,
+    since_revision: int | None = None,
+    detail: str = "standard",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Read WebState using page, object, query, or changes mode."""
     client = get_client()
+    payload: dict[str, Any] = {"mode": mode, "detail": detail, "limit": limit}
+    if target is not None:
+        payload["target"] = target
+    if query is not None:
+        payload["query"] = query
+    if range is not None:
+        payload["range"] = range
+    if since_revision is not None:
+        payload["since_revision"] = since_revision
     try:
-        return success_response({"state": client.observe()})
+        return success_response({"state": client.observe(payload)})
     except RuntimeUnavailableError as e:
         return map_unavailable_error(e)
     except RuntimeErrorResponse as e:
         return map_runtime_error(e)
 
 
-def tool_act(action: str, target: str | None = None, **kwargs: Any) -> dict[str, Any]:
-    """Act on a WebFA page object; prefer open_url when the task is expressible as a URL."""
+def tool_act(
+    operation: str,
+    target: str,
+    arguments: dict[str, Any] | None = None,
+    expected_object_version: int | None = None,
+) -> dict[str, Any]:
+    """Execute one capability declared by a current WebObject."""
     client = get_client()
+    primitives = {"click", "double_click", "type", "press", "focus", "clear", "select"}
     blocked = {"selector", "xpath", "locator", "evaluate", "cdp", "raw_cdp", "raw_playwright"}
-    if blocked.intersection(kwargs):
+    if operation in primitives:
+        return error_response("invalid_request", "browser primitives are internal; use a declared semantic operation")
+    if arguments is not None and blocked.intersection(arguments):
         return error_response("invalid_request", "raw selector/playwright/cdp payloads are not accepted")
-    payload = {"action": action}
-    if target is not None:
-        payload["target"] = target
-    payload.update(kwargs)
+    payload: dict[str, Any] = {
+        "operation": operation,
+        "target": target,
+        "arguments": arguments or {},
+    }
+    if expected_object_version is not None:
+        payload["expected_object_version"] = expected_object_version
     try:
         return success_response(client.browser_act(payload))
     except RuntimeUnavailableError as e:

@@ -7,7 +7,9 @@ from browser.agent_lease import AgentLeaseBusyError
 from browser.exceptions import BrowserHostClosedError
 from browser.runtime import BrowserRuntime
 from browser.runtime_errors import BrowserRuntimeError, browser_host_closed, from_value_error
+from browser.semantic_operations import WebOperationError
 from schemas.browser import BrowserActionRequest, BrowserOpenRequest
+from schemas.web import WebObserveRequest, WebOperationRequest
 
 router = APIRouter(tags=["browser"])
 
@@ -81,6 +83,22 @@ def _handle_browser_errors(request: Request, tool: str, action):
     except BrowserHostClosedError as exc:
         _record_browser_action(request, tool=tool, status="error", code="browser_host_closed", message=str(exc))
         raise host_closed_response(exc) from exc
+    except WebOperationError as exc:
+        status_code = 404 if exc.code == "object_not_found" else 409 if exc.code in {
+            "object_version_conflict",
+            "operation_temporarily_unavailable",
+        } else 400
+        _record_browser_action(request, tool=tool, status="error", code=exc.code, message=str(exc))
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+                "target": exc.target,
+                "operation": exc.operation,
+                "recover_hint": exc.recover_hint,
+            },
+        ) from exc
     except BrowserRuntimeError as exc:
         _record_runtime_error(request, tool=tool, exc=exc)
         raise runtime_error_response(exc) from exc
@@ -99,6 +117,54 @@ def _handle_browser_errors(request: Request, tool: str, action):
         ) from exc
 
 
+@router.post("/browser/web/open")
+def open_web_url(payload: BrowserOpenRequest, request: Request):
+    def action():
+        runtime = get_browser_runtime(request)
+        runtime.open(payload.url, agent_id=get_agent_id(request))
+        state = runtime.observe_web(WebObserveRequest(mode="page")).state
+        _record_browser_action(request, tool="webfa.open_url", message=payload.url)
+        return {"ok": True, "url": payload.url, "state": state.model_dump()}
+
+    return _handle_browser_errors(request, "webfa.open_url", action)
+
+
+@router.post("/browser/web/observe")
+def observe_web(payload: WebObserveRequest | None, request: Request):
+    def action():
+        result = get_browser_runtime(request).observe_web(payload or WebObserveRequest())
+        _record_browser_action(request, tool="webfa.observe", message=(payload.mode if payload else "page"))
+        return result.state.model_dump()
+
+    return _handle_browser_errors(request, "webfa.observe", action)
+
+
+@router.post("/browser/web/act")
+def act_web(payload: WebOperationRequest, request: Request):
+    def action():
+        result = get_browser_runtime(request).act_web(payload, agent_id=get_agent_id(request)).model_dump()
+        _record_browser_action(request, tool="webfa.act", message=payload.operation)
+        return result
+
+    return _handle_browser_errors(request, "webfa.act", action)
+
+
+@router.post("/browser/web/tabs/switch")
+def switch_web_tab(payload: dict, request: Request):
+    def action():
+        tab_id = payload.get("tab_id")
+        if not isinstance(tab_id, str):
+            raise ValueError("tab_id is required")
+        runtime = get_browser_runtime(request)
+        runtime.switch_tab(tab_id, agent_id=get_agent_id(request))
+        state = runtime.observe_web(WebObserveRequest(mode="page")).state
+        _record_browser_action(request, tool="webfa.switch_tab", message=tab_id)
+        return state.model_dump()
+
+    return _handle_browser_errors(request, "webfa.switch_tab", action)
+
+
+# Legacy BrowserState/BrowserAction compatibility endpoints. Default MCP does not use these.
 @router.post("/browser/open")
 def open_url(payload: BrowserOpenRequest, request: Request):
     def action():

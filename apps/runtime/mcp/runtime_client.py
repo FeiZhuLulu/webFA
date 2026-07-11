@@ -62,19 +62,19 @@ class WebFARuntimeClient:
         return self._get("/health", tool="health")
 
     def open_url(self, url: str) -> dict[str, Any]:
-        return self._post("/v1/browser/open", tool="webfa.open_url", json={"url": url})
+        return self._post("/v1/browser/web/open", tool="webfa.open_url", json={"url": url})
 
-    def observe(self) -> dict[str, Any]:
-        return self._get("/v1/browser/observe", tool="webfa.observe")
+    def observe(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._post("/v1/browser/web/observe", tool="webfa.observe", json=payload or {})
 
     def browser_act(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._post("/v1/browser/act", tool="webfa.act", json=payload)
+        return self._post("/v1/browser/web/act", tool="webfa.act", json=payload)
 
     def get_tabs(self) -> dict[str, Any]:
         return self._get("/v1/browser/tabs", tool="webfa.get_tabs")
 
     def switch_tab(self, tab_id: str) -> dict[str, Any]:
-        return self._post("/v1/browser/tabs/switch", tool="webfa.switch_tab", json={"tab_id": tab_id})
+        return self._post("/v1/browser/web/tabs/switch", tool="webfa.switch_tab", json={"tab_id": tab_id})
 
     def list_providers(self) -> dict[str, Any]:
         return self._get("/v1/providers", tool="webfa.discover")

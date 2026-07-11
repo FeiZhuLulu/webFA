@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import time
 
@@ -18,15 +19,23 @@ class HostBrowserDriver:
         self._host = host
         self._snapshot_collector = RawSnapshotCollector(host)
         self._element_frames: dict[str, str | None] = {}
+        self._last_web_snapshot: RawWebSnapshot | None = None
 
     def open(self, url: str) -> None:
+        self._last_web_snapshot = None
         self._host.navigate(url)
 
     def observe_raw(self) -> RawPageSnapshot:
         return self.observe_web_raw().to_page_snapshot()
 
     def observe_web_raw(self) -> RawWebSnapshot:
-        snapshot = self._snapshot_collector.collect(tabs=self.tabs(), dialogs=_dialogs_from_host(self._host))
+        dialogs = _dialogs_from_host(self._host)
+        if dialogs and self._last_web_snapshot is not None:
+            snapshot = copy.deepcopy(self._last_web_snapshot)
+            snapshot.dialogs = dialogs
+        else:
+            snapshot = self._snapshot_collector.collect(tabs=self.tabs(), dialogs=dialogs)
+            self._last_web_snapshot = copy.deepcopy(snapshot)
         self._element_frames = {
             str(item.get("id")): item.get("frame_id")
             for item in snapshot.interactive_elements

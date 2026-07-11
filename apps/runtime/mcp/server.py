@@ -20,6 +20,8 @@ for candidate in [APP_ROOT, APP_ROOT / "packages", APP_ROOT / "packages" / "webf
 
 from mcp.server.fastmcp import FastMCP
 
+from schemas.web import ObserveDetail, ObserveMode, SemanticOperationName
+
 from apps.runtime.mcp.tools import (
     tool_act,
     tool_discover,
@@ -39,7 +41,8 @@ mcp = FastMCP(
     instructions=(
         "WebFA is an agent-native browser runtime. "
         "Use webfa.open_url, webfa.observe, and webfa.act to operate real websites "
-        "through agent-readable page state and element ids. "
+        "through WebState, stable WebObjects, declared capabilities, and semantic operations. "
+        "Do not use browser primitives, selectors, coordinates, raw DOM, Playwright, or CDP. "
         "Read AGENT_MANUAL.md before validation; prefer URL-first navigation when page state is encoded in URLs."
     ),
 )
@@ -52,15 +55,47 @@ def webfa_open_url(url: str) -> str:
 
 
 @mcp.tool(name="webfa.observe")
-def webfa_observe() -> str:
-    """Return agent-readable BrowserState, including url, url_parts, text, forms, tabs, and interactive_elements."""
-    return json.dumps(tool_observe(), ensure_ascii=False)
+def webfa_observe(
+    mode: ObserveMode = "page",
+    target: str | None = None,
+    query: dict[str, Any] | None = None,
+    range: dict[str, int] | None = None,
+    since_revision: int | None = None,
+    detail: ObserveDetail = "standard",
+    limit: int = 50,
+) -> str:
+    """Read WebState in page, object, query, or changes mode."""
+    return json.dumps(
+        tool_observe(
+            mode=mode,
+            target=target,
+            query=query,
+            range=range,
+            since_revision=since_revision,
+            detail=detail,
+            limit=limit,
+        ),
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool(name="webfa.act")
-def webfa_act(action: str, target: str | None = None, payload: dict[str, Any] | None = None) -> str:
-    """Act on current page objects: forms, links, controls, blocks, or element ids; prefer webfa.open_url when the task is expressible as a URL."""
-    return json.dumps(tool_act(action=action, target=target, **(payload or {})), ensure_ascii=False)
+def webfa_act(
+    operation: SemanticOperationName,
+    target: str,
+    arguments: dict[str, Any] | None = None,
+    expected_object_version: int | None = None,
+) -> str:
+    """Execute a semantic operation declared in the target WebObject capabilities."""
+    return json.dumps(
+        tool_act(
+            operation=operation,
+            target=target,
+            arguments=arguments,
+            expected_object_version=expected_object_version,
+        ),
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool(name="webfa.get_tabs")

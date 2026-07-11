@@ -168,36 +168,65 @@ async def _run_mcp_browser_flow(port: int, tmp_path: Path) -> None:
             assert FORBIDDEN_DEFAULT_TOOLS.isdisjoint(names)
             descriptions = {tool.name: tool.description or "" for tool in tools.tools}
             assert "constructed URLs" in descriptions["webfa.open_url"]
-            assert "url_parts" in descriptions["webfa.observe"]
-            assert "prefer webfa.open_url" in descriptions["webfa.act"]
+            assert "WebState" in descriptions["webfa.observe"]
+            assert "semantic operation" in descriptions["webfa.act"]
+            schemas = {tool.name: tool.inputSchema for tool in tools.tools}
+            observe_properties = schemas["webfa.observe"]["properties"]
+            act_properties = schemas["webfa.act"]["properties"]
+            assert {"mode", "target", "query", "range", "since_revision", "detail", "limit"}.issubset(observe_properties)
+            assert "operation" in act_properties
+            assert "action" not in act_properties
+            operation_enum = set(act_properties["operation"]["enum"])
+            assert {"set_value", "submit", "activate", "dismiss"}.issubset(operation_enum)
+            assert operation_enum.isdisjoint({"click", "double_click", "type", "press", "focus", "select"})
 
             opened = _tool_json(await session.call_tool("webfa.open_url", {"url": FIXTURE_PAGE.as_uri()}))
             state = opened["state"]
             assert state["title"] == "WebFA Agent Validation"
-            assert state["url_parts"]["scheme"] == "file"
-            assert state["url_parts"]["path"].endswith("agent_validation_page.html")
-            assert "WebFA Agent Validation" in state["visible_text"]
+            assert state["url"].endswith("agent_validation_page.html")
+            assert state["document_id"]
+            assert state["document_revision"] >= 1
             assert "cookie" not in str(state).lower()
             assert "localstorage" not in str(state).lower()
 
-            assert state["forms"][0]["id"] == "form_1"
+            field = _find_web_object(state, roles={"textbox", "searchbox"}, name="Your name")
+            form = _find_web_object(state, roles={"form"})
+            assert "set_value" in field["capabilities"]
+            assert "submit" in form["capabilities"]
 
-            typed = _tool_json(await session.call_tool(
-                "webfa.act",
-                {"action": "fill_form", "target": "form_1", "payload": {"fields": {"name": "Fei"}}},
-            ))
-            field = typed["state"]["forms"][0]["field_details"][0]
-            assert field["key"] == "name"
-            assert field["value"] == "Fei"
+            typed = _tool_json(
+                await session.call_tool(
+                    "webfa.act",
+                    {
+                        "operation": "set_value",
+                        "target": field["id"],
+                        "arguments": {"value": "Fei"},
+                        "expected_object_version": field["version"],
+                    },
+                )
+            )
+            assert typed["operation"] == "set_value"
+            assert typed["current_object_version"] >= field["version"]
 
-            clicked = _tool_json(await session.call_tool(
-                "webfa.act",
-                {"action": "submit_form", "target": "form_1"},
-            ))
-            assert "Hello Fei" in clicked["state"]["visible_text"]
+            submitted = _tool_json(
+                await session.call_tool(
+                    "webfa.act",
+                    {"operation": "submit", "target": form["id"]},
+                )
+            )
+            assert submitted["operation"] == "submit"
 
-            observed = _tool_json(await session.call_tool("webfa.observe"))
-            assert "Hello Fei" in observed["state"]["visible_text"]
+            observed = _tool_json(
+                await session.call_tool(
+                    "webfa.observe",
+                    {
+                        "mode": "query",
+                        "query": {"text_contains": "Hello Fei"},
+                        "detail": "full",
+                    },
+                )
+            )
+            assert any("Hello Fei" in (item.get("text") or item.get("name") or "") for item in observed["state"]["objects"])
 
 
 async def _run_mcp_dialog_flow(port: int, tmp_path: Path) -> None:
@@ -218,26 +247,36 @@ async def _run_mcp_dialog_flow(port: int, tmp_path: Path) -> None:
         async with ClientSession(read, write) as session:
             await session.initialize()
             opened = _tool_json(await session.call_tool("webfa.open_url", {"url": DIALOG_PAGE.as_uri()}))
-            button = next(
-                el for el in opened["state"]["interactive_elements"] if el.get("role") == "button"
-            )
+            button = _find_web_object(opened["state"], roles={"button"})
             blocked = await session.call_tool(
                 "webfa.act",
-                {"action": "click", "target": button["id"]},
+                {"operation": "activate", "target": button["id"]},
             )
             payload = _tool_error_json(blocked)
             assert payload["error"]["code"] == "dialog_required"
             assert payload["error"].get("recover_hint")
 
+            dialog_state = _tool_json(
+                await session.call_tool(
+                    "webfa.observe",
+                    {"mode": "query", "query": {"role": "dialog"}, "detail": "full"},
+                )
+            )["state"]
+            dialog = _find_web_object(dialog_state, roles={"dialog"})
             dismissed = _tool_json(
                 await session.call_tool(
                     "webfa.act",
-                    {"action": "dismiss_dialog", "target": "dialog_1"},
+                    {"operation": "dismiss", "target": dialog["id"]},
                 )
             )
             assert dismissed["state"]["dialogs"] == []
-            observed = _tool_json(await session.call_tool("webfa.observe"))
-            assert "dismissed" in observed["state"]["visible_text"].lower()
+            observed = _tool_json(
+                await session.call_tool(
+                    "webfa.observe",
+                    {"mode": "query", "query": {"text_contains": "dismissed"}, "detail": "full"},
+                )
+            )
+            assert any("dismissed" in (item.get("text") or "").lower() for item in observed["state"]["objects"])
 
 
 async def _run_mcp_blocked_url_flow(port: int, tmp_path: Path) -> None:
@@ -279,11 +318,19 @@ def _tool_error_json(result: Any) -> dict[str, Any]:
     return payload
 
 
-def _find_element(state: dict[str, Any], **criteria: str) -> dict[str, Any]:
-    for element in state["interactive_elements"]:
-        if all(element.get(key) == value for key, value in criteria.items()):
-            return element
-    raise AssertionError(f"Element not found: {criteria}")
+def _find_web_object(
+    state: dict[str, Any],
+    *,
+    roles: set[str],
+    name: str | None = None,
+) -> dict[str, Any]:
+    for item in state["objects"]:
+        if item.get("role") not in roles:
+            continue
+        if name is not None and item.get("name") != name:
+            continue
+        return item
+    raise AssertionError(f"WebObject not found: roles={roles}, name={name}")
 
 
 def _free_port() -> int:
