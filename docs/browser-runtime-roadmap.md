@@ -213,11 +213,18 @@ P10
   Full design: docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md.
 
 P11
-  Real Task Safety Layer.
-  Use P10 capability effects, object origins, content-trust metadata, semantic
-  operations, and takeover contracts to add scoped authority, confirmation,
-  policy, audit, and proof for final high-risk writes such as send, create,
-  delete, purchase, publish, upload, or settings changes.
+  Agent Safety Contract and Hard Boundaries.
+  Keep user-intent interpretation in the Agent layer. WebFA deterministically
+  returns composable safety templates, accepts task-scoped Agent assertions,
+  and enforces only mechanical boundaries such as credential secrecy, human
+  authentication/payment takeover, profile binding, scoped local resources,
+  recurring commitments, protected payment instruments, and user-defined
+  financial limits. The normal trusted-Agent path is allow-with-audit rather
+  than duplicate WebFA approval. No site-specific operation allowlists and no
+  additional default MCP tools.
+  Status: P11.0 target model approved and frozen; implementation has not started.
+  Detailed plan: docs/p11plan.md. The earlier design draft remains at
+  docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md for design history.
 
 P12
   Multi Session / Multi Profile.
