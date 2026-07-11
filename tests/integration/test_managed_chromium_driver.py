@@ -1,4 +1,6 @@
 from pathlib import Path
+import threading
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +12,7 @@ from browser.object_registry import ObjectRegistry
 from browser.runtime import BrowserRuntime
 from browser.web_object_compiler import WebObjectCompiler
 from browser.web_observe import WebObserveService
+from browser.visual_surface import VisualStreamConfig
 from schemas.browser import BrowserActionRequest
 from schemas.web import WebObserveQuery, WebObserveRequest, WebOperationRequest
 from storage.db import reset_engine_for_tests
@@ -26,6 +29,44 @@ def _require_managed_chromium() -> None:
         _find_chromium_executable()
     except RuntimeError as exc:
         pytest.skip(str(exc))
+
+
+def test_managed_chromium_screencast_uses_same_page_target(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    host = ManagedChromiumHost(headless=True)
+    frames = []
+    ready = threading.Event()
+    try:
+        host.navigate(FIXTURE_PAGE.as_uri())
+        page_targets_before = [
+            target
+            for target in host._http_json("/json/list")
+            if target.get("type") == "page"
+        ]
+        stream_id = host.start_screencast(
+            VisualStreamConfig(format="jpeg", quality=60, max_width=800, max_height=600),
+            lambda frame: (frames.append(frame), ready.set()),
+        )
+        host.evaluate("document.body.dataset.screencastTick = String(Date.now())")
+        assert ready.wait(timeout=5)
+        page_targets_after = [
+            target
+            for target in host._http_json("/json/list")
+            if target.get("type") == "page"
+        ]
+        state = host.stop_screencast(stream_id)
+
+        assert len(page_targets_before) == 1
+        assert len(page_targets_after) == 1
+        assert page_targets_after[0]["id"] == page_targets_before[0]["id"]
+        assert frames[0].host_target_id == page_targets_before[0]["id"]
+        assert frames[0].data.startswith(b"\xff\xd8")
+        assert state.frames_received >= 1
+        assert host.evaluate("document.title") == "WebFA Agent Validation"
+    finally:
+        host.close()
 
 
 def test_managed_chromium_collects_p10_raw_web_snapshot(monkeypatch, tmp_path: Path):
@@ -215,6 +256,60 @@ def test_browser_runtime_internal_queryable_observe_coexists_with_legacy_state(m
         assert changes.state.changes.updated
         assert legacy_state.interactive_elements
         assert changes.state.agent.active_agent_id == "p10-test"
+    finally:
+        runtime.close()
+
+
+def test_browser_runtime_event_bus_and_visual_provider_follow_same_document(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    runtime = BrowserRuntime(
+        headless=True,
+        driver_factory=lambda: HostBrowserDriver(ManagedChromiumHost(headless=True)),
+    )
+    frames = []
+    ready = threading.Event()
+    try:
+        runtime.open(FIXTURE_PAGE.as_uri(), agent_id="monitor-test")
+        observed = runtime.observe_web(
+            WebObserveRequest(mode="page", detail="summary", limit=50)
+        )
+        field = next(
+            item
+            for item in observed.state.objects
+            if getattr(item, "role", None) in {"textbox", "searchbox"}
+        )
+        stream_id = runtime.start_visual_stream(
+            lambda frame: (frames.append(frame), ready.set()),
+            VisualStreamConfig(format="jpeg", quality=60, max_width=800, max_height=600),
+        )
+        assert ready.wait(timeout=5)
+        runtime.act_web(
+            WebOperationRequest(
+                target=field.id,
+                operation="set_value",
+                arguments={"value": "Monitor"},
+            ),
+            agent_id="monitor-test",
+        )
+        stream_state = runtime.stop_visual_stream(stream_id)
+        events = runtime.replay_session_events(session_id="default", limit=200)
+
+        assert frames[0].session_id == "default"
+        assert frames[0].document_id == observed.state.document_id
+        assert stream_state.frames_received >= 1
+        event_types = [event.type for event in events]
+        assert "session_started" in event_types
+        assert "navigation_started" in event_types
+        assert "navigation_committed" in event_types
+        assert "document_changed" in event_types
+        assert "visual_stream_started" in event_types
+        assert "frame_available" in event_types
+        assert "operation_started" in event_types
+        assert "operation_completed" in event_types
+        assert "visual_stream_stopped" in event_types
+        assert all("data" not in event.data for event in events if event.type == "frame_available")
     finally:
         runtime.close()
 

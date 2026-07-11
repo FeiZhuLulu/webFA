@@ -106,8 +106,10 @@ packages/webfa-core/browser/safety_evidence.py
 packages/webfa-core/browser/safety_templates.py
 packages/webfa-core/browser/semantic_operations.py
 packages/webfa-core/browser/session.py
+packages/webfa-core/browser/session_events.py
 packages/webfa-core/browser/step_up.py
 packages/webfa-core/browser/url_policy.py
+packages/webfa-core/browser/visual_surface.py
 packages/webfa-core/browser/web_capabilities.py
 packages/webfa-core/browser/web_object_compiler.py
 packages/webfa-core/browser/web_observe.py

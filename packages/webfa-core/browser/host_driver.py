@@ -133,6 +133,14 @@ class HostBrowserDriver:
             return None
         return capture()
 
+    def visual_surface_backend(self):
+        start = getattr(self._host, "start_screencast", None)
+        stop = getattr(self._host, "stop_screencast", None)
+        status = getattr(self._host, "screencast_status", None)
+        if not callable(start) or not callable(stop) or not callable(status):
+            return None
+        return self._host
+
     def _accept_dialog(self, dialog_id: str | None) -> None:
         if dialog_id != "dialog_1":
             raise dialog_not_found(dialog_id)

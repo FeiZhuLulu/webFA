@@ -235,11 +235,25 @@ P11
   docs/reports/P11_FINAL_ACCEPTANCE_REPORT.md. The earlier design draft remains at
   docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md for design history.
 
+UI-1B
+  Session Monitor Projection Architecture.
+  Keep BrowserHost as the only real page instance and make the Monitor a
+  read-only projection of structured Runtime events plus visual frames. The
+  Monitor must never load the target URL or expose a Chrome UI. Phases 1-3 are
+  complete: SessionEventBus, the replaceable VisualSurfaceProvider abstraction,
+  and a ManagedChromiumHost CDP screencast experiment using the same page target.
+  No REST or MCP surface was added. Next UI-1B work is a local MonitorGateway,
+  binary frame transport, and HumanControlLease replacing the transitional
+  duplicate-page AuthSurface. Frozen design:
+  docs/ui/UI1B_MONITOR_PROJECTION_ARCHITECTURE.md.
+
 P12
   Multi Session / Multi Profile.
   Add isolated ObjectRegistries, profile binding, session lifecycle, profile
   locks, and explicit agent-to-session leases after the single-session Web
-  Object model is stable.
+  Object model is stable. Detailed design remains intentionally deferred until
+  the single-session Control Center and Session Monitor interaction model is
+  validated.
 
 P13
   Durable Trace / Resume.

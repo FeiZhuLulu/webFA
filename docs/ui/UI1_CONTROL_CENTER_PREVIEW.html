@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebFA 控制中心 · UI-1 预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f5f7;
+      --panel: #ffffff;
+      --panel-2: #f8f9fb;
+      --line: #e5e7eb;
+      --line-strong: #d6d9de;
+      --text: #171a1f;
+      --muted: #6b7280;
+      --subtle: #9ca3af;
+      --primary: #1769e0;
+      --primary-soft: #eaf2ff;
+      --success: #12805c;
+      --success-soft: #e9f8f2;
+      --warning: #b86b00;
+      --warning-soft: #fff5df;
+      --danger: #c83c3c;
+      --danger-soft: #fff0f0;
+      --violet: #6d4aff;
+      --violet-soft: #f1edff;
+      --shadow: 0 16px 45px rgba(22, 31, 45, .08);
+      --radius: 14px;
+      --sidebar: 228px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { height: 100%; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      min-width: 1080px;
+      overflow: hidden;
+    }
+
+    button, input, select { font: inherit; }
+
+    button { cursor: pointer; }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: var(--sidebar) minmax(0, 1fr);
+      background: var(--bg);
+    }
+
+    .sidebar {
+      background: #111318;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid rgba(255,255,255,.06);
+      overflow: hidden;
+    }
+
+    .brand {
+      height: 70px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 0 18px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #2d7cff 0%, #8d5cff 100%);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: -.04em;
+      box-shadow: 0 8px 24px rgba(45,124,255,.35);
+    }
+
+    .brand-text { min-width: 0; }
+    .brand-name { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
+    .brand-sub { font-size: 10px; color: rgba(255,255,255,.48); margin-top: 2px; }
+
+    .nav {
+      padding: 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      overflow: auto;
+    }
+
+    .nav-label {
+      padding: 12px 10px 6px;
+      color: rgba(255,255,255,.35);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      font-weight: 700;
+    }
+
+    .nav-item {
+      appearance: none;
+      border: 0;
+      width: 100%;
+      color: rgba(255,255,255,.64);
+      background: transparent;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 10px 11px;
+      text-align: left;
+      font-size: 13px;
+      transition: .18s ease;
+    }
+
+    .nav-item:hover { color: #fff; background: rgba(255,255,255,.06); }
+    .nav-item.active { color: #fff; background: rgba(67,126,255,.2); }
+
+    .nav-icon {
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      color: currentColor;
+      font-size: 14px;
+      flex: 0 0 auto;
+    }
+
+    .nav-badge {
+      margin-left: auto;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.1);
+      display: grid;
+      place-items: center;
+      font-size: 10px;
+      color: #fff;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 12px;
+      border-top: 1px solid rgba(255,255,255,.08);
+    }
+
+    .runtime-mini {
+      border-radius: 10px;
+      padding: 11px;
+      background: rgba(255,255,255,.055);
+      border: 1px solid rgba(255,255,255,.07);
+    }
+
+    .runtime-mini-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: rgba(255,255,255,.68);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgba(18,128,92,.15);
+    }
+
+    .runtime-mini-actions {
+      margin-top: 9px;
+      display: flex;
+      gap: 6px;
+    }
+
+    .runtime-mini-actions button {
+      flex: 1;
+      border: 1px solid rgba(255,255,255,.1);
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.72);
+      border-radius: 7px;
+      padding: 6px 7px;
+      font-size: 10px;
+    }
+
+    .main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .topbar {
+      height: 70px;
+      flex: 0 0 auto;
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      z-index: 10;
+    }
+
+    .page-heading h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -.02em;
+    }
+
+    .page-heading p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .top-actions { display: flex; align-items: center; gap: 8px; }
+
+    .btn {
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      color: var(--text);
+      border-radius: 9px;
+      min-height: 34px;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      transition: .16s ease;
+    }
+
+    .btn:hover { border-color: #b7bcc4; background: #fafafa; }
+    .btn.primary { border-color: var(--primary); background: var(--primary); color: #fff; }
+    .btn.primary:hover { background: #0e5bc8; }
+    .btn.ghost { background: transparent; }
+    .btn.danger { color: var(--danger); border-color: #efc8c8; background: var(--danger-soft); }
+    .btn.small { min-height: 29px; padding: 0 9px; font-size: 11px; border-radius: 8px; }
+
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: #171a1f;
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .content {
+      flex: 1;
+      overflow: auto;
+      padding: 24px;
+    }
+
+    .page { display: none; max-width: 1380px; margin: 0 auto; }
+    .page.active { display: block; }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(340px, .8fr);
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 1px 2px rgba(18,24,32,.02);
+    }
+
+    .card-header {
+      min-height: 52px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .card-title { font-size: 13px; font-weight: 700; }
+    .card-subtitle { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .card-body { padding: 16px; }
+
+    .session-hero {
+      min-height: 230px;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 82% 18%, rgba(109,74,255,.16), transparent 34%),
+        radial-gradient(circle at 15% 90%, rgba(23,105,224,.12), transparent 34%),
+        #fff;
+    }
+
+    .session-hero .card-body { padding: 20px; }
+
+    .eyebrow {
+      color: var(--primary);
+      font-size: 10px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+
+    .session-title {
+      margin-top: 8px;
+      font-size: 23px;
+      font-weight: 750;
+      letter-spacing: -.04em;
+      max-width: 650px;
+    }
+
+    .session-meta {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.82);
+      border-radius: 999px;
+      padding: 5px 8px;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .chip.success { color: var(--success); border-color: #bfe7d7; background: var(--success-soft); }
+    .chip.warning { color: var(--warning); border-color: #f0d59d; background: var(--warning-soft); }
+    .chip.violet { color: var(--violet); border-color: #d8cffb; background: var(--violet-soft); }
+
+    .session-actions { margin-top: 22px; display: flex; gap: 8px; }
+
+    .session-preview {
+      margin-top: 18px;
+      height: 64px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      display: grid;
+      grid-template-columns: 130px 1fr 120px;
+      align-items: center;
+      gap: 12px;
+      padding: 10px;
+      background: rgba(255,255,255,.68);
+    }
+
+    .preview-thumb {
+      height: 44px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, #f5f7fb, #e7ebf3);
+      border: 1px solid #dde2eb;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .preview-thumb:before,
+    .preview-thumb:after {
+      content: "";
+      position: absolute;
+      left: 9px;
+      right: 9px;
+      height: 5px;
+      border-radius: 4px;
+      background: #c5ccd8;
+    }
+
+    .preview-thumb:before { top: 10px; }
+    .preview-thumb:after { top: 23px; right: 38px; }
+
+    .preview-copy strong { font-size: 11px; }
+    .preview-copy div { margin-top: 3px; font-size: 10px; color: var(--muted); }
+
+    .attention-list { display: grid; gap: 9px; }
+
+    .attention-item {
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      padding: 11px;
+      display: grid;
+      grid-template-columns: 30px 1fr auto;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .attention-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: var(--warning-soft);
+      color: var(--warning);
+      font-size: 14px;
+    }
+
+    .attention-copy strong { font-size: 11px; }
+    .attention-copy div { margin-top: 3px; font-size: 10px; color: var(--muted); line-height: 1.45; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .stat-card { padding: 15px; }
+    .stat-label { color: var(--muted); font-size: 10px; }
+    .stat-value { margin-top: 8px; font-size: 22px; font-weight: 760; letter-spacing: -.04em; }
+    .stat-foot { margin-top: 5px; font-size: 10px; color: var(--subtle); }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr);
+      gap: 16px;
+    }
+
+    .table { width: 100%; border-collapse: collapse; }
+    .table th {
+      text-align: left;
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .09em;
+      padding: 0 10px 10px;
+      font-weight: 800;
+    }
+    .table td { border-top: 1px solid var(--line); padding: 11px 10px; font-size: 11px; vertical-align: middle; }
+    .table tr:hover td { background: #fbfbfc; }
+
+    .entity {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .entity-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 800;
+      flex: 0 0 auto;
+    }
+
+    .entity-name { font-size: 11px; font-weight: 700; }
+    .entity-sub { font-size: 9px; color: var(--muted); margin-top: 2px; }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      padding: 4px 7px;
+      font-size: 9px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .status.ok { color: var(--success); background: var(--success-soft); }
+    .status.warn { color: var(--warning); background: var(--warning-soft); }
+    .status.off { color: var(--muted); background: #eef0f3; }
+    .status.blue { color: var(--primary); background: var(--primary-soft); }
+
+    .activity { display: grid; gap: 0; }
+    .activity-item {
+      display: grid;
+      grid-template-columns: 14px 1fr auto;
+      gap: 9px;
+      padding: 11px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .activity-item:last-child { border-bottom: 0; }
+    .activity-mark { width: 8px; height: 8px; margin-top: 3px; border-radius: 999px; background: var(--primary); }
+    .activity-copy strong { font-size: 10px; }
+    .activity-copy div { margin-top: 3px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .activity-time { color: var(--subtle); font-size: 9px; white-space: nowrap; }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .section-head h2 { margin: 0; font-size: 17px; letter-spacing: -.02em; }
+    .section-head p { margin: 5px 0 0; font-size: 10px; color: var(--muted); }
+
+    .toolbar { display: flex; gap: 8px; align-items: center; }
+    .search {
+      width: 240px;
+      height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 9px;
+      background: #fff;
+      padding: 0 11px;
+      outline: none;
+      font-size: 11px;
+    }
+    .search:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(23,105,224,.08); }
+
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+
+    .detail-card { padding: 15px; }
+    .detail-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .detail-card h3 { margin: 0; font-size: 13px; }
+    .detail-card p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .detail-list { margin-top: 13px; border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 8px; }
+    .detail-row { display: flex; justify-content: space-between; gap: 16px; font-size: 10px; }
+    .detail-row span:first-child { color: var(--muted); }
+    .detail-row span:last-child { text-align: right; font-weight: 600; }
+
+    .meter { margin-top: 12px; }
+    .meter-head { display: flex; justify-content: space-between; color: var(--muted); font-size: 9px; }
+    .meter-track { height: 6px; border-radius: 999px; background: #eceef1; overflow: hidden; margin-top: 6px; }
+    .meter-fill { height: 100%; background: var(--primary); border-radius: inherit; }
+
+    .setting-group { margin-bottom: 16px; }
+    .setting-group-title { margin: 0 0 9px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .11em; font-weight: 800; }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 13px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .setting-row:last-child { border-bottom: 0; }
+    .setting-copy strong { display: block; font-size: 11px; }
+    .setting-copy span { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+
+    .switch {
+      width: 36px;
+      height: 20px;
+      border-radius: 999px;
+      background: #cbd0d8;
+      padding: 2px;
+      border: 0;
+      transition: .18s ease;
+      flex: 0 0 auto;
+    }
+    .switch:before {
+      content: "";
+      display: block;
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,.2);
+      transition: .18s ease;
+    }
+    .switch.on { background: var(--primary); }
+    .switch.on:before { transform: translateX(16px); }
+
+    .select {
+      height: 32px;
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      border-radius: 8px;
+      padding: 0 9px;
+      min-width: 150px;
+      color: var(--text);
+      font-size: 10px;
+      outline: none;
+    }
+
+    .empty {
+      min-height: 180px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+      padding: 30px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      min-width: 260px;
+      max-width: 380px;
+      border-radius: 11px;
+      padding: 12px 14px;
+      background: #16191f;
+      color: #fff;
+      box-shadow: var(--shadow);
+      font-size: 11px;
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
+      transition: .22s ease;
+      z-index: 100;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(13,16,22,.48);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 80;
+      padding: 24px;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal {
+      width: 480px;
+      max-width: 100%;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 28px 80px rgba(0,0,0,.24);
+      overflow: hidden;
+    }
+    .modal-head { padding: 18px 20px 13px; border-bottom: 1px solid var(--line); }
+    .modal-head h3 { margin: 0; font-size: 15px; }
+    .modal-head p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+    .modal-body { padding: 18px 20px; }
+    .modal-actions { padding: 13px 20px; background: var(--panel-2); border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+
+    .field { display: grid; gap: 6px; margin-bottom: 12px; }
+    .field label { font-size: 10px; font-weight: 700; }
+    .input {
+      height: 36px;
+      border: 1px solid var(--line-strong);
+      border-radius: 9px;
+      padding: 0 10px;
+      outline: none;
+      background: #fff;
+      font-size: 11px;
+    }
+    .input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(23,105,224,.08); }
+
+    @media (max-width: 1180px) {
+      .hero-grid, .two-col { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">W</div>
+        <div class="brand-text">
+          <div class="brand-name">WebFA</div>
+          <div class="brand-sub">控制中心 · UI-1 预览</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <div class="nav-label">控制中心</div>
+        <button class="nav-item active" data-page="overview"><span class="nav-icon">⌂</span><span>概览</span></button>
+        <button class="nav-item" data-page="agents"><span class="nav-icon">A</span><span>Agent</span><span class="nav-badge">3</span></button>
+        <button class="nav-item" data-page="profiles"><span class="nav-icon">◎</span><span>身份与 Profile</span></button>
+        <button class="nav-item" data-page="payments"><span class="nav-icon">¥</span><span>支付与额度</span></button>
+        <button class="nav-item" data-page="resources"><span class="nav-icon">▤</span><span>资源授权</span><span class="nav-badge">4</span></button>
+        <button class="nav-item" data-page="safety"><span class="nav-icon">◇</span><span>安全与审计</span><span class="nav-badge">1</span></button>
+
+        <div class="nav-label">系统</div>
+        <button class="nav-item" data-page="integrations"><span class="nav-icon">⌁</span><span>接入与集成</span></button>
+        <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span><span>设置</span></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="runtime-mini">
+          <div class="runtime-mini-row"><span class="dot"></span><span>Runtime 与 MCP 正常</span></div>
+          <div class="runtime-mini-actions">
+            <button onclick="notify('Runtime 已重新检查，状态正常')">检查</button>
+            <button onclick="notify('开发者日志已打开')">日志</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="page-heading">
+          <h1 id="pageTitle">概览</h1>
+          <p id="pageSubtitle">管理 WebFA 的长期配置，并查看当前运行状态。</p>
+        </div>
+        <div class="top-actions">
+          <button class="btn" onclick="window.open('UI1_SESSION_MONITOR_PREVIEW.html','_blank')">打开会话监控</button>
+          <button class="btn primary" onclick="openModal('agentModal')">添加 Agent</button>
+          <div class="avatar">FZ</div>
+        </div>
+      </header>
+
+      <div class="content">
+        <section class="page active" id="page-overview">
+          <div class="hero-grid">
+            <article class="card session-hero">
+              <div class="card-body">
+                <div class="eyebrow">活动会话</div>
+                <div class="session-title">Shopping Agent 正在确认一笔 CNY 279.00 的订单</div>
+                <div class="session-meta">
+                  <span class="chip success">● 正在运行</span>
+                  <span class="chip">Profile：Agent Shopping</span>
+                  <span class="chip">shop.example.com</span>
+                  <span class="chip violet">trusted_agent</span>
+                </div>
+                <div class="session-actions">
+                  <button class="btn primary" onclick="window.open('UI1_SESSION_MONITOR_PREVIEW.html','_blank')">打开监控窗口</button>
+                  <button class="btn" onclick="notify('已向当前会话发送暂停请求')">暂停 Agent</button>
+                </div>
+                <div class="session-preview">
+                  <div class="preview-thumb"></div>
+                  <div class="preview-copy">
+                    <strong>订单确认页</strong>
+                    <div>已选择 Visa •••• 4821，等待最终提交。</div>
+                  </div>
+                  <span class="status blue">最近 4 秒活跃</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">需要处理</div>
+                  <div class="card-subtitle">仅显示真正需要用户操作的事项</div>
+                </div>
+                <span class="status warn">1 项</span>
+              </div>
+              <div class="card-body attention-list">
+                <div class="attention-item">
+                  <div class="attention-icon">¥</div>
+                  <div class="attention-copy">
+                    <strong>支付范围升级</strong>
+                    <div>订单金额 CNY 329.00，超过当前自主额度 CNY 300.00。</div>
+                  </div>
+                  <button class="btn small" onclick="window.open('UI1_SESSION_MONITOR_PREVIEW.html#stepup','_blank')">处理</button>
+                </div>
+                <div class="attention-item">
+                  <div class="attention-icon" style="background:var(--success-soft);color:var(--success)">✓</div>
+                  <div class="attention-copy">
+                    <strong>其他会话正常</strong>
+                    <div>当前没有等待验证码、文件选择或身份接管的任务。</div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <div class="stats-grid">
+            <article class="card stat-card"><div class="stat-label">已连接 Agent</div><div class="stat-value">3</div><div class="stat-foot">2 个当前在线</div></article>
+            <article class="card stat-card"><div class="stat-label">活动会话</div><div class="stat-value">1</div><div class="stat-foot">单 Session 模式</div></article>
+            <article class="card stat-card"><div class="stat-label">有效资源授权</div><div class="stat-value">4</div><div class="stat-foot">1 项将在 42 分钟后过期</div></article>
+            <article class="card stat-card"><div class="stat-label">本月受控支出</div><div class="stat-value">¥1,279</div><div class="stat-foot">额度使用 42.6%</div></article>
+          </div>
+
+          <div class="two-col">
+            <article class="card">
+              <div class="card-header">
+                <div><div class="card-title">Agent 与接入状态</div><div class="card-subtitle">长期身份、默认 Profile 与最近活动</div></div>
+                <button class="btn small" data-nav="agents">查看全部</button>
+              </div>
+              <div class="card-body" style="padding:10px 8px 8px">
+                <table class="table">
+                  <thead><tr><th>Agent</th><th>默认 Profile</th><th>信任模式</th><th>状态</th></tr></thead>
+                  <tbody>
+                    <tr><td><div class="entity"><div class="entity-icon">S</div><div><div class="entity-name">Shopping Agent</div><div class="entity-sub">Codex · MCP</div></div></div></td><td>Agent Shopping</td><td>trusted_agent</td><td><span class="status ok">活动中</span></td></tr>
+                    <tr><td><div class="entity"><div class="entity-icon" style="background:var(--violet-soft);color:var(--violet)">R</div><div><div class="entity-name">Research Agent</div><div class="entity-sub">OpenCode · MCP</div></div></div></td><td>Research</td><td>trusted_agent</td><td><span class="status ok">在线</span></td></tr>
+                    <tr><td><div class="entity"><div class="entity-icon" style="background:#eef0f3;color:#6b7280">W</div><div><div class="entity-name">Writing Agent</div><div class="entity-sub">Claude Code · MCP</div></div></div></td><td>Default</td><td>guarded</td><td><span class="status off">离线</span></td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card-header"><div><div class="card-title">最近安全活动</div><div class="card-subtitle">自然语言摘要，详细字段可展开查看</div></div><button class="btn small" data-nav="safety">审计</button></div>
+              <div class="card-body activity">
+                <div class="activity-item"><span class="activity-mark"></span><div class="activity-copy"><strong>选择支付工具</strong><div>Shopping Agent 在 shop.example.com 选择 Visa •••• 4821。</div></div><span class="activity-time">14:32</span></div>
+                <div class="activity-item"><span class="activity-mark" style="background:var(--success)"></span><div class="activity-copy"><strong>文件授权已消费</strong><div>resume.pdf 已提交至 jobs.example.com，授权不可再次使用。</div></div><span class="activity-time">13:18</span></div>
+                <div class="activity-item"><span class="activity-mark" style="background:var(--violet)"></span><div class="activity-copy"><strong>Profile 使用完成</strong><div>Research Agent 已归还 Research Profile。</div></div><span class="activity-time">11:06</span></div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="page" id="page-agents">
+          <div class="section-head">
+            <div><h2>Agent</h2><p>管理接入 WebFA 的 Agent、默认 Profile、信任模式与活动状态。</p></div>
+            <div class="toolbar"><input class="search" placeholder="搜索 Agent" /><button class="btn primary" onclick="openModal('agentModal')">添加 Agent</button></div>
+          </div>
+          <div class="grid-3">
+            <article class="card detail-card"><div class="detail-card-head"><div class="entity"><div class="entity-icon">S</div><div><div class="entity-name">Shopping Agent</div><div class="entity-sub">agent-shopping-01</div></div></div><span class="status ok">活动中</span></div><p>用于购物、订单管理和低额度自主支付。</p><div class="detail-list"><div class="detail-row"><span>接入方式</span><span>Codex · MCP</span></div><div class="detail-row"><span>默认 Profile</span><span>Agent Shopping</span></div><div class="detail-row"><span>信任模式</span><span>trusted_agent</span></div><div class="detail-row"><span>最近活动</span><span>4 秒前</span></div></div><div style="margin-top:13px"><button class="btn small" onclick="notify('已打开 Shopping Agent 配置')">管理</button></div></article>
+            <article class="card detail-card"><div class="detail-card-head"><div class="entity"><div class="entity-icon" style="background:var(--violet-soft);color:var(--violet)">R</div><div><div class="entity-name">Research Agent</div><div class="entity-sub">agent-research-01</div></div></div><span class="status ok">在线</span></div><p>用于网页研究、资料检索和公开信息整理。</p><div class="detail-list"><div class="detail-row"><span>接入方式</span><span>OpenCode · MCP</span></div><div class="detail-row"><span>默认 Profile</span><span>Research</span></div><div class="detail-row"><span>信任模式</span><span>trusted_agent</span></div><div class="detail-row"><span>最近活动</span><span>17 分钟前</span></div></div><div style="margin-top:13px"><button class="btn small" onclick="notify('已打开 Research Agent 配置')">管理</button></div></article>
+            <article class="card detail-card"><div class="detail-card-head"><div class="entity"><div class="entity-icon" style="background:#eef0f3;color:#6b7280">W</div><div><div class="entity-name">Writing Agent</div><div class="entity-sub">agent-writing-01</div></div></div><span class="status off">离线</span></div><p>用于内容发布、表单提交和账号运营。</p><div class="detail-list"><div class="detail-row"><span>接入方式</span><span>Claude Code · MCP</span></div><div class="detail-row"><span>默认 Profile</span><span>Default</span></div><div class="detail-row"><span>信任模式</span><span>guarded</span></div><div class="detail-row"><span>最近活动</span><span>2 天前</span></div></div><div style="margin-top:13px"><button class="btn small" onclick="notify('已打开 Writing Agent 配置')">管理</button></div></article>
+          </div>
+        </section>
+
+        <section class="page" id="page-profiles">
+          <div class="section-head"><div><h2>身份与 Profile</h2><p>管理账号所有权、Agent 绑定、网站登录状态和安全策略。</p></div><div class="toolbar"><button class="btn" onclick="notify('正在检查 Profile 登录状态')">检查登录状态</button><button class="btn primary" onclick="notify('P12 前暂不创建多个真实 Profile')">新建 Profile</button></div></div>
+          <div class="grid-3">
+            <article class="card detail-card"><div class="detail-card-head"><div><h3>Agent Shopping</h3><p>Shopping Agent 专用购物身份</p></div><span class="status ok">使用中</span></div><div class="detail-list"><div class="detail-row"><span>所有者</span><span>Agent-owned</span></div><div class="detail-row"><span>绑定 Agent</span><span>Shopping Agent</span></div><div class="detail-row"><span>已登录网站</span><span>3</span></div><div class="detail-row"><span>金融策略</span><span>Personal Shopping</span></div><div class="detail-row"><span>未知效果</span><span>允许并审计</span></div></div><button class="btn small" style="margin-top:13px" onclick="notify('已打开 Agent Shopping Profile')">管理 Profile</button></article>
+            <article class="card detail-card"><div class="detail-card-head"><div><h3>Research</h3><p>公开网页研究与资料收集</p></div><span class="status blue">可用</span></div><div class="detail-list"><div class="detail-row"><span>所有者</span><span>Agent-owned</span></div><div class="detail-row"><span>绑定 Agent</span><span>Research Agent</span></div><div class="detail-row"><span>已登录网站</span><span>1</span></div><div class="detail-row"><span>金融策略</span><span>未绑定</span></div><div class="detail-row"><span>未知效果</span><span>要求声明</span></div></div><button class="btn small" style="margin-top:13px" onclick="notify('已打开 Research Profile')">管理 Profile</button></article>
+            <article class="card detail-card"><div class="detail-card-head"><div><h3>Default</h3><p>用户拥有的受保护身份</p></div><span class="status warn">受保护</span></div><div class="detail-list"><div class="detail-row"><span>所有者</span><span>User-owned</span></div><div class="detail-row"><span>绑定 Agent</span><span>Writing Agent</span></div><div class="detail-row"><span>已登录网站</span><span>6</span></div><div class="detail-row"><span>金融策略</span><span>User Protected</span></div><div class="detail-row"><span>身份切换</span><span>需要 Step-up</span></div></div><button class="btn small" style="margin-top:13px" onclick="notify('已打开 Default Profile')">管理 Profile</button></article>
+          </div>
+        </section>
+
+        <section class="page" id="page-payments">
+          <div class="section-head"><div><h2>支付与额度</h2><p>管理受保护支付工具引用和用户定义的金融边界。</p></div><button class="btn primary" onclick="openModal('paymentModal')">添加支付工具</button></div>
+          <div class="two-col">
+            <article class="card">
+              <div class="card-header"><div><div class="card-title">支付工具</div><div class="card-subtitle">Agent 只能看到安全引用、品牌和尾号</div></div><span class="status ok">2 个可用</span></div>
+              <div class="card-body">
+                <div class="attention-item" style="grid-template-columns:42px 1fr auto">
+                  <div class="entity-icon" style="width:42px;height:32px">V</div><div class="attention-copy"><strong>Visa •••• 4821</strong><div>商户已保存方式 · Agent Shopping · CNY</div></div><button class="btn small" onclick="notify('已打开 Visa •••• 4821 设置')">管理</button>
+                </div>
+                <div class="attention-item" style="grid-template-columns:42px 1fr auto">
+                  <div class="entity-icon" style="width:42px;height:32px;background:#eef0f3;color:#5b616b">G</div><div class="attention-copy"><strong>Google Pay</strong><div>系统钱包 · Agent Shopping · CNY</div></div><button class="btn small" onclick="notify('已打开 Google Pay 设置')">管理</button>
+                </div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="card-header"><div><div class="card-title">Personal Shopping</div><div class="card-subtitle">Shopping Agent 当前金融策略</div></div><button class="btn small" onclick="notify('金融策略编辑器已打开')">编辑</button></div>
+              <div class="card-body">
+                <div class="detail-list" style="margin-top:0;border-top:0;padding-top:0"><div class="detail-row"><span>自主额度</span><span>CNY 300 / 单笔</span></div><div class="detail-row"><span>Step-up 上限</span><span>CNY 2,000</span></div><div class="detail-row"><span>绝对上限</span><span>CNY 10,000</span></div><div class="detail-row"><span>每日额度</span><span>CNY 1,000</span></div><div class="detail-row"><span>每月额度</span><span>CNY 3,000</span></div><div class="detail-row"><span>订阅 / 转账</span><span>关闭 / 关闭</span></div></div>
+                <div class="meter"><div class="meter-head"><span>本月已使用</span><span>CNY 1,279 / 3,000</span></div><div class="meter-track"><div class="meter-fill" style="width:42.6%"></div></div></div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="page" id="page-resources">
+          <div class="section-head"><div><h2>资源授权</h2><p>向 Agent 提供临时文件引用，而不是本地绝对路径。</p></div><button class="btn primary" onclick="openModal('resourceModal')">授权文件</button></div>
+          <article class="card"><div class="card-header"><div><div class="card-title">有效资源授权</div><div class="card-subtitle">授权按 Agent、Profile、网站、用途和次数限制</div></div><span class="status blue">4 项</span></div><div class="card-body" style="padding:10px 8px 8px"><table class="table"><thead><tr><th>文件</th><th>用途</th><th>允许的网站</th><th>Agent</th><th>状态</th><th></th></tr></thead><tbody><tr><td><div class="entity"><div class="entity-icon">PDF</div><div><div class="entity-name">resume.pdf</div><div class="entity-sub">resource_7f...9c</div></div></div></td><td>职位申请</td><td>jobs.example.com</td><td>Writing Agent</td><td><span class="status ok">1 次可用</span></td><td><button class="btn small danger" onclick="notify('resume.pdf 授权已撤销')">撤销</button></td></tr><tr><td><div class="entity"><div class="entity-icon" style="background:var(--success-soft);color:var(--success)">CSV</div><div><div class="entity-name">product-list.csv</div><div class="entity-sub">resource_a4...e1</div></div></div></td><td>商品比较</td><td>shop.example.com</td><td>Shopping Agent</td><td><span class="status ok">3 次可用</span></td><td><button class="btn small danger" onclick="notify('product-list.csv 授权已撤销')">撤销</button></td></tr><tr><td><div class="entity"><div class="entity-icon" style="background:var(--violet-soft);color:var(--violet)">DOC</div><div><div class="entity-name">research-notes.docx</div><div class="entity-sub">resource_29...b5</div></div></div></td><td>资料提交</td><td>docs.example.com</td><td>Research Agent</td><td><span class="status warn">42 分钟后过期</span></td><td><button class="btn small danger" onclick="notify('research-notes.docx 授权已撤销')">撤销</button></td></tr></tbody></table></div></article>
+        </section>
+
+        <section class="page" id="page-safety">
+          <div class="section-head"><div><h2>安全与审计</h2><p>管理长期安全策略，并查看不包含凭据的操作回执。</p></div><button class="btn" onclick="notify('安全审计已导出')">导出审计</button></div>
+          <div class="grid-2">
+            <article class="card"><div class="card-header"><div><div class="card-title">默认安全策略</div><div class="card-subtitle">这些设置作用于长期 Profile 与 Agent</div></div></div><div class="card-body"><div class="setting-row"><div class="setting-copy"><strong>默认信任模式</strong><span>Agent 声明用户授权后，WebFA 只执行确定性硬边界。</span></div><select class="select"><option>trusted_agent</option><option>host_attested</option><option>guarded</option></select></div><div class="setting-row"><div class="setting-copy"><strong>未知外部效果</strong><span>Agent-owned Profile 的默认处理方式。</span></div><select class="select"><option>允许并审计</option><option>要求声明</option><option>要求 Step-up</option><option>拒绝</option></select></div><div class="setting-row"><div class="setting-copy"><strong>身份验证接管</strong><span>密码、2FA、CAPTCHA、生物识别始终由用户完成。</span></div><button class="switch on" onclick="toggleSwitch(this)"></button></div></div></article>
+            <article class="card"><div class="card-header"><div><div class="card-title">待处理事项</div><div class="card-subtitle">控制中心只汇总，不承担实时页面操作</div></div><span class="status warn">1 项</span></div><div class="card-body"><div class="attention-item"><div class="attention-icon">¥</div><div class="attention-copy"><strong>CNY 329 支付范围升级</strong><div>Shopping Agent · shop.example.com · 2 分钟后过期</div></div><button class="btn small" onclick="window.open('UI1_SESSION_MONITOR_PREVIEW.html#stepup','_blank')">在监控窗口处理</button></div></div></article>
+          </div>
+          <article class="card" style="margin-top:14px"><div class="card-header"><div><div class="card-title">最近 SafetyReceipt</div><div class="card-subtitle">默认展示可读摘要，原始字段在开发者详情中查看</div></div></div><div class="card-body activity"><div class="activity-item"><span class="activity-mark" style="background:var(--success)"></span><div class="activity-copy"><strong>允许并审计 · 支付工具选择</strong><div>Shopping Agent 在 shop.example.com 选择 Visa •••• 4821。未发生资金提交。</div></div><span class="activity-time">14:32:25</span></div><div class="activity-item"><span class="activity-mark" style="background:var(--warning)"></span><div class="activity-copy"><strong>要求 Step-up · 最终下单</strong><div>订单金额超过自主额度，操作尚未执行。</div></div><span class="activity-time">14:32:29</span></div><div class="activity-item"><span class="activity-mark"></span><div class="activity-copy"><strong>允许并审计 · 文件上传</strong><div>resume.pdf 已上传至 jobs.example.com，授权已消费。</div></div><span class="activity-time">13:18:04</span></div></div></article>
+        </section>
+
+        <section class="page" id="page-integrations">
+          <div class="section-head"><div><h2>接入与集成</h2><p>生成 MCP 配置并检查各 Agent Host 的连接状态。</p></div><button class="btn primary" onclick="notify('新的 MCP 配置已复制')">复制 MCP 配置</button></div>
+          <div class="grid-3">
+            <article class="card detail-card"><div class="detail-card-head"><div><h3>Codex</h3><p>通过本地 MCP Server 接入</p></div><span class="status ok">已连接</span></div><div class="detail-list"><div class="detail-row"><span>Agent</span><span>Shopping Agent</span></div><div class="detail-row"><span>传输</span><span>stdio</span></div><div class="detail-row"><span>工具数量</span><span>5</span></div></div><button class="btn small" style="margin-top:13px" onclick="notify('Codex 接入说明已打开')">查看配置</button></article>
+            <article class="card detail-card"><div class="detail-card-head"><div><h3>OpenCode</h3><p>通过本地 MCP Server 接入</p></div><span class="status ok">已连接</span></div><div class="detail-list"><div class="detail-row"><span>Agent</span><span>Research Agent</span></div><div class="detail-row"><span>传输</span><span>stdio</span></div><div class="detail-row"><span>工具数量</span><span>5</span></div></div><button class="btn small" style="margin-top:13px" onclick="notify('OpenCode 接入说明已打开')">查看配置</button></article>
+            <article class="card detail-card"><div class="detail-card-head"><div><h3>Claude Code</h3><p>配置已生成，当前未连接</p></div><span class="status off">离线</span></div><div class="detail-list"><div class="detail-row"><span>Agent</span><span>Writing Agent</span></div><div class="detail-row"><span>传输</span><span>stdio</span></div><div class="detail-row"><span>工具数量</span><span>5</span></div></div><button class="btn small" style="margin-top:13px" onclick="notify('Claude Code 配置已复制')">复制配置</button></article>
+          </div>
+        </section>
+
+        <section class="page" id="page-settings">
+          <div class="section-head"><div><h2>设置</h2><p>管理 WebFA Desktop、Runtime、数据目录和开发者选项。</p></div><button class="btn primary" onclick="notify('设置已保存')">保存设置</button></div>
+          <div class="grid-2">
+            <article class="card"><div class="card-header"><div><div class="card-title">应用</div><div class="card-subtitle">桌面端行为与通知</div></div></div><div class="card-body"><div class="setting-row"><div class="setting-copy"><strong>开机启动 WebFA</strong><span>启动后驻留系统托盘，不自动打开控制中心。</span></div><button class="switch on" onclick="toggleSwitch(this)"></button></div><div class="setting-row"><div class="setting-copy"><strong>Agent 开始会话时通知</strong><span>新会话开始或需要用户处理时发送系统通知。</span></div><button class="switch on" onclick="toggleSwitch(this)"></button></div><div class="setting-row"><div class="setting-copy"><strong>自动打开会话监控</strong><span>仅在 Human Takeover 或 Step-up 时自动打开。</span></div><select class="select"><option>仅需要处理时</option><option>每次新会话</option><option>从不</option></select></div></div></article>
+            <article class="card"><div class="card-header"><div><div class="card-title">Runtime</div><div class="card-subtitle">浏览器宿主与后台服务</div></div></div><div class="card-body"><div class="setting-row"><div class="setting-copy"><strong>BrowserHost 模式</strong><span>普通操作保持 Headless，人工接管时显示页面。</span></div><select class="select"><option>自动</option><option>始终 Headless</option><option>始终可见</option></select></div><div class="setting-row"><div class="setting-copy"><strong>Runtime 自动启动</strong><span>WebFA Desktop 启动后自动运行 Runtime 和 MCP。</span></div><button class="switch on" onclick="toggleSwitch(this)"></button></div><div class="setting-row"><div class="setting-copy"><strong>数据目录</strong><span>C:\Users\User\AppData\Local\WebFA</span></div><button class="btn small" onclick="notify('数据目录选择器已打开')">更改</button></div></div></article>
+            <article class="card"><div class="card-header"><div><div class="card-title">审计与保留</div><div class="card-subtitle">敏感数据不进入普通审计记录</div></div></div><div class="card-body"><div class="setting-row"><div class="setting-copy"><strong>SafetyReceipt 保留时间</strong><span>当前 P11 为 Session-local；持久化将在 P13 实现。</span></div><select class="select"><option>当前会话</option></select></div><div class="setting-row"><div class="setting-copy"><strong>操作通知摘要</strong><span>在控制中心展示最近的自然语言活动摘要。</span></div><button class="switch on" onclick="toggleSwitch(this)"></button></div></div></article>
+            <article class="card"><div class="card-header"><div><div class="card-title">开发者</div><div class="card-subtitle">高级功能可能绕过正式安全模型</div></div></div><div class="card-body"><div class="setting-row"><div class="setting-copy"><strong>开发者模式</strong><span>显示 WebObjects、ChangeSet、证据和原始 SafetyReceipt。</span></div><button class="switch" onclick="toggleSwitch(this)"></button></div><div class="setting-row"><div class="setting-copy"><strong>Unsafe Legacy Browser API</strong><span>默认关闭。开启后原始 click/type/press 可绕过正式 P11 安全路径。</span></div><button class="switch" onclick="toggleSwitch(this)"></button></div></div></article>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="agentModal">
+    <div class="modal">
+      <div class="modal-head"><h3>添加 Agent</h3><p>为 Agent 创建稳定身份，并绑定默认 Profile 与信任模式。</p></div>
+      <div class="modal-body"><div class="field"><label>显示名称</label><input class="input" value="新的 Agent" /></div><div class="field"><label>Agent ID</label><input class="input" value="agent-new-01" /></div><div class="field"><label>默认 Profile</label><select class="input"><option>Research</option><option>Agent Shopping</option><option>Default</option></select></div><div class="field"><label>信任模式</label><select class="input"><option>trusted_agent</option><option>host_attested</option><option>guarded</option></select></div></div>
+      <div class="modal-actions"><button class="btn" onclick="closeModal('agentModal')">取消</button><button class="btn primary" onclick="closeModal('agentModal');notify('Agent 已添加')">添加</button></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="paymentModal">
+    <div class="modal">
+      <div class="modal-head"><h3>添加支付工具引用</h3><p>这里只注册安全引用和显示信息，不保存完整卡号、CVV 或支付密码。</p></div>
+      <div class="modal-body"><div class="field"><label>类型</label><select class="input"><option>商户已保存支付方式</option><option>系统钱包</option><option>令牌化钱包</option></select></div><div class="field"><label>显示名称</label><input class="input" value="Agent Shopping Visa" /></div><div class="grid-2"><div class="field"><label>品牌</label><input class="input" value="Visa" /></div><div class="field"><label>尾号</label><input class="input" value="4821" maxlength="4" /></div></div><div class="field"><label>金融策略</label><select class="input"><option>Personal Shopping</option><option>User Protected</option></select></div></div>
+      <div class="modal-actions"><button class="btn" onclick="closeModal('paymentModal')">取消</button><button class="btn primary" onclick="closeModal('paymentModal');notify('支付工具引用已添加')">添加</button></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="resourceModal">
+    <div class="modal">
+      <div class="modal-head"><h3>授权本地文件</h3><p>Agent 只会获得临时 resource_ref，不会看到本地绝对路径。</p></div>
+      <div class="modal-body"><div class="field"><label>文件</label><input class="input" value="resume.pdf" /></div><div class="field"><label>用途</label><input class="input" value="职位申请" /></div><div class="field"><label>允许的网站</label><input class="input" value="https://jobs.example.com" /></div><div class="field"><label>允许的 Agent</label><select class="input"><option>Writing Agent</option><option>Shopping Agent</option><option>Research Agent</option></select></div></div>
+      <div class="modal-actions"><button class="btn" onclick="closeModal('resourceModal')">取消</button><button class="btn primary" onclick="closeModal('resourceModal');notify('文件授权已创建')">创建授权</button></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const pageMeta = {
+      overview: ['概览', '管理 WebFA 的长期配置，并查看当前运行状态。'],
+      agents: ['Agent', '管理接入 WebFA 的 Agent、默认 Profile、信任模式与活动状态。'],
+      profiles: ['身份与 Profile', '管理账号所有权、Agent 绑定、网站登录状态和安全策略。'],
+      payments: ['支付与额度', '管理受保护支付工具引用和用户定义的金融边界。'],
+      resources: ['资源授权', '向 Agent 提供临时文件引用，而不是本地绝对路径。'],
+      safety: ['安全与审计', '管理长期安全策略，并查看不包含凭据的操作回执。'],
+      integrations: ['接入与集成', '生成 MCP 配置并检查各 Agent Host 的连接状态。'],
+      settings: ['设置', '管理 WebFA Desktop、Runtime、数据目录和开发者选项。']
+    };
+
+    function showPage(name) {
+      document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.page === name));
+      document.getElementById(`page-${name}`).classList.add('active');
+      document.getElementById('pageTitle').textContent = pageMeta[name][0];
+      document.getElementById('pageSubtitle').textContent = pageMeta[name][1];
+    }
+
+    document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', () => showPage(item.dataset.page)));
+    document.querySelectorAll('[data-nav]').forEach(item => item.addEventListener('click', () => showPage(item.dataset.nav)));
+
+    function openModal(id) { document.getElementById(id).classList.add('show'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+    document.querySelectorAll('.modal-backdrop').forEach(backdrop => backdrop.addEventListener('click', event => { if (event.target === backdrop) backdrop.classList.remove('show'); }));
+
+    function toggleSwitch(button) {
+      button.classList.toggle('on');
+      notify(button.classList.contains('on') ? '设置已启用' : '设置已关闭');
+    }
+
+    let toastTimer;
+    function notify(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+  </script>
+</body>
+</html>

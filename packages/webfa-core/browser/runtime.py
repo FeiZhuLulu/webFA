@@ -31,6 +31,7 @@ from browser.payment_broker import (
 )
 from browser.profile_policy import ProfilePolicyEvaluation, ProfilePolicyStore
 from browser.semantic_operations import SemanticOperationExecutor, WebOperationPlan
+from browser.session_events import SessionEvent, SessionEventBus
 from browser.safety_audit import SafetyReceiptStore
 from browser.safety_context import SafetyContextManager
 from browser.safety_evidence import RuntimeEvidenceResolver
@@ -49,6 +50,13 @@ from browser.web_observe import (
 )
 from browser.url_policy import enforce_navigation_allowed
 from browser.session import BrowserSession
+from browser.visual_surface import (
+    BoundVisualSurfaceProvider,
+    VisualFrameSink,
+    VisualStreamConfig,
+    VisualStreamState,
+    VisualSurfaceBinding,
+)
 from schemas.browser import (
     BrowserActionRequest,
     BrowserActionResult,
@@ -132,6 +140,51 @@ class BrowserRuntime:
         self._selected_payment: _SelectedPaymentInstrument | None = None
         self._step_ups = StepUpManager()
         self._safety_receipts = SafetyReceiptStore()
+        self._session_events = SessionEventBus()
+
+    def replay_session_events(
+        self,
+        *,
+        after_sequence: int = 0,
+        session_id: str | None = None,
+        limit: int = 200,
+    ) -> list[SessionEvent]:
+        return self._session_events.replay(
+            after_sequence=after_sequence,
+            session_id=session_id,
+            limit=limit,
+        )
+
+    def subscribe_session_events(
+        self,
+        callback: Callable[[SessionEvent], None],
+        *,
+        replay_after_sequence: int | None = None,
+        session_id: str | None = None,
+    ) -> str:
+        return self._session_events.subscribe(
+            callback,
+            replay_after_sequence=replay_after_sequence,
+            session_id=session_id,
+        )
+
+    def unsubscribe_session_events(self, subscription_id: str) -> bool:
+        return self._session_events.unsubscribe(subscription_id)
+
+    def start_visual_stream(
+        self,
+        frame_sink: VisualFrameSink,
+        config: VisualStreamConfig | None = None,
+    ) -> str:
+        with self._web_operation_lock:
+            return self._call("start_visual_stream", config or VisualStreamConfig(), frame_sink)
+
+    def stop_visual_stream(self, stream_id: str) -> VisualStreamState:
+        with self._web_operation_lock:
+            return self._call("stop_visual_stream", stream_id)
+
+    def visual_stream_status(self, stream_id: str | None = None) -> VisualStreamState | None:
+        return self._call("visual_stream_status", stream_id)
 
     def open(self, url: str, agent_id: str | None = None) -> BrowserActionResult:
         self._agent_lease.acquire(agent_id)
@@ -147,6 +200,11 @@ class BrowserRuntime:
                 return result
             receipt = self._generic_open_receipt(request, result)
             result.safety_receipt = self._safety_receipts.append(receipt)
+            self._publish_safety_event(
+                result.safety_decision,
+                result.state,
+                operation="open_url",
+            )
             return result
 
     def _open_web_inner(self, request: WebOpenRequest, agent_id: str | None = None) -> WebOpenResult:
@@ -479,6 +537,11 @@ class BrowserRuntime:
                 return result
             receipt = result.safety_receipt or self._generic_safety_receipt(request, result)
             result.safety_receipt = self._safety_receipts.append(receipt)
+            self._publish_safety_event(
+                result.safety_decision,
+                result.state,
+                operation=request.operation,
+            )
             return result
 
     def _act_web_inner(self, request: WebOperationRequest, agent_id: str | None = None) -> WebOperationResult:
@@ -1724,6 +1787,39 @@ class BrowserRuntime:
         except Exception as exc:
             return {**base, "host_status": "error", "last_error": str(exc)}
 
+    def _publish_safety_event(
+        self,
+        decision: SafetyDecision,
+        state: WebState,
+        *,
+        operation: str,
+    ) -> None:
+        step_up_id = (
+            decision.step_up.request.step_up_id
+            if decision.step_up is not None
+            else None
+        )
+        data: dict[str, Any] = {
+            "operation": operation,
+            "decision": decision.decision,
+            "status": decision.status,
+            "requires_user_attention": decision.decision in {
+                "require_step_up",
+                "require_takeover",
+                "deny",
+            },
+        }
+        if decision.context_id is not None:
+            data["context_id"] = decision.context_id
+        if step_up_id is not None:
+            data["step_up_id"] = step_up_id
+        self._session_events.publish(
+            "safety_decision_changed",
+            session_id=state.session_id or "default",
+            document_id=state.document_id or None,
+            data=data,
+        )
+
     def close(self) -> None:
         with self._web_operation_lock:
             if self._closed:
@@ -1740,6 +1836,7 @@ class BrowserRuntime:
             finally:
                 self._closed = True
                 self._local_resources.close()
+                self._session_events.close()
 
     def _call(self, name: str, *args: Any) -> Any:
         if self._closed:
@@ -1761,6 +1858,7 @@ class BrowserRuntime:
             auth_takeover=self._auth_takeover,
             auth_surface_mode=self._auth_surface_mode,
             private_url_policy=self._private_url_policy,
+            event_bus=self._session_events,
         )
         self._thread = threading.Thread(target=worker.run, args=(self._jobs,), name="webfa-browser", daemon=True)
         self._thread.start()
@@ -1810,6 +1908,7 @@ class _BrowserWorker:
         auth_takeover: str,
         auth_surface_mode: str,
         private_url_policy: str,
+        event_bus: SessionEventBus,
     ) -> None:
         self._session = BrowserSession(driver_factory=driver_factory)
         self._view_builder = AgentViewBuilder()
@@ -1822,6 +1921,14 @@ class _BrowserWorker:
         self._auth_takeover = auth_takeover
         self._auth_surface_mode = auth_surface_mode
         self._private_url_policy = private_url_policy
+        self._event_bus = event_bus
+        self._visual_provider: BoundVisualSurfaceProvider | None = None
+        self._visual_binding_lock = threading.RLock()
+        self._visual_binding = VisualSurfaceBinding(
+            session_id=self._session.session_id,
+            tab_id="tab_1",
+            document_id="",
+        )
         self._auth_surface_active = False
         self._auth_surface_url: str | None = None
         self._takeover_reason: TakeoverReason | None = None
@@ -1842,11 +1949,15 @@ class _BrowserWorker:
             "close": self.close,
             "status": self.status,
             "capture_preview": self.capture_preview,
+            "start_visual_stream": self.start_visual_stream,
+            "stop_visual_stream": self.stop_visual_stream,
+            "visual_stream_status": self.visual_stream_status,
             "restart_host": self.restart_host,
             "relaunch_visible_host": self.relaunch_visible_host,
             "open_auth_surface": self.open_auth_surface,
             "close_auth_surface": self.close_auth_surface,
         }
+        self._event_bus.publish("session_started", session_id=self._session.session_id)
         while True:
             job = jobs.get()
             if job is None:
@@ -1858,16 +1969,39 @@ class _BrowserWorker:
                 if name == "close":
                     return
             except Exception as exc:
+                self._publish_job_failure(name, args, exc)
                 result.put((False, exc))
 
     def open(self, url: str) -> BrowserActionResult:
+        operation_id = f"nav_{uuid4().hex}"
+        self._event_bus.publish(
+            "navigation_started",
+            session_id=self._session.session_id,
+            operation_id=operation_id,
+            data={"origin": _origin_from_url(url)},
+        )
         self._clear_takeover()
         enforce_navigation_allowed(url, policy=self._private_url_policy)  # type: ignore[arg-type]
         if self._host_is_exited():
             self._session.reset()
         driver = self._ensure_driver()
+        self._invalidate_visual_document()
         driver.open(url)
-        return BrowserActionResult(ok=True, action="open_url", state=self._state_after_navigation(driver))
+        state = self._state_after_navigation(driver)
+        try:
+            self._refresh_web_state(driver)
+        except WebObserveUnavailableError:
+            pass
+        binding = self._current_visual_binding()
+        self._event_bus.publish(
+            "navigation_committed",
+            session_id=self._session.session_id,
+            tab_id=binding.tab_id,
+            document_id=binding.document_id or None,
+            operation_id=operation_id,
+            data={"origin": _origin_from_url(state.url)},
+        )
+        return BrowserActionResult(ok=True, action="open_url", state=state)
 
     def observe(self) -> BrowserState:
         if self._auth_surface_active:
@@ -1952,6 +2086,13 @@ class _BrowserWorker:
                 reason=[f"safety_takeover:{reason}"],
                 user_action_required=True,
             )
+        self._event_bus.publish(
+            "takeover_required",
+            session_id=self._session.session_id,
+            tab_id=self._current_visual_binding().tab_id,
+            document_id=current.document_id or None,
+            data={"reason": reason, "target": target.id, "origin": target.origin},
+        )
         return state
 
     def act_web(self, request: WebOperationRequest, upload_path: str | None = None) -> WebOperationResult:
@@ -1962,13 +2103,38 @@ class _BrowserWorker:
         if self._driver_has_pending_dialog(driver) and request.operation != "dismiss":
             raise dialog_required_error()
 
+        operation_id = f"op_{uuid4().hex}"
+        current = self._object_registry.current_state() or WebState(session_id=self._session.session_id)
+        self._event_bus.publish(
+            "operation_started",
+            session_id=self._session.session_id,
+            tab_id=self._current_visual_binding().tab_id,
+            document_id=current.document_id or None,
+            operation_id=operation_id,
+            data={"operation": request.operation, "target": request.target},
+        )
+
         plan = self._semantic_operations.plan(request)
         previous_version = plan.target.version
         if plan.takeover_reason is not None:
-            return self._request_web_takeover(plan)
+            result = self._request_web_takeover(plan)
+            self._event_bus.publish(
+                "takeover_required",
+                session_id=self._session.session_id,
+                tab_id=self._current_visual_binding().tab_id,
+                document_id=current.document_id or None,
+                operation_id=operation_id,
+                data={
+                    "reason": plan.takeover_reason,
+                    "target": plan.target.id,
+                    "origin": plan.target.origin,
+                },
+            )
+            self._publish_operation_completed(operation_id, result)
+            return result
         if plan.no_op:
             state = self._object_registry.current_state() or WebState(session_id=self._session.session_id)
-            return WebOperationResult(
+            result = WebOperationResult(
                 ok=True,
                 target=request.target,
                 operation=request.operation,
@@ -1978,6 +2144,8 @@ class _BrowserWorker:
                 state=state,
                 data={"no_op": True},
             )
+            self._publish_operation_completed(operation_id, result)
+            return result
 
         if plan.upload_resource_ref is not None:
             if not upload_path or not plan.upload_legacy_target:
@@ -1994,7 +2162,7 @@ class _BrowserWorker:
             current_version = self._object_registry.require(request.target).version
         except Exception:
             current_version = None
-        return WebOperationResult(
+        result = WebOperationResult(
             ok=True,
             target=request.target,
             operation=request.operation,
@@ -2003,6 +2171,8 @@ class _BrowserWorker:
             document_revision=registered.state.document_revision,
             state=registered.state,
         )
+        self._publish_operation_completed(operation_id, result)
+        return result
 
     def act(self, request: BrowserActionRequest) -> BrowserActionResult:
         if self._auth_surface_active:
@@ -2041,10 +2211,21 @@ class _BrowserWorker:
         self._raise_if_host_exited()
         driver = self._ensure_driver()
         driver.switch_tab(tab_id)
-        return self._state_from_raw(driver.observe_raw())
+        state = self._state_from_raw(driver.observe_raw())
+        self._event_bus.publish(
+            "tab_switched",
+            session_id=self._session.session_id,
+            tab_id=tab_id,
+            data={"tab_id": tab_id},
+        )
+        return state
 
     def close(self) -> None:
+        if self._visual_provider is not None:
+            self._visual_provider.close()
+            self._visual_provider = None
         self._session.close()
+        self._event_bus.publish("session_closed", session_id=self._session.session_id)
 
     def status(self) -> dict[str, Any]:
         takeover = {
@@ -2071,6 +2252,41 @@ class _BrowserWorker:
         if not callable(capture):
             return None
         return capture()
+
+    def start_visual_stream(
+        self,
+        config: VisualStreamConfig,
+        frame_sink: VisualFrameSink,
+    ) -> str:
+        if self._auth_surface_active:
+            raise auth_surface_active_error()
+        self._raise_if_host_exited()
+        driver = self._session.ensure_driver()
+        self._refresh_web_state(driver)
+        backend_getter = getattr(driver, "visual_surface_backend", None)
+        backend = backend_getter() if callable(backend_getter) else None
+        if backend is None:
+            raise RuntimeError("selected BrowserHost does not provide a visual surface backend")
+        if self._visual_provider is None:
+            self._visual_provider = BoundVisualSurfaceProvider(
+                backend,
+                event_bus=self._event_bus,
+            )
+        return self._visual_provider.start_stream(
+            self._current_visual_binding,
+            config,
+            frame_sink,
+        )
+
+    def stop_visual_stream(self, stream_id: str) -> VisualStreamState:
+        if self._visual_provider is None:
+            raise KeyError(f"visual stream not found: {stream_id}")
+        return self._visual_provider.stop_stream(stream_id)
+
+    def visual_stream_status(self, stream_id: str | None = None) -> VisualStreamState | None:
+        if self._visual_provider is None:
+            return None
+        return self._visual_provider.status(stream_id)
 
     def restart_host(self) -> BrowserState:
         self._clear_takeover()
@@ -2151,6 +2367,95 @@ class _BrowserWorker:
         except Exception:
             return "about:blank"
 
+    def _publish_operation_completed(
+        self,
+        operation_id: str,
+        result: WebOperationResult,
+    ) -> None:
+        self._event_bus.publish(
+            "operation_completed",
+            session_id=self._session.session_id,
+            tab_id=self._current_visual_binding().tab_id,
+            document_id=result.state.document_id or None,
+            operation_id=operation_id,
+            data={
+                "operation": result.operation,
+                "target": result.target,
+                "ok": result.ok,
+                "document_revision": result.document_revision,
+                "takeover_requested": bool(
+                    result.data and result.data.get("takeover_requested")
+                ),
+            },
+        )
+
+    def _publish_job_failure(self, name: str, args: tuple, exc: Exception) -> None:
+        if isinstance(exc, BrowserHostClosedError):
+            try:
+                self._event_bus.publish(
+                    "browser_crashed",
+                    session_id=self._session.session_id,
+                    data={"error_type": type(exc).__name__},
+                )
+            except Exception:
+                pass
+            return
+        try:
+            if name == "open" and args:
+                self._event_bus.publish(
+                    "navigation_failed",
+                    session_id=self._session.session_id,
+                    data={
+                        "origin": _origin_from_url(str(args[0])),
+                        "error_type": type(exc).__name__,
+                    },
+                )
+            elif name == "act_web" and args and isinstance(args[0], WebOperationRequest):
+                request = args[0]
+                self._event_bus.publish(
+                    "operation_failed",
+                    session_id=self._session.session_id,
+                    tab_id=self._current_visual_binding().tab_id,
+                    document_id=self._current_visual_binding().document_id or None,
+                    data={
+                        "operation": request.operation,
+                        "target": request.target,
+                        "error_type": type(exc).__name__,
+                    },
+                )
+        except Exception:
+            pass
+
+    def _invalidate_visual_document(self) -> None:
+        with self._visual_binding_lock:
+            self._visual_binding = VisualSurfaceBinding(
+                session_id=self._visual_binding.session_id,
+                tab_id=self._visual_binding.tab_id,
+                document_id="",
+            )
+
+    def _update_visual_binding(self, state: WebState, driver: BrowserDriver) -> None:
+        tab_id = "tab_1"
+        try:
+            tabs = driver.tabs()
+            active = next((tab for tab in tabs if tab.active), None)
+            if active is not None:
+                tab_id = active.id
+            elif tabs:
+                tab_id = tabs[0].id
+        except Exception:
+            pass
+        with self._visual_binding_lock:
+            self._visual_binding = VisualSurfaceBinding(
+                session_id=state.session_id or self._session.session_id,
+                tab_id=tab_id,
+                document_id=state.document_id,
+            )
+
+    def _current_visual_binding(self) -> VisualSurfaceBinding:
+        with self._visual_binding_lock:
+            return self._visual_binding
+
     def _ensure_driver(self) -> BrowserDriver:
         return self._session.ensure_driver()
 
@@ -2169,6 +2474,7 @@ class _BrowserWorker:
         observe_web_raw = getattr(driver, "observe_web_raw", None)
         if not callable(observe_web_raw):
             raise WebObserveUnavailableError("selected browser driver does not provide RawWebSnapshot")
+        previous = self._object_registry.current_state()
         snapshot = observe_web_raw()
         try:
             enforce_navigation_allowed(snapshot.url, policy=self._private_url_policy)  # type: ignore[arg-type]
@@ -2180,7 +2486,30 @@ class _BrowserWorker:
             snapshot,
             session_id=self._session.session_id,
         )
-        return self._object_registry.update(compilation)
+        registered = self._object_registry.update(compilation)
+        self._update_visual_binding(registered.state, driver)
+        if (
+            previous is None
+            or previous.document_id != registered.state.document_id
+            or previous.document_revision != registered.state.document_revision
+        ):
+            changed_fields = (
+                list(registered.changes.document_changed_fields)
+                if registered.changes is not None
+                else []
+            )
+            self._event_bus.publish(
+                "document_changed",
+                session_id=self._session.session_id,
+                tab_id=self._current_visual_binding().tab_id,
+                document_id=registered.state.document_id,
+                data={
+                    "document_revision": registered.state.document_revision,
+                    "changed_fields": changed_fields,
+                    "object_count": registered.state.object_count,
+                },
+            )
+        return registered
 
     def _request_web_takeover(self, plan: WebOperationPlan) -> WebOperationResult:
         current = self._object_registry.current_state() or WebState(session_id=self._session.session_id)

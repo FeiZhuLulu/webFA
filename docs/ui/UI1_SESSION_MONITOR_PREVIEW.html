@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebFA 会话监控 · UI-1 三栏预览</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef0f3;
+      --panel: #ffffff;
+      --panel-2: #f7f8fa;
+      --line: #e1e4e8;
+      --line-strong: #cfd4db;
+      --text: #171a1f;
+      --muted: #6b7280;
+      --subtle: #9ca3af;
+      --primary: #1769e0;
+      --primary-soft: #eaf2ff;
+      --success: #12805c;
+      --success-soft: #e9f8f2;
+      --warning: #b86b00;
+      --warning-soft: #fff5df;
+      --danger: #c83c3c;
+      --danger-soft: #fff0f0;
+      --violet: #6d4aff;
+      --violet-soft: #f1edff;
+      --shadow: 0 20px 60px rgba(20,27,38,.16);
+      --left: 268px;
+      --right: 350px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      min-width: 1240px;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+
+    .app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+    }
+
+    .topbar {
+      height: 58px;
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) auto minmax(320px, 1fr);
+      align-items: center;
+      gap: 16px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.96);
+      backdrop-filter: blur(16px);
+      z-index: 20;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 31px;
+      height: 31px;
+      border-radius: 9px;
+      background: linear-gradient(135deg, #2d7cff, #8d5cff);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      font-weight: 800;
+      flex: 0 0 auto;
+    }
+
+    .brand-copy { min-width: 0; }
+    .brand-copy strong { display: block; font-size: 12px; }
+    .brand-copy span { display: block; margin-top: 2px; font-size: 9px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .session-status {
+      justify-self: center;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgba(18,128,92,.13);
+    }
+
+    .top-actions {
+      justify-self: end;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .btn {
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      color: var(--text);
+      border-radius: 8px;
+      min-height: 32px;
+      padding: 0 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      transition: .16s ease;
+    }
+    .btn:hover { background: #fafafa; border-color: #b9bec6; }
+    .btn.primary { color: #fff; background: var(--primary); border-color: var(--primary); }
+    .btn.primary:hover { background: #0d5cc7; }
+    .btn.warning { color: var(--warning); border-color: #eccf93; background: var(--warning-soft); }
+    .btn.danger { color: var(--danger); border-color: #efc4c4; background: var(--danger-soft); }
+    .btn.ghost { background: transparent; }
+    .btn.icon { width: 32px; padding: 0; }
+    .btn.small { min-height: 28px; padding: 0 8px; font-size: 9px; }
+
+    .layout {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
+      overflow: hidden;
+      position: relative;
+      transition: grid-template-columns .22s ease;
+    }
+
+    .layout.left-collapsed {
+      grid-template-columns: 0 minmax(0, 1fr) var(--right);
+    }
+
+    .layout.right-collapsed {
+      grid-template-columns: var(--left) minmax(0, 1fr) 0;
+    }
+
+    .layout.left-collapsed.right-collapsed {
+      grid-template-columns: 0 minmax(0, 1fr) 0;
+    }
+
+    .column {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel);
+      overflow: hidden;
+    }
+
+    .left {
+      border-right: 1px solid var(--line);
+      transition: opacity .16s ease, transform .22s ease;
+    }
+    .right {
+      border-left: 1px solid var(--line);
+      transition: opacity .16s ease, transform .22s ease;
+    }
+    .center { background: #dfe3e8; position: relative; }
+
+    .layout.left-collapsed .left {
+      opacity: 0;
+      transform: translateX(-18px);
+      pointer-events: none;
+      border-right: 0;
+    }
+
+    .layout.right-collapsed .right {
+      opacity: 0;
+      transform: translateX(18px);
+      pointer-events: none;
+      border-left: 0;
+    }
+
+    .sidebar-toggle {
+      width: 27px;
+      min-width: 27px;
+      height: 27px;
+      padding: 0;
+      border-radius: 7px;
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      color: var(--muted);
+      display: inline-grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .sidebar-toggle:hover {
+      color: var(--primary);
+      border-color: #b9cae8;
+      background: var(--primary-soft);
+    }
+
+    .sidebar-restore {
+      position: absolute;
+      top: 8px;
+      z-index: 35;
+      width: 31px;
+      height: 31px;
+      border-radius: 8px;
+      border: 1px solid var(--line-strong);
+      background: rgba(255,255,255,.96);
+      color: var(--primary);
+      box-shadow: 0 8px 24px rgba(26,33,45,.14);
+      display: none;
+      place-items: center;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .sidebar-restore.left-restore { left: 8px; }
+    .sidebar-restore.right-restore { right: 8px; }
+    .layout.left-collapsed .left-restore { display: grid; }
+    .layout.right-collapsed .right-restore { display: grid; }
+
+    .column-head {
+      height: 42px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 13px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfbfc;
+    }
+
+    .column-title {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .11em;
+      font-weight: 800;
+    }
+
+    .column-body {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+    }
+
+    .left .column-body, .right .column-body { scrollbar-width: thin; }
+
+    .block {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    .block-head {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      background: #fafbfc;
+    }
+
+    .block-title { font-size: 10px; font-weight: 750; }
+    .block-body { padding: 10px; }
+
+    .agent-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+    }
+
+    .agent-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+      flex: 0 0 auto;
+    }
+
+    .agent-copy { min-width: 0; }
+    .agent-copy strong { display: block; font-size: 11px; }
+    .agent-copy span { display: block; margin-top: 3px; font-size: 9px; color: var(--muted); }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      padding: 4px 7px;
+      font-size: 9px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .status.ok { color: var(--success); background: var(--success-soft); }
+    .status.warn { color: var(--warning); background: var(--warning-soft); }
+    .status.blue { color: var(--primary); background: var(--primary-soft); }
+    .status.off { color: var(--muted); background: #edf0f3; }
+    .status.violet { color: var(--violet); background: var(--violet-soft); }
+
+    .task-title { font-size: 12px; font-weight: 750; line-height: 1.45; }
+    .task-sub { margin-top: 5px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+
+    .key-list { display: grid; gap: 7px; }
+    .key-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; font-size: 9px; }
+    .key-row span:first-child { color: var(--muted); }
+    .key-row span:last-child { font-weight: 650; text-align: right; overflow-wrap: anywhere; }
+
+    .tab-list { display: grid; gap: 5px; }
+    .tab-item {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: 8px 1fr auto;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      transition: .15s ease;
+    }
+    .tab-item:hover { background: #f7f8fa; }
+    .tab-item.active { background: var(--primary-soft); border-color: #cfe0fb; }
+    .tab-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--subtle); }
+    .tab-item.active .tab-dot { background: var(--primary); }
+    .tab-copy { min-width: 0; }
+    .tab-copy strong { display: block; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tab-copy span { display: block; margin-top: 2px; color: var(--muted); font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tab-index { color: var(--subtle); font-size: 8px; }
+
+    .progress-list { display: grid; gap: 9px; }
+    .progress-item {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 7px;
+      align-items: start;
+      font-size: 9px;
+      color: var(--muted);
+    }
+    .progress-mark {
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      color: var(--subtle);
+      font-size: 8px;
+    }
+    .progress-item.done { color: var(--text); }
+    .progress-item.done .progress-mark { background: var(--success-soft); border-color: #bfe7d7; color: var(--success); }
+    .progress-item.current { color: var(--text); font-weight: 700; }
+    .progress-item.current .progress-mark { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 0 0 4px rgba(23,105,224,.09); }
+
+    .browser-shell {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      margin: 10px;
+      border: 1px solid #c8cdd5;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fff;
+      box-shadow: 0 12px 35px rgba(35,43,54,.12);
+      position: relative;
+    }
+
+    .browser-top {
+      height: 42px;
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      background: #f8f9fa;
+    }
+
+    .traffic { display: flex; gap: 5px; }
+    .traffic span { width: 9px; height: 9px; border-radius: 999px; background: #d7dbe0; }
+    .traffic span:first-child { background: #ff6b64; }
+    .traffic span:nth-child(2) { background: #f6bf48; }
+    .traffic span:nth-child(3) { background: #48c78e; }
+
+    .url-bar {
+      height: 27px;
+      border-radius: 7px;
+      background: #fff;
+      border: 1px solid #d9dde3;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 9px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 9px;
+    }
+    .url-lock { color: var(--success); }
+    .url-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .browser-meta { display: flex; align-items: center; gap: 7px; font-size: 8px; color: var(--muted); }
+
+    .browser-view {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      background: #f6f7f9;
+      position: relative;
+    }
+
+    .mock-page {
+      min-height: 100%;
+      padding: 24px;
+      background:
+        radial-gradient(circle at 80% 15%, rgba(23,105,224,.07), transparent 30%),
+        #f7f8fa;
+    }
+
+    .shop-header {
+      height: 48px;
+      border-radius: 10px;
+      background: #15181d;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      margin-bottom: 18px;
+    }
+    .shop-logo { font-size: 13px; font-weight: 800; letter-spacing: .02em; }
+    .shop-header span { font-size: 9px; color: rgba(255,255,255,.6); }
+
+    .checkout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(250px, .65fr);
+      gap: 16px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .web-card {
+      background: #fff;
+      border: 1px solid #e1e4e8;
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .web-card h2 { margin: 0; font-size: 14px; }
+    .web-card h3 { margin: 0; font-size: 11px; }
+    .web-muted { margin-top: 4px; color: #7a818c; font-size: 9px; }
+
+    .product {
+      display: grid;
+      grid-template-columns: 86px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 0;
+      border-bottom: 1px solid #eceef1;
+    }
+    .product-img { height: 72px; border-radius: 10px; background: linear-gradient(135deg,#e5e8ee,#cfd5df); position: relative; overflow: hidden; }
+    .product-img:after { content:""; position:absolute; inset:16px 22px; border-radius:8px; background:linear-gradient(145deg,#748093,#3f4856); transform:rotate(-7deg); }
+    .product-name { font-size: 11px; font-weight: 750; line-height: 1.45; }
+    .product-options { margin-top: 5px; color: #777e89; font-size: 9px; }
+    .product-price { font-size: 13px; font-weight: 800; }
+
+    .payment-method {
+      margin-top: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid #bcd3f5;
+      background: #f4f8ff;
+      border-radius: 10px;
+      padding: 11px;
+    }
+    .payment-left { display: flex; align-items: center; gap: 9px; }
+    .card-mark { width: 38px; height: 25px; border-radius: 6px; background: #1f56ad; color: #fff; display:grid;place-items:center;font-size:9px;font-weight:800; }
+    .payment-copy strong { display:block;font-size:10px; }
+    .payment-copy span { display:block;margin-top:3px;color:#727985;font-size:8px; }
+    .check { width:18px;height:18px;border-radius:999px;background:var(--primary);color:#fff;display:grid;place-items:center;font-size:9px; }
+
+    .summary-list { margin-top: 14px; display: grid; gap: 9px; }
+    .summary-row { display: flex; justify-content: space-between; gap: 12px; font-size: 9px; color: #6f7681; }
+    .summary-row.total { border-top: 1px solid #e4e7eb; padding-top: 10px; font-size: 12px; color: #171a1f; font-weight: 800; }
+    .place-order { margin-top: 14px; width: 100%; height: 38px; border: 0; border-radius: 9px; background: #1769e0; color: #fff; font-size: 10px; font-weight: 800; }
+    .order-note { margin-top: 8px; color: #868c95; font-size: 8px; line-height: 1.5; text-align:center; }
+
+    .cursor {
+      position: absolute;
+      left: 62%;
+      top: 70%;
+      width: 17px;
+      height: 23px;
+      clip-path: polygon(0 0, 0 100%, 29% 72%, 48% 100%, 62% 92%, 44% 66%, 100% 66%);
+      background: #171a1f;
+      filter: drop-shadow(0 1px 2px rgba(255,255,255,.7));
+      transform: rotate(-8deg);
+      animation: cursorFloat 2.2s ease-in-out infinite alternate;
+    }
+    @keyframes cursorFloat { from { transform: translate(0,0) rotate(-8deg); } to { transform: translate(7px,-4px) rotate(-8deg); } }
+
+    .monitor-strip {
+      height: 38px;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 12px;
+      border-top: 1px solid var(--line);
+      background: #fafbfc;
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .monitor-strip-left, .monitor-strip-right { display: flex; align-items: center; gap: 10px; }
+
+    .attention-card {
+      border: 1px solid #efcc89;
+      background: var(--warning-soft);
+      border-radius: 10px;
+      padding: 11px;
+      margin-bottom: 10px;
+    }
+    .attention-card h3 { margin: 0; color: #89500a; font-size: 11px; }
+    .attention-card p { margin: 5px 0 0; color: #8d681f; font-size: 9px; line-height: 1.5; }
+    .scope-box { margin-top: 9px; border-radius: 8px; background: rgba(255,255,255,.62); border: 1px solid rgba(184,107,0,.18); overflow:hidden; }
+    .scope-row { display:flex;justify-content:space-between;gap:12px;padding:7px 8px;font-size:8px;border-bottom:1px solid rgba(184,107,0,.12); }
+    .scope-row:last-child { border-bottom:0; }
+    .scope-row span:first-child { color:#8d681f; }
+    .scope-row span:last-child { color:#5e420f;font-weight:750;text-align:right; }
+    .attention-actions { margin-top: 9px; display:flex;gap:6px; }
+
+    .activity-list { position: relative; }
+    .activity-item {
+      display: grid;
+      grid-template-columns: 43px 12px 1fr;
+      gap: 7px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .activity-item:last-child { border-bottom: 0; }
+    .time { color: var(--subtle); font-size: 8px; padding-top: 1px; }
+    .activity-dot { width: 8px;height:8px;border-radius:999px;background:var(--primary);margin-top:2px;box-shadow:0 0 0 3px rgba(23,105,224,.08); }
+    .activity-dot.ok { background:var(--success);box-shadow:0 0 0 3px rgba(18,128,92,.08); }
+    .activity-dot.warn { background:var(--warning);box-shadow:0 0 0 3px rgba(184,107,0,.08); }
+    .activity-copy strong { display:block;font-size:9px;line-height:1.4; }
+    .activity-copy span { display:block;margin-top:3px;color:var(--muted);font-size:8px;line-height:1.5; }
+
+    .safety-grid { display:grid;gap:7px; }
+    .safety-row { display:grid;grid-template-columns:92px 1fr;gap:8px;align-items:center;font-size:9px; }
+    .safety-row span:first-child { color:var(--muted); }
+    .safety-row span:last-child { text-align:right;font-weight:700; }
+
+    details { border-top: 1px solid var(--line); }
+    summary { list-style:none;cursor:pointer;padding:10px;font-size:9px;font-weight:700;color:var(--muted); }
+    summary::-webkit-details-marker { display:none; }
+    details[open] summary { color:var(--text); }
+    .developer { padding:0 10px 10px;display:grid;gap:6px; }
+    .code-row { display:flex;justify-content:space-between;gap:12px;font-family:Consolas,monospace;font-size:8px;color:#5d6570; }
+    .code-row span:last-child { text-align:right;overflow-wrap:anywhere; }
+
+    .takeover-overlay {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      background: rgba(247,248,250,.97);
+      z-index: 12;
+    }
+    .takeover-overlay.show { display: flex; }
+    .takeover-banner {
+      flex: 0 0 auto;
+      border-bottom: 1px solid #efd294;
+      background: #fff5df;
+      padding: 13px 16px;
+      display:flex;align-items:center;justify-content:space-between;gap:16px;
+    }
+    .takeover-banner strong { display:block;color:#754707;font-size:11px; }
+    .takeover-banner span { display:block;margin-top:3px;color:#936b25;font-size:9px; }
+    .takeover-body { flex:1;min-height:0;display:grid;place-items:center;padding:22px; }
+    .takeover-card { width:min(580px,90%);background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden; }
+    .takeover-card-head { padding:18px;border-bottom:1px solid var(--line); }
+    .takeover-card-head h2 { margin:0;font-size:15px; }
+    .takeover-card-head p { margin:6px 0 0;color:var(--muted);font-size:9px;line-height:1.6; }
+    .auth-page { padding:18px;background:#f7f8fa; }
+    .auth-form { max-width:360px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px; }
+    .auth-form h3 { margin:0;font-size:12px; }
+    .auth-form p { margin:5px 0 13px;color:var(--muted);font-size:8px; }
+    .auth-input { width:100%;height:36px;border:1px solid var(--line-strong);border-radius:8px;padding:0 10px;font-size:10px;outline:none; }
+    .auth-input:focus { border-color:var(--primary);box-shadow:0 0 0 3px rgba(23,105,224,.08); }
+    .auth-button { width:100%;height:36px;margin-top:9px;border:0;border-radius:8px;background:#171a1f;color:#fff;font-size:10px;font-weight:750; }
+    .takeover-actions { padding:12px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:7px; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 22px;
+      transform: translate(-50%, 12px);
+      min-width: 280px;
+      max-width: 420px;
+      padding: 11px 14px;
+      border-radius: 10px;
+      background: #171a1f;
+      color: #fff;
+      box-shadow: var(--shadow);
+      font-size: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: .2s ease;
+      z-index: 100;
+      text-align:center;
+    }
+    .toast.show { opacity:1; transform:translate(-50%,0); }
+
+    .paused .dot { background:var(--warning);box-shadow:0 0 0 4px rgba(184,107,0,.13); }
+    .paused .session-status { color:var(--warning);background:var(--warning-soft);border-color:#efd294; }
+    .paused .cursor { display:none; }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">W</div>
+        <div class="brand-copy">
+          <strong>WebFA 会话监控</strong>
+          <span>Shopping Agent · session_01 · Agent Shopping</span>
+        </div>
+      </div>
+
+      <div class="session-status"><span class="dot"></span><span id="sessionStatusText">Agent 正在操作</span><span>·</span><span>租约剩余 18 分钟</span></div>
+
+      <div class="top-actions">
+        <button class="btn" onclick="window.open('UI1_CONTROL_CENTER_PREVIEW.html','_blank')">控制中心</button>
+        <button class="btn warning" id="pauseButton" onclick="togglePause()">暂停 Agent</button>
+        <button class="btn primary" onclick="openTakeover('用户主动接管当前页面')">接管页面</button>
+        <button class="btn icon" onclick="notify('监控窗口已最小化到托盘')">—</button>
+      </div>
+    </header>
+
+    <div class="layout" id="sessionLayout">
+      <button class="sidebar-restore left-restore" id="leftRestore" title="展开左侧栏" aria-label="展开左侧栏" onclick="toggleSidebar('left', false)">›</button>
+      <button class="sidebar-restore right-restore" id="rightRestore" title="展开右侧栏" aria-label="展开右侧栏" onclick="toggleSidebar('right', false)">‹</button>
+
+      <aside class="column left">
+        <div class="column-head"><span class="column-title">会话上下文</span><div style="display:flex;align-items:center;gap:6px"><span class="status ok">实时</span><button class="sidebar-toggle" title="收起左侧栏" aria-label="收起左侧栏" onclick="toggleSidebar('left', true)">‹</button></div></div>
+        <div class="column-body">
+          <section class="block">
+            <div class="block-head"><span class="block-title">Agent</span><span class="status ok">MCP 已连接</span></div>
+            <div class="block-body">
+              <div class="agent-row"><div class="agent-avatar">S</div><div class="agent-copy"><strong>Shopping Agent</strong><span>agent-shopping-01 · Codex</span></div></div>
+              <div class="key-list" style="margin-top:11px"><div class="key-row"><span>信任模式</span><span>trusted_agent</span></div><div class="key-row"><span>当前租约</span><span>18 分钟</span></div><div class="key-row"><span>最后动作</span><span>4 秒前</span></div></div>
+            </div>
+          </section>
+
+          <section class="block">
+            <div class="block-head"><span class="block-title">当前任务</span><span class="status blue">执行中</span></div>
+            <div class="block-body">
+              <div class="task-title">购买 A 商品并完成支付</div>
+              <div class="task-sub">用户已授权购买和付款。商品数量 1，最高金额 CNY 300.00。</div>
+              <div class="key-list" style="margin-top:11px"><div class="key-row"><span>商品</span><span>A 商品 · 256 GB · 黑色</span></div><div class="key-row"><span>授权金额</span><span>CNY 300.00</span></div><div class="key-row"><span>周期性付款</span><span>不允许</span></div><div class="key-row"><span>授权来源</span><span>当前用户任务</span></div></div>
+            </div>
+          </section>
+
+          <section class="block">
+            <div class="block-head"><span class="block-title">身份</span><button class="btn small" onclick="notify('Profile 详情已展开')">详情</button></div>
+            <div class="block-body"><div class="key-list"><div class="key-row"><span>Profile</span><span>Agent Shopping</span></div><div class="key-row"><span>所有者</span><span>Agent-owned</span></div><div class="key-row"><span>当前网站账号</span><span>shopping-agent@example</span></div><div class="key-row"><span>金融策略</span><span>Personal Shopping</span></div></div></div>
+          </section>
+
+          <section class="block">
+            <div class="block-head"><span class="block-title">标签页</span><span class="status off">3</span></div>
+            <div class="block-body tab-list">
+              <div class="tab-item"><span class="tab-dot"></span><div class="tab-copy"><strong>A 商品详情</strong><span>shop.example.com/product/a</span></div><span class="tab-index">1</span></div>
+              <div class="tab-item"><span class="tab-dot"></span><div class="tab-copy"><strong>购物车</strong><span>shop.example.com/cart</span></div><span class="tab-index">2</span></div>
+              <div class="tab-item active"><span class="tab-dot"></span><div class="tab-copy"><strong>确认订单</strong><span>shop.example.com/checkout</span></div><span class="tab-index">3</span></div>
+            </div>
+          </section>
+
+          <section class="block">
+            <div class="block-head"><span class="block-title">任务进度</span><span class="status blue">3 / 4</span></div>
+            <div class="block-body progress-list">
+              <div class="progress-item done"><span class="progress-mark">✓</span><span>已找到目标商品</span></div>
+              <div class="progress-item done"><span class="progress-mark">✓</span><span>已确认规格与数量</span></div>
+              <div class="progress-item current"><span class="progress-mark">3</span><span>正在确认订单与支付范围</span></div>
+              <div class="progress-item"><span class="progress-mark">4</span><span>等待订单结果</span></div>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <main class="column center">
+        <div class="column-head">
+          <span class="column-title">实时页面</span>
+          <div style="display:flex;gap:6px"><span class="status ok">连接正常</span><button class="btn small" onclick="notify('页面画面已刷新')">刷新画面</button></div>
+        </div>
+
+        <div class="browser-shell">
+          <div class="browser-top">
+            <div class="traffic"><span></span><span></span><span></span></div>
+            <div class="url-bar"><span class="url-lock">●</span><span class="url-text">https://shop.example.com/checkout</span></div>
+            <div class="browser-meta"><span>确认订单</span><span>·</span><span>刚刚更新</span></div>
+          </div>
+
+          <div class="browser-view">
+            <div class="mock-page">
+              <div class="shop-header"><div class="shop-logo">EXAMPLE SHOP</div><span>安全结账 · 订单 #A1024</span></div>
+              <div class="checkout">
+                <section class="web-card">
+                  <h2>确认订单</h2><div class="web-muted">请检查商品、地址和支付方式</div>
+                  <div class="product"><div class="product-img"></div><div><div class="product-name">A 商品 · 高性能便携设备</div><div class="product-options">256 GB · 黑色 · 数量 1</div></div><div class="product-price">¥279.00</div></div>
+                  <div style="margin-top:14px"><h3>支付方式</h3><div class="payment-method"><div class="payment-left"><div class="card-mark">VISA</div><div class="payment-copy"><strong>Visa 尾号 4821</strong><span>商户已保存支付方式</span></div></div><div class="check">✓</div></div></div>
+                </section>
+                <aside class="web-card"><h3>订单摘要</h3><div class="summary-list"><div class="summary-row"><span>商品</span><span>¥279.00</span></div><div class="summary-row"><span>配送</span><span>¥0.00</span></div><div class="summary-row"><span>优惠</span><span>-¥0.00</span></div><div class="summary-row total"><span>应付总额</span><span>¥279.00</span></div></div><button class="place-order">提交订单并支付</button><div class="order-note">点击后将产生真实资金承诺</div></aside>
+              </div>
+            </div>
+            <div class="cursor"></div>
+
+            <div class="takeover-overlay" id="takeoverOverlay">
+              <div class="takeover-banner"><div><strong>Agent 已暂停，当前由用户操作</strong><span id="takeoverReason">网站要求完成身份验证</span></div><span class="status warn">Human Takeover</span></div>
+              <div class="takeover-body">
+                <div class="takeover-card">
+                  <div class="takeover-card-head"><h2>完成安全验证</h2><p>请在页面中输入验证码。密码、验证码和支付验证内容不会返回 Agent。</p></div>
+                  <div class="auth-page"><div class="auth-form"><h3>验证您的身份</h3><p>我们已向绑定设备发送 6 位验证码。</p><input class="auth-input" placeholder="输入验证码" maxlength="6" /><button class="auth-button" onclick="notify('验证已完成，可以归还给 Agent')">验证</button></div></div>
+                  <div class="takeover-actions"><button class="btn" onclick="closeTakeover()">取消接管</button><button class="btn primary" onclick="completeTakeover()">完成并归还给 Agent</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="monitor-strip"><div class="monitor-strip-left"><span>画面模式：实时监控</span><span>文档状态：稳定</span><span>标签页：3 / 3</span></div><div class="monitor-strip-right"><span>最近动作：选择支付方式</span><span>延迟 182 ms</span></div></div>
+        </div>
+      </main>
+
+      <aside class="column right">
+        <div class="column-head"><span class="column-title">活动与安全</span><div style="display:flex;align-items:center;gap:6px"><button class="btn small" onclick="notify('右栏已切换到最新状态')">最新</button><button class="sidebar-toggle" title="收起右侧栏" aria-label="收起右侧栏" onclick="toggleSidebar('right', true)">›</button></div></div>
+        <div class="column-body">
+          <section class="attention-card" id="stepupCard">
+            <h3>需要处理：支付范围升级</h3>
+            <p>演示状态：订单金额高于自主额度。实际当前页面金额为 CNY 279.00，点击下方按钮可体验审批交互。</p>
+            <div class="scope-box"><div class="scope-row"><span>当前自主额度</span><span>CNY 300.00</span></div><div class="scope-row"><span>请求金额</span><span>CNY 329.00</span></div><div class="scope-row"><span>支付工具</span><span>Visa •••• 4821</span></div><div class="scope-row"><span>范围</span><span>仅本次订单</span></div></div>
+            <div class="attention-actions"><button class="btn primary small" onclick="approveStepup()">仅批准本次</button><button class="btn danger small" onclick="rejectStepup()">拒绝</button></div>
+          </section>
+
+          <section class="block">
+            <div class="block-head"><span class="block-title">实时活动</span><span class="status blue">6 条</span></div>
+            <div class="block-body activity-list">
+              <div class="activity-item"><span class="time">14:32:29</span><span class="activity-dot warn"></span><div class="activity-copy"><strong>最终提交等待范围确认</strong><span>Runtime 观察到订单总额并暂停提交。</span></div></div>
+              <div class="activity-item"><span class="time">14:32:25</span><span class="activity-dot ok"></span><div class="activity-copy"><strong>已选择 Visa •••• 4821</strong><span>支付方式已选择，但尚未产生资金承诺。</span></div></div>
+              <div class="activity-item"><span class="time">14:32:23</span><span class="activity-dot"></span><div class="activity-copy"><strong>观察到应付总额 CNY 279.00</strong><span>证据等级：runtime_observed。</span></div></div>
+              <div class="activity-item"><span class="time">14:32:17</span><span class="activity-dot ok"></span><div class="activity-copy"><strong>商品已加入购物车</strong><span>A 商品 · 256 GB · 黑色 · 数量 1。</span></div></div>
+              <div class="activity-item"><span class="time">14:32:11</span><span class="activity-dot"></span><div class="activity-copy"><strong>规格已确认</strong><span>价格与用户授权范围一致。</span></div></div>
+              <div class="activity-item"><span class="time">14:32:08</span><span class="activity-dot"></span><div class="activity-copy"><strong>打开商品页面</strong><span>shop.example.com/product/a</span></div></div>
+            </div>
+          </section>
+
+          <section class="block">
+            <div class="block-head"><span class="block-title">当前安全状态</span><span class="status ok">有效</span></div>
+            <div class="block-body safety-grid"><div class="safety-row"><span>身份</span><span>Agent-owned</span></div><div class="safety-row"><span>购买授权</span><span>明确授权</span></div><div class="safety-row"><span>资金范围</span><span>CNY 279 / 300</span></div><div class="safety-row"><span>周期性付款</span><span>不允许</span></div><div class="safety-row"><span>本地文件</span><span>无</span></div><div class="safety-row"><span>Origin</span><span>shop.example.com</span></div></div>
+            <details><summary>开发者详情</summary><div class="developer"><div class="code-row"><span>context_id</span><span>sctx_72...a1</span></div><div class="code-row"><span>document_id</span><span>doc_94...e3</span></div><div class="code-row"><span>document_revision</span><span>17</span></div><div class="code-row"><span>active_dimensions</span><span>identity_context, financial_commitment</span></div><div class="code-row"><span>decision</span><span>require_step_up</span></div><div class="code-row"><span>receipt</span><span>receipt_31...f9</span></div></div></details>
+          </section>
+
+          <section class="block">
+            <div class="block-head"><span class="block-title">会话操作</span></div>
+            <div class="block-body" style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><button class="btn small" onclick="togglePause()">暂停 / 继续</button><button class="btn small" onclick="openTakeover('用户主动接管当前页面')">接管页面</button><button class="btn small" onclick="notify('已请求 Agent 重新观察页面')">重新观察</button><button class="btn danger small" onclick="notify('已请求停止当前任务，但会话仍保留')">停止任务</button></div>
+          </section>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    let paused = false;
+    let toastTimer;
+    const sidebarState = {
+      left: localStorage.getItem('webfa-monitor-left-collapsed') === '1',
+      right: localStorage.getItem('webfa-monitor-right-collapsed') === '1'
+    };
+
+    function applySidebarState() {
+      const layout = document.getElementById('sessionLayout');
+      layout.classList.toggle('left-collapsed', sidebarState.left);
+      layout.classList.toggle('right-collapsed', sidebarState.right);
+      localStorage.setItem('webfa-monitor-left-collapsed', sidebarState.left ? '1' : '0');
+      localStorage.setItem('webfa-monitor-right-collapsed', sidebarState.right ? '1' : '0');
+    }
+
+    function toggleSidebar(side, collapsed) {
+      sidebarState[side] = typeof collapsed === 'boolean' ? collapsed : !sidebarState[side];
+      applySidebarState();
+      notify(`${side === 'left' ? '左侧会话栏' : '右侧活动栏'}${sidebarState[side] ? '已收起' : '已展开'}`);
+    }
+
+    function notify(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2300);
+    }
+
+    function togglePause() {
+      paused = !paused;
+      document.getElementById('app').classList.toggle('paused', paused);
+      document.getElementById('sessionStatusText').textContent = paused ? 'Agent 已暂停' : 'Agent 正在操作';
+      document.getElementById('pauseButton').textContent = paused ? '继续 Agent' : '暂停 Agent';
+      notify(paused ? 'Agent 已暂停，页面保持当前状态' : 'Agent 已继续执行当前任务');
+    }
+
+    function openTakeover(reason) {
+      if (!paused) togglePause();
+      document.getElementById('takeoverReason').textContent = reason;
+      document.getElementById('takeoverOverlay').classList.add('show');
+    }
+
+    function closeTakeover() {
+      document.getElementById('takeoverOverlay').classList.remove('show');
+      notify('人工接管已关闭，Agent 仍保持暂停');
+    }
+
+    function completeTakeover() {
+      document.getElementById('takeoverOverlay').classList.remove('show');
+      paused = false;
+      document.getElementById('app').classList.remove('paused');
+      document.getElementById('sessionStatusText').textContent = 'Agent 正在操作';
+      document.getElementById('pauseButton').textContent = '暂停 Agent';
+      notify('页面已归还给 Agent，敏感输入不会进入 Agent 状态');
+    }
+
+    function approveStepup() {
+      const card = document.getElementById('stepupCard');
+      card.innerHTML = '<h3 style="color:var(--success)">已批准本次范围升级</h3><p style="color:#4c7968">审批只绑定当前订单、金额、支付工具、页面和语义操作。Agent 可重试一次。</p><div class="scope-box" style="border-color:#bfe7d7"><div class="scope-row"><span>状态</span><span>等待 Agent 重试</span></div><div class="scope-row"><span>使用次数</span><span>1</span></div></div>';
+      card.style.background = 'var(--success-soft)';
+      card.style.borderColor = '#bfe7d7';
+      notify('已批准精确范围，未修改长期金融额度');
+    }
+
+    function rejectStepup() {
+      const card = document.getElementById('stepupCard');
+      card.innerHTML = '<h3 style="color:var(--danger)">本次范围升级已拒绝</h3><p style="color:#8b5555">最终提交不会执行。Agent 将收到拒绝结果，但不会看到人类审批备注。</p>';
+      card.style.background = 'var(--danger-soft)';
+      card.style.borderColor = '#efc4c4';
+      notify('已拒绝本次范围升级');
+    }
+
+    document.querySelectorAll('.tab-item').forEach(item => item.addEventListener('click', () => {
+      document.querySelectorAll('.tab-item').forEach(tab => tab.classList.remove('active'));
+      item.classList.add('active');
+      notify(`已切换监控标签页：${item.querySelector('strong').textContent}`);
+    }));
+
+    applySidebarState();
+
+    if (location.hash === '#stepup') {
+      setTimeout(() => document.getElementById('stepupCard').scrollIntoView({ behavior: 'smooth', block: 'center' }), 250);
+    }
+  </script>
+</body>
+</html>

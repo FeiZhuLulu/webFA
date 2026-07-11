@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from browser.exceptions import BrowserHostClosedError
+from browser.visual_surface import HostVisualFrame, HostVisualStreamState, VisualStreamConfig
 from schemas.browser import BrowserTab
 from storage.file_store import ensure_webfa_data_dir
 
@@ -20,6 +25,26 @@ class PendingJavaScriptDialog:
     dialog_type: str
     message: str
     default_value: str = ""
+
+
+@dataclass
+class _ScreencastRuntimeState:
+    backend_stream_id: str
+    lifecycle: str = "starting"
+    visible: bool = True
+    frames_received: int = 0
+    frames_dropped: int = 0
+    last_error: str | None = None
+
+    def snapshot(self) -> HostVisualStreamState:
+        return HostVisualStreamState(
+            backend_stream_id=self.backend_stream_id,
+            lifecycle=self.lifecycle,  # type: ignore[arg-type]
+            visible=self.visible,
+            frames_received=self.frames_received,
+            frames_dropped=self.frames_dropped,
+            last_error=self.last_error,
+        )
 
 
 class ManagedChromiumHost:
@@ -36,6 +61,11 @@ class ManagedChromiumHost:
         self._profile_dir: Path | None = None
         self._pending_dialog: PendingJavaScriptDialog | None = None
         self._handling_dialog: bool = False
+        self._screencast_lock = threading.RLock()
+        self._screencast_thread: threading.Thread | None = None
+        self._screencast_stop: threading.Event | None = None
+        self._screencast_started: threading.Event | None = None
+        self._screencast_state: _ScreencastRuntimeState | None = None
 
     def navigate(self, url: str) -> None:
         client = self._ensure_page_client()
@@ -239,6 +269,18 @@ class ManagedChromiumHost:
         return tabs
 
     def close(self) -> None:
+        with self._screencast_lock:
+            active_stream_id = (
+                self._screencast_state.backend_stream_id
+                if self._screencast_state is not None
+                and self._screencast_state.lifecycle in {"starting", "running"}
+                else None
+            )
+        if active_stream_id is not None:
+            try:
+                self.stop_screencast(active_stream_id)
+            except Exception:
+                pass
         if self._page_client is not None:
             try:
                 self._page_client.close()
@@ -264,6 +306,90 @@ class ManagedChromiumHost:
         self._headless = False
         self.navigate(url)
 
+    def start_screencast(
+        self,
+        config: VisualStreamConfig,
+        frame_sink: Callable[[HostVisualFrame], None],
+    ) -> str:
+        if not callable(frame_sink):
+            raise TypeError("frame_sink must be callable")
+        self._ensure_page_client()
+        target = self._current_page_target()
+        backend_stream_id = f"cdpcast_{uuid4().hex}"
+        stop_event = threading.Event()
+        started_event = threading.Event()
+        state = _ScreencastRuntimeState(backend_stream_id=backend_stream_id)
+
+        with self._screencast_lock:
+            if self._screencast_state is not None and self._screencast_state.lifecycle in {"starting", "running"}:
+                raise RuntimeError("managed chromium screencast is already running")
+            self._screencast_state = state
+            self._screencast_stop = stop_event
+            self._screencast_started = started_event
+            self._screencast_thread = threading.Thread(
+                target=self._run_screencast,
+                args=(
+                    target["webSocketDebuggerUrl"],
+                    str(target.get("id") or self._page_target_id or ""),
+                    config,
+                    frame_sink,
+                    stop_event,
+                    started_event,
+                    state,
+                ),
+                name=f"webfa-cdp-screencast-{backend_stream_id[-8:]}",
+                daemon=True,
+            )
+            self._screencast_thread.start()
+
+        if not started_event.wait(timeout=5):
+            stop_event.set()
+            thread = self._screencast_thread
+            if thread is not None:
+                thread.join(timeout=2)
+            with self._screencast_lock:
+                state.lifecycle = "failed"
+                state.last_error = "managed chromium screencast did not start"
+            raise RuntimeError("managed chromium screencast did not start")
+        with self._screencast_lock:
+            current = self._screencast_state
+            if current is None or current.backend_stream_id != backend_stream_id:
+                raise RuntimeError("managed chromium screencast state was lost")
+            if current.lifecycle == "failed":
+                raise RuntimeError(current.last_error or "managed chromium screencast failed")
+        return backend_stream_id
+
+    def stop_screencast(self, backend_stream_id: str) -> HostVisualStreamState:
+        with self._screencast_lock:
+            state = self._screencast_state
+            thread = self._screencast_thread
+            stop_event = self._screencast_stop
+            if state is None or state.backend_stream_id != backend_stream_id:
+                raise KeyError(f"managed chromium screencast not found: {backend_stream_id}")
+            if stop_event is not None:
+                stop_event.set()
+        if thread is not None and threading.current_thread() is not thread:
+            thread.join(timeout=5)
+        with self._screencast_lock:
+            state = self._screencast_state
+            if state is None:
+                raise RuntimeError("managed chromium screencast state was lost")
+            if thread is not None and thread.is_alive():
+                state.lifecycle = "failed"
+                state.last_error = "managed chromium screencast thread did not stop"
+            elif state.lifecycle in {"starting", "running"}:
+                state.lifecycle = "stopped"
+            return state.snapshot()
+
+    def screencast_status(self, backend_stream_id: str | None = None) -> HostVisualStreamState | None:
+        with self._screencast_lock:
+            state = self._screencast_state
+            if state is None:
+                return None
+            if backend_stream_id is not None and state.backend_stream_id != backend_stream_id:
+                return None
+            return state.snapshot()
+
     def capture_screenshot(self) -> str | None:
         if not self._process_is_running():
             return None
@@ -278,6 +404,7 @@ class ManagedChromiumHost:
         status = "running" if self._process_is_running() else "not_started"
         if self._process is not None and self._process.poll() is not None:
             status = "exited"
+        screencast = self.screencast_status()
         return {
             "host_status": status,
             "headless": self._headless,
@@ -286,7 +413,107 @@ class ManagedChromiumHost:
             "executable_name": executable_name,
             "profile_id": "default",
             "last_error": self._last_error,
+            "visual_stream_status": screencast.lifecycle if screencast is not None else "stopped",
+            "visual_frames_received": screencast.frames_received if screencast is not None else 0,
         }
+
+    def _run_screencast(
+        self,
+        websocket_url: str,
+        target_id: str,
+        config: VisualStreamConfig,
+        frame_sink: Callable[[HostVisualFrame], None],
+        stop_event: threading.Event,
+        started_event: threading.Event,
+        state: _ScreencastRuntimeState,
+    ) -> None:
+        client: _CDPClient | None = None
+        if config.format == "webp":
+            with self._screencast_lock:
+                state.lifecycle = "failed"
+                state.last_error = "CDP Page.startScreencast supports jpeg or png, not webp"
+            started_event.set()
+            return
+
+        def handle_event(method: str, params: dict[str, Any]) -> None:
+            if method == "Page.screencastVisibilityChanged":
+                with self._screencast_lock:
+                    state.visible = bool(params.get("visible", True))
+                return
+            if method != "Page.screencastFrame":
+                return
+            session_id = params.get("sessionId")
+            try:
+                encoded = params.get("data")
+                metadata = params.get("metadata") or {}
+                if not isinstance(encoded, str) or not encoded:
+                    raise ValueError("screencast frame did not contain image data")
+                frame = HostVisualFrame(
+                    data=base64.b64decode(encoded, validate=True),
+                    format=config.format,
+                    width=max(1, int(metadata.get("deviceWidth") or config.max_width)),
+                    height=max(1, int(metadata.get("deviceHeight") or config.max_height)),
+                    device_scale_factor=float(metadata.get("pageScaleFactor") or 1.0),
+                    scroll_offset_x=float(metadata.get("scrollOffsetX") or 0.0),
+                    scroll_offset_y=float(metadata.get("scrollOffsetY") or 0.0),
+                    captured_at=datetime_from_cdp_timestamp(metadata.get("timestamp")),
+                    host_target_id=target_id or None,
+                    host_frame_id=None,
+                )
+                with self._screencast_lock:
+                    state.frames_received += 1
+                try:
+                    frame_sink(frame)
+                except Exception:
+                    with self._screencast_lock:
+                        state.frames_dropped += 1
+            except Exception as exc:
+                with self._screencast_lock:
+                    state.frames_dropped += 1
+                    state.last_error = str(exc)
+            finally:
+                if client is not None and isinstance(session_id, int):
+                    try:
+                        client.send("Page.screencastFrameAck", {"sessionId": session_id})
+                    except Exception:
+                        pass
+
+        try:
+            client = _CDPClient(websocket_url, event_handler=handle_event)
+            client.call("Page.enable")
+            client.call(
+                "Page.startScreencast",
+                {
+                    "format": config.format,
+                    "quality": config.quality,
+                    "maxWidth": config.max_width,
+                    "maxHeight": config.max_height,
+                    "everyNthFrame": config.every_nth_frame,
+                },
+            )
+            with self._screencast_lock:
+                state.lifecycle = "running"
+                state.last_error = None
+            started_event.set()
+            while not stop_event.is_set():
+                if not client.pump_events(0.1):
+                    raise RuntimeError("managed chromium screencast connection closed")
+        except Exception as exc:
+            with self._screencast_lock:
+                state.lifecycle = "failed"
+                state.last_error = str(exc)
+            started_event.set()
+        finally:
+            if client is not None:
+                try:
+                    client.call("Page.stopScreencast")
+                except Exception:
+                    pass
+                client.close()
+            with self._screencast_lock:
+                if state.lifecycle != "failed":
+                    state.lifecycle = "stopped"
+            started_event.set()
 
     def _ensure_page_client(self) -> "_CDPClient":
         self._ensure_started()
@@ -381,6 +608,16 @@ class ManagedChromiumHost:
                     pass
             time.sleep(0.05)
         raise RuntimeError("managed chromium DevTools port was not created")
+
+    def _current_page_target(self) -> dict[str, Any]:
+        pages = [target for target in self._http_json("/json/list") if target.get("type") == "page"]
+        if self._page_target_id is not None:
+            for target in pages:
+                if target.get("id") == self._page_target_id:
+                    return target
+        if pages:
+            return pages[0]
+        raise RuntimeError("managed chromium page target was not created")
 
     def _first_page_target(self) -> dict[str, Any]:
         deadline = time.monotonic() + 10
@@ -481,6 +718,14 @@ class _CDPClient:
                 raise
         raise last_error or RuntimeError(f"CDP call failed: {method}")
 
+    def send(self, method: str, params: dict[str, Any] | None = None) -> int:
+        if self._ws is None:
+            self._connect()
+        message_id = self._next_id
+        self._next_id += 1
+        self._ws.send(json.dumps({"id": message_id, "method": method, "params": params or {}}))
+        return message_id
+
     def close(self) -> None:
         if self._ws is not None:
             try:
@@ -489,17 +734,17 @@ class _CDPClient:
                 pass
         self._ws = None
 
-    def pump_events(self, timeout: float) -> None:
+    def pump_events(self, timeout: float) -> bool:
         if self._ws is None:
-            return
+            return False
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
                 raw = self._ws.recv(timeout=max(0.01, deadline - time.monotonic()))
             except TimeoutError:
-                return
+                return True
             except Exception:
-                return
+                return False
             message = json.loads(raw)
             if "method" not in message or message.get("id") is not None:
                 continue
@@ -507,6 +752,7 @@ class _CDPClient:
                 params = message.get("params")
                 if isinstance(params, dict):
                     self._event_handler(str(message["method"]), params)
+        return True
 
     def _connect(self) -> None:
         from websockets.sync.client import connect
@@ -537,6 +783,16 @@ class _CDPClient:
                 raise RuntimeError(message["error"].get("message", "CDP call failed"))
             return message.get("result", {})
         raise RuntimeError(f"CDP call timed out: {method}")
+
+
+def datetime_from_cdp_timestamp(value: object) -> datetime:
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        return datetime.now(timezone.utc)
+    if timestamp <= 0:
+        return datetime.now(timezone.utc)
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
 
 
 def _file_input_expression(element_id: str, frame_id: str | None) -> str:
