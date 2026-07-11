@@ -34,8 +34,15 @@ export default function VisualizerPage() {
   const [lastError, setLastError] = useState<string | null>(null);
 
   const browserState = visualizerState?.browser_state ?? null;
-  const authSurfaceActive = Boolean(visualizerState?.auth_surface?.active);
-  const authSurfaceUrl = visualizerState?.auth_surface?.url ?? visualizerState?.page.url ?? null;
+  const takeoverSurfaceActive = Boolean(
+    visualizerState?.takeover_surface?.active || visualizerState?.auth_surface?.active,
+  );
+  const takeoverSurfaceUrl =
+    visualizerState?.takeover_surface?.url ??
+    visualizerState?.auth_surface?.url ??
+    visualizerState?.page.url ??
+    null;
+  const takeoverReason = visualizerState?.takeover_surface?.reason ?? null;
   const hasElectronAuthSurface = typeof window !== "undefined" && Boolean(window.webfaDesktop?.showAuthSurface);
 
   useEffect(() => {
@@ -76,17 +83,18 @@ export default function VisualizerPage() {
   }, []);
 
   const copyJson = useCallback(async () => {
-    if (!browserState) {
-      setToast("尚无 BrowserState 可复制");
+    const stateToCopy = visualizerState?.web_state ?? browserState;
+    if (!stateToCopy) {
+      setToast("尚无 Agent State 可复制");
       return;
     }
     try {
-      await navigator.clipboard.writeText(JSON.stringify(browserState, null, 2));
-      setToast("BrowserState JSON 已复制");
+      await navigator.clipboard.writeText(JSON.stringify(stateToCopy, null, 2));
+      setToast(`${visualizerState?.web_state ? "WebState" : "BrowserState"} JSON 已复制`);
     } catch {
       setToast("复制失败");
     }
-  }, [browserState]);
+  }, [browserState, visualizerState?.web_state]);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,15 +146,21 @@ export default function VisualizerPage() {
     if (!hasElectronAuthSurface || !visualizerState) {
       return;
     }
-    if (visualizerState.page.auth.user_action_required && !authSurfaceActive) {
+    if (visualizerState.page.auth.user_action_required && !takeoverSurfaceActive) {
       void runControl(() => openAuthSurface(apiUrlRef.current, visualizerState.page.url || null));
     }
-  }, [hasElectronAuthSurface, visualizerState?.page.auth.user_action_required, authSurfaceActive, runControl, visualizerState]);
+  }, [
+    hasElectronAuthSurface,
+    visualizerState?.page.auth.user_action_required,
+    takeoverSurfaceActive,
+    runControl,
+    visualizerState,
+  ]);
 
-  const completeAuth = useCallback(async () => {
+  const completeTakeover = useCallback(async () => {
     const surfaceStatus = await window.webfaDesktop?.destroyAuthSurface();
-    await runControl(() => closeAuthSurface(apiUrlRef.current, surfaceStatus?.url ?? authSurfaceUrl));
-  }, [authSurfaceUrl, runControl]);
+    await runControl(() => closeAuthSurface(apiUrlRef.current, surfaceStatus?.url ?? takeoverSurfaceUrl));
+  }, [takeoverSurfaceUrl, runControl]);
 
   const header = useMemo(
     () => (
@@ -220,9 +234,10 @@ export default function VisualizerPage() {
         main={
           <PagePreview
             state={visualizerState}
-            authSurfaceActive={authSurfaceActive && hasElectronAuthSurface}
-            authSurfaceUrl={authSurfaceUrl}
-            onCompleteAuth={hasElectronAuthSurface ? () => void completeAuth() : undefined}
+            takeoverSurfaceActive={takeoverSurfaceActive && hasElectronAuthSurface}
+            takeoverSurfaceUrl={takeoverSurfaceUrl}
+            takeoverReason={takeoverReason}
+            onCompleteTakeover={hasElectronAuthSurface ? () => void completeTakeover() : undefined}
           />
         }
         right={

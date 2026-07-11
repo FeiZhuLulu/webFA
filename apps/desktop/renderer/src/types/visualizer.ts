@@ -83,6 +83,49 @@ export type BrowserState = {
   error: BrowserStateError | null;
 };
 
+export type HumanTakeoverReason =
+  | "authentication"
+  | "captcha"
+  | "opaque_surface"
+  | "high_risk_confirmation"
+  | "permission_request"
+  | "file_selection"
+  | "ambiguous_state"
+  | "manual_identity_confirmation";
+
+export type HumanTakeoverState = {
+  required: boolean;
+  reason: HumanTakeoverReason | null;
+  target: string | null;
+  origin: string;
+  resume_operation: "observe";
+};
+
+export type WebObjectProjection = {
+  id: string;
+  projection: "summary" | "full";
+  category: string;
+  role: string;
+  name: string;
+  capabilities: string[];
+  version: number;
+  state_summary?: string[];
+  opaque_reason?: string | null;
+};
+
+export type WebState = {
+  session_id: string;
+  document_id: string;
+  document_revision: number;
+  url: string;
+  title: string;
+  status: "idle" | "loading" | "error";
+  objects: WebObjectProjection[];
+  object_count: number;
+  takeover: HumanTakeoverState;
+  auth: BrowserAuthState;
+};
+
 export type VisualizerActionEntry = {
   timestamp: string;
   tool: string;
@@ -115,6 +158,7 @@ export type VisualizerState = {
     auth: BrowserAuthState;
   };
   browser_state: BrowserState | null;
+  web_state: WebState | null;
   preview: {
     format: "png";
     data_url: string | null;
@@ -124,6 +168,14 @@ export type VisualizerState = {
     active: boolean;
     url: string | null;
     mode: "electron" | "legacy";
+  };
+  takeover_surface: {
+    active: boolean;
+    url: string | null;
+    mode: "electron" | "legacy";
+    reason: HumanTakeoverReason | null;
+    target: string | null;
+    origin: string;
   };
   recent_actions: VisualizerActionEntry[];
   errors: Array<{ code: string; message: string }>;

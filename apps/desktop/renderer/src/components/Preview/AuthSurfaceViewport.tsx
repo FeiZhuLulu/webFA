@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import type { HumanTakeoverReason } from "../../types/visualizer";
 
 type AuthSurfaceViewportProps = {
   active: boolean;
   url: string | null;
+  reason: HumanTakeoverReason | null;
 };
 
-export function AuthSurfaceViewport({ active, url }: AuthSurfaceViewportProps) {
+export function AuthSurfaceViewport({ active, url, reason }: AuthSurfaceViewportProps) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   const syncBounds = useCallback(async () => {
@@ -61,7 +63,9 @@ export function AuthSurfaceViewport({ active, url }: AuthSurfaceViewportProps) {
   return (
     <div ref={hostRef} className={`viz-auth-surface-host${active ? " active" : ""}`}>
       {active ? (
-        <div className="viz-auth-surface-label">WebFA 接管区 · 登录/扫码/验证码请在此完成</div>
+        <div className="viz-auth-surface-label">
+          WebFA 接管区 · {reason === "authentication" ? "登录/扫码/验证码请在此完成" : "请在此完成需要人工处理的页面步骤"}
+        </div>
       ) : (
         <div className="viz-auth-surface-placeholder" />
       )}

@@ -26,13 +26,13 @@ export function ControlPanel({
           {busy ? "刷新中…" : "刷新状态 Refresh State"}
         </button>
         <button type="button" className="viz-btn" onClick={onOpenAuthSurface} disabled={busy || hostActionsDisabled}>
-          打开接管区 Open Auth Surface
+          打开接管区 Open Takeover Surface
         </button>
         <button type="button" className="viz-btn viz-btn-warning" onClick={onRestartHost} disabled={busy || hostActionsDisabled}>
           重启宿主 Restart Host
         </button>
         <button type="button" className="viz-btn" onClick={onCopyJson}>
-          复制 BrowserState JSON
+          复制 Agent State JSON
         </button>
         {(onStartRuntime || onStopRuntime) && (
           <div className="viz-runtime-controls">

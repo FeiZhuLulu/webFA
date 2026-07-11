@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from schemas.browser import BrowserAuthState, BrowserState
+from schemas.web import TakeoverReason, WebState
 
 
 class VisualizerRuntimeInfo(BaseModel):
@@ -48,6 +49,17 @@ class VisualizerAuthSurface(BaseModel):
     mode: Literal["electron", "legacy"] = "electron"
 
 
+class VisualizerTakeoverSurface(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    active: bool = False
+    url: str | None = None
+    mode: Literal["electron", "legacy"] = "electron"
+    reason: TakeoverReason | None = None
+    target: str | None = None
+    origin: str = ""
+
+
 class VisualizerPreview(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -82,7 +94,9 @@ class VisualizerState(BaseModel):
     profile: VisualizerProfileInfo = VisualizerProfileInfo()
     page: VisualizerPageInfo = VisualizerPageInfo()
     browser_state: BrowserState | None = None
+    web_state: WebState | None = None
     preview: VisualizerPreview = VisualizerPreview()
     auth_surface: VisualizerAuthSurface = VisualizerAuthSurface()
+    takeover_surface: VisualizerTakeoverSurface = VisualizerTakeoverSurface()
     recent_actions: list[VisualizerActionEntry] = Field(default_factory=list)
     errors: list[VisualizerError] = Field(default_factory=list)

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>WebFA Opaque Surface</title>
+  <style>
+    body { font-family: sans-serif; margin: 24px; }
+    canvas { display: block; width: 720px; height: 420px; border: 1px solid #555; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Diagram editor</h1>
+    <p>The workspace below is intentionally rendered into a canvas.</p>
+    <canvas id="diagram-workspace" aria-label="Diagram workspace" width="720" height="420"></canvas>
+  </main>
+  <script>
+    const canvas = document.getElementById("diagram-workspace");
+    const context = canvas.getContext("2d");
+    context.fillRect(30, 30, 140, 80);
+    context.fillText("Node A", 70, 75);
+  </script>
+</body>
+</html>

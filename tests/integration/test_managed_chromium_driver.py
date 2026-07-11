@@ -16,6 +16,7 @@ from storage.db import reset_engine_for_tests
 
 
 FIXTURE_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "agent_validation_page.html"
+OPAQUE_FIXTURE_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "opaque_surface_page.html"
 STRUCTURED_READING_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "structured_reading_page.html"
 
 
@@ -216,6 +217,25 @@ def test_browser_runtime_internal_queryable_observe_coexists_with_legacy_state(m
         assert changes.state.agent.active_agent_id == "p10-test"
     finally:
         runtime.close()
+
+
+def test_managed_chromium_compiles_canvas_as_opaque_surface(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    host = ManagedChromiumHost(headless=True)
+    driver = HostBrowserDriver(host)
+    try:
+        driver.open(OPAQUE_FIXTURE_PAGE.as_uri())
+        compilation = WebObjectCompiler().compile(driver.observe_web_raw())
+        opaque = next(item for item in compilation.state.objects if item.role == "opaque_surface")
+
+        assert opaque.name == "Diagram workspace"
+        assert opaque.opaque_reason == "canvas_without_semantic_objects"
+        assert opaque.capabilities == ["request_human_takeover"]
+        assert opaque.state.visible is True
+    finally:
+        driver.close()
 
 
 def test_managed_chromium_open_observe_act_loop(monkeypatch, tmp_path: Path):

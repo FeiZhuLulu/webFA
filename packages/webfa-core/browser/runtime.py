@@ -38,6 +38,7 @@ from schemas.browser import (
 )
 from schemas.web import (
     HumanTakeoverState,
+    TakeoverReason,
     WebObserveRequest,
     WebOperationRequest,
     WebOperationResult,
@@ -219,6 +220,9 @@ class _BrowserWorker:
         self._private_url_policy = private_url_policy
         self._auth_surface_active = False
         self._auth_surface_url: str | None = None
+        self._takeover_reason: TakeoverReason | None = None
+        self._takeover_target: str | None = None
+        self._takeover_origin: str = ""
 
     def run(self, jobs: queue.Queue) -> None:
         handlers: dict[str, Callable[..., Any]] = {
@@ -251,8 +255,7 @@ class _BrowserWorker:
                 result.put((False, exc))
 
     def open(self, url: str) -> BrowserActionResult:
-        self._auth_surface_active = False
-        self._auth_surface_url = None
+        self._clear_takeover()
         enforce_navigation_allowed(url, policy=self._private_url_policy)  # type: ignore[arg-type]
         if self._host_is_exited():
             self._session.reset()
@@ -273,20 +276,22 @@ class _BrowserWorker:
             raise WebObserveDebugForbiddenError("debug observe is local-only")
         if self._auth_surface_active:
             if request.mode == "changes":
-                raise WebObserveUnavailableError("changes are unavailable while auth takeover is active")
+                raise WebObserveUnavailableError("changes are unavailable while human takeover is active")
             legacy = self._auth_surface_state()
+            reason = self._takeover_reason or "authentication"
             return WebObserveResult(
                 state=WebState(
                     session_id=legacy.session_id,
-                    document_id="auth_surface",
+                    document_id="human_takeover",
                     document_revision=self._object_registry.current_revision,
                     url=legacy.url,
                     title=legacy.title,
                     auth=legacy.auth,
                     takeover=HumanTakeoverState(
                         required=True,
-                        reason="authentication",
-                        origin="",
+                        reason=reason,
+                        target=self._takeover_target,
+                        origin=self._takeover_origin,
                     ),
                 )
             )
@@ -382,14 +387,21 @@ class _BrowserWorker:
         self._session.close()
 
     def status(self) -> dict[str, Any]:
+        takeover = {
+            "takeover_active": self._auth_surface_active,
+            "takeover_reason": self._takeover_reason,
+            "takeover_target": self._takeover_target,
+            "takeover_origin": self._takeover_origin,
+            "takeover_url": self._auth_surface_url,
+        }
         if self._session.driver is None:
-            return {"host_status": "not_started"}
+            return {"host_status": "not_started", **takeover}
         driver = self._session.driver
         if hasattr(driver, "status"):
             status = driver.status()
             if isinstance(status, dict):
-                return status
-        return {"host_status": "running"}
+                return {**status, **takeover}
+        return {"host_status": "running", **takeover}
 
     def capture_preview(self) -> str | None:
         if self._session.driver is None:
@@ -401,8 +413,7 @@ class _BrowserWorker:
         return capture()
 
     def restart_host(self) -> BrowserState:
-        self._auth_surface_active = False
-        self._auth_surface_url = None
+        self._clear_takeover()
         url = self._current_url_or_blank()
         self._session.reset()
         driver = self._ensure_driver()
@@ -415,14 +426,17 @@ class _BrowserWorker:
     def open_auth_surface(self, url: str | None = None) -> BrowserState:
         target_url = (url or "").strip() or self._current_url_or_blank()
         self._session.reset()
-        self._auth_surface_active = True
-        self._auth_surface_url = target_url
+        self._set_takeover(
+            reason="authentication",
+            url=target_url,
+            target=None,
+            origin="",
+        )
         return self._auth_surface_state(target_url)
 
     def close_auth_surface(self, url: str | None = None) -> BrowserState:
         target_url = (url or "").strip() or self._auth_surface_url or "about:blank"
-        self._auth_surface_active = False
-        self._auth_surface_url = None
+        self._clear_takeover()
         self._session.reset()
         if not target_url or target_url == "about:blank":
             return BrowserState()
@@ -431,17 +445,40 @@ class _BrowserWorker:
         return self._state_after_navigation(driver)
 
     def _auth_surface_state(self, url: str | None = None) -> BrowserState:
+        reason = self._takeover_reason or "authentication"
+        is_auth = reason == "authentication"
         return BrowserState(
             session_id=self._session.session_id,
             url=url or self._auth_surface_url or "about:blank",
-            title="WebFA Auth Surface",
+            title="WebFA Auth Surface" if is_auth else "WebFA Human Takeover",
             auth=BrowserAuthState(
-                surface_detected=True,
-                takeover="auth_surface",
-                reason=["auth_surface_requested"],
+                surface_detected=is_auth,
+                takeover="auth_surface" if is_auth else "none",
+                reason=["auth_surface_requested"] if is_auth else [],
                 user_action_required=True,
             ),
         )
+
+    def _set_takeover(
+        self,
+        *,
+        reason: TakeoverReason,
+        url: str,
+        target: str | None,
+        origin: str,
+    ) -> None:
+        self._auth_surface_active = True
+        self._auth_surface_url = url
+        self._takeover_reason = reason
+        self._takeover_target = target
+        self._takeover_origin = origin
+
+    def _clear_takeover(self) -> None:
+        self._auth_surface_active = False
+        self._auth_surface_url = None
+        self._takeover_reason = None
+        self._takeover_target = None
+        self._takeover_origin = ""
 
     def _current_url_or_blank(self) -> str:
         if self._session.driver is None:
@@ -489,8 +526,12 @@ class _BrowserWorker:
         current = self._object_registry.current_state() or WebState(session_id=self._session.session_id)
         target_url = current.url or "about:blank"
         self._session.reset()
-        self._auth_surface_active = True
-        self._auth_surface_url = target_url
+        self._set_takeover(
+            reason=plan.takeover_reason,
+            url=target_url,
+            target=plan.target.id,
+            origin=plan.target.origin,
+        )
         state = current.model_copy(deep=True)
         state.document_id = "human_takeover"
         state.title = "WebFA Human Takeover"

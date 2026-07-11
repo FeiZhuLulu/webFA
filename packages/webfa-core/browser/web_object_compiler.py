@@ -90,6 +90,12 @@ _BLOCK_ROLE_SPECS: dict[str, _RoleSpec] = {
 
 _REGION_ROLES = {"main", "region", "navigation", "header", "footer", "complementary"}
 _EDITABLE_ROLES = {"field", "searchbox", "textbox", "textarea"}
+_OPAQUE_DOM_REASONS = {
+    "CANVAS": "canvas_without_semantic_objects",
+    "EMBED": "embedded_surface_without_semantic_objects",
+    "OBJECT": "embedded_surface_without_semantic_objects",
+}
+_OPAQUE_MIN_AREA = 64.0
 
 
 class WebObjectCompiler:
@@ -214,6 +220,17 @@ class WebObjectCompiler:
             provenance,
             allocator,
             document_object_id,
+            origin,
+        )
+        self._compile_opaque_surfaces(
+            snapshot,
+            objects,
+            provenance,
+            allocator,
+            document_object_id,
+            frame_object_ids,
+            frame_id_map,
+            root_frame_id,
             origin,
         )
 
@@ -666,6 +683,60 @@ class WebObjectCompiler:
                 compiler_rules=("pending_dialog",),
                 legacy_id=legacy_id,
             )
+
+    def _compile_opaque_surfaces(
+        self,
+        snapshot: RawWebSnapshot,
+        objects: dict[str, WebObject],
+        provenance: dict[str, WebObjectProvenance],
+        allocator: "_ObjectIdAllocator",
+        document_object_id: str,
+        frame_object_ids: dict[str, str],
+        frame_id_map: dict[str, str],
+        root_frame_id: str | None,
+        fallback_origin: str,
+    ) -> None:
+        represented_backend_ids = {
+            item.backend_dom_node_id
+            for item in provenance.values()
+            if item.backend_dom_node_id is not None
+        }
+        for document in snapshot.dom_documents:
+            frame_id = frame_id_map.get(document.frame_id, document.frame_id) or root_frame_id
+            parent_id = frame_object_ids.get(frame_id or "", document_object_id)
+            document_origin = _origin_of(document.url) or fallback_origin
+            for node in document.nodes:
+                tag = node.node_name.upper()
+                reason = _OPAQUE_DOM_REASONS.get(tag)
+                if reason is None or node.backend_node_id in represented_backend_ids:
+                    continue
+                if not _visible_opaque_bounds(node.bounds):
+                    continue
+                object_id = allocator.allocate(
+                    f"opaque_{node.backend_node_id or f'{node.document_index}_{node.node_index}'}"
+                )
+                objects[object_id] = WebObject(
+                    id=object_id,
+                    category="opaque_surface",
+                    role="opaque_surface",
+                    name=_opaque_surface_name(tag, node.attributes),
+                    description="WebFA cannot derive reliable semantic child objects from this rendered surface.",
+                    state=WebObjectState(visible=True, enabled=True),
+                    relations=WebObjectRelations(parent=parent_id),
+                    capabilities=["request_human_takeover"],
+                    origin=document_origin,
+                    frame_id=frame_id,
+                    lifetime="frame" if frame_id and frame_id != root_frame_id else "document",
+                    security=WebObjectSecurity(content_trust="untrusted", cross_origin=False),
+                    opaque_reason=reason,
+                )
+                provenance[object_id] = WebObjectProvenance(
+                    sources=("dom_snapshot",),
+                    compiler_rules=(f"opaque_dom_surface:{tag.lower()}",),
+                    backend_dom_node_id=node.backend_node_id,
+                    dom_document_index=node.document_index,
+                    dom_node_index=node.node_index,
+                )
 
     def _attach_document_children(self, objects: dict[str, WebObject], document_object_id: str) -> None:
         root = objects[document_object_id]
@@ -1125,6 +1196,23 @@ def _origin_of(url: str) -> str:
 def _element_origin(element: dict, fallback: str) -> str:
     href = str(element.get("href", ""))
     return _origin_of(href) or fallback
+
+
+def _visible_opaque_bounds(bounds: tuple[float, float, float, float] | None) -> bool:
+    if bounds is None:
+        return False
+    _, _, width, height = bounds
+    return width > 0 and height > 0 and width * height >= _OPAQUE_MIN_AREA
+
+
+def _opaque_surface_name(tag: str, attributes: dict[str, str]) -> str:
+    for key in ("aria-label", "title", "alt", "name", "id"):
+        value = attributes.get(key, "").strip()
+        if value:
+            return value
+    if tag == "CANVAS":
+        return "Canvas surface"
+    return "Embedded surface"
 
 
 def _normalize_role(value: str) -> str:

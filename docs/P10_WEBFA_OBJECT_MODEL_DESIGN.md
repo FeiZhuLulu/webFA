@@ -1,6 +1,6 @@
 # P10 WebFA Object Model
 
-Status: design frozen; P10.0 through P10.7 complete
+Status: design frozen; P10.0 through P10.8 complete
 
 Implementation status:
 
@@ -12,8 +12,9 @@ Implementation status:
 - P10.5 Queryable Observe: complete (`browser/web_observe.py`, internal `BrowserRuntime.observe_web()` path)
 - P10.6 Semantic Operations: complete for the current BrowserHost capability surface (`browser/semantic_operations.py`, internal `BrowserRuntime.act_web()` path)
 - P10.7 Structured Reading: complete (semantic form/list/table relations, AX subtree text normalization, real Chromium regression)
-- P10.8 Opaque Surface and Human Takeover: next
-- Current public Runtime remains on the BrowserState/P7 compatibility path until later migration phases
+- P10.8 Opaque Surface and Human Takeover: complete (Canvas/embed/object detection, generalized takeover state, Visualizer integration)
+- P10.9 Migration and Removal: next
+- Current public Runtime remains on the BrowserState/P7 compatibility path until the final migration phase
 
 P10 is the next core architecture phase for WebFA. It does not add more browser-automation primitives. It upgrades WebFA from a DOM-element-oriented runtime into an agent-native web-object runtime.
 

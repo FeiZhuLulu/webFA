@@ -1,16 +1,23 @@
-import type { VisualizerState } from "../../types/visualizer";
+import type { HumanTakeoverReason, VisualizerState } from "../../types/visualizer";
 import { AuthSurfaceViewport } from "./AuthSurfaceViewport";
 import { AuthTakeoverBanner } from "./AuthTakeoverBanner";
 import { TabList } from "./TabList";
 
 type PagePreviewProps = {
   state: VisualizerState | null;
-  authSurfaceActive: boolean;
-  authSurfaceUrl: string | null;
-  onCompleteAuth?: () => void;
+  takeoverSurfaceActive: boolean;
+  takeoverSurfaceUrl: string | null;
+  takeoverReason: HumanTakeoverReason | null;
+  onCompleteTakeover?: () => void;
 };
 
-export function PagePreview({ state, authSurfaceActive, authSurfaceUrl, onCompleteAuth }: PagePreviewProps) {
+export function PagePreview({
+  state,
+  takeoverSurfaceActive,
+  takeoverSurfaceUrl,
+  takeoverReason,
+  onCompleteTakeover,
+}: PagePreviewProps) {
   const browserState = state?.browser_state;
   const hostClosed = state?.errors.some((error) => error.code === "browser_host_closed") ?? false;
   const previewUrl = state?.preview.data_url;
@@ -29,8 +36,8 @@ export function PagePreview({ state, authSurfaceActive, authSurfaceUrl, onComple
         <div className="viz-preview-meta">
           <span className={`viz-page-status ${state?.page.status ?? "idle"}`}>{state?.page.status ?? "idle"}</span>
           <span className="viz-el-count">{elementCount} 个元素</span>
-          {authSurfaceActive && onCompleteAuth && (
-            <button type="button" className="viz-complete-auth-btn" onClick={onCompleteAuth}>
+          {takeoverSurfaceActive && onCompleteTakeover && (
+            <button type="button" className="viz-complete-auth-btn" onClick={onCompleteTakeover}>
               完成接管
             </button>
           )}
@@ -43,10 +50,11 @@ export function PagePreview({ state, authSurfaceActive, authSurfaceUrl, onComple
         <AuthTakeoverBanner
           auth={state?.page.auth ?? { surface_detected: false, takeover: "none", reason: [], user_action_required: false }}
           hostClosed={hostClosed}
-          authSurfaceActive={authSurfaceActive}
+          takeoverSurfaceActive={takeoverSurfaceActive}
+          takeoverReason={takeoverReason}
         />
-        {authSurfaceActive ? (
-          <AuthSurfaceViewport active url={authSurfaceUrl || state?.page.url || null} />
+        {takeoverSurfaceActive ? (
+          <AuthSurfaceViewport active url={takeoverSurfaceUrl || state?.page.url || null} reason={takeoverReason} />
         ) : previewUrl ? (
           <img src={previewUrl} alt="Page preview" className="viz-preview-image" />
         ) : (

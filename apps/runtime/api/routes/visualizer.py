@@ -12,6 +12,7 @@ from apps.runtime.api.routes.browser import get_browser_runtime
 from browser.config import resolve_browser_runtime_config
 from browser.exceptions import BrowserHostClosedError
 from schemas.visualizer import VisualizerState
+from schemas.web import WebObserveRequest
 
 router = APIRouter(tags=["visualizer"])
 
@@ -54,10 +55,39 @@ def _auth_surface_payload(request: Request, browser_state_url: str | None = None
     }
 
 
+def _takeover_surface_payload(
+    request: Request,
+    *,
+    web_state,
+    browser_status: dict,
+    browser_state_url: str | None = None,
+) -> dict[str, object]:
+    config = resolve_browser_runtime_config()
+    session = get_auth_surface_session(request)
+    web_takeover = web_state.takeover if web_state is not None else None
+    active = bool(
+        (web_takeover is not None and web_takeover.required)
+        or browser_status.get("takeover_active")
+        or session.get("active")
+    )
+    reason = web_takeover.reason if web_takeover is not None and web_takeover.required else browser_status.get("takeover_reason")
+    if active and reason is None and session.get("active"):
+        reason = "authentication"
+    return {
+        "active": active,
+        "url": browser_status.get("takeover_url") or session.get("url") or browser_state_url,
+        "mode": "legacy" if config.auth_surface_mode == "legacy" else "electron",
+        "reason": reason,
+        "target": (web_takeover.target if web_takeover is not None else None) or browser_status.get("takeover_target"),
+        "origin": (web_takeover.origin if web_takeover is not None else "") or browser_status.get("takeover_origin", ""),
+    }
+
+
 def build_visualizer_state(request: Request) -> VisualizerState:
     runtime = get_browser_runtime(request)
     errors: list[dict[str, str]] = []
     browser_state = None
+    web_state = None
     preview_data_url: str | None = None
     preview_captured_at: str | None = None
 
@@ -69,13 +99,30 @@ def build_visualizer_state(request: Request) -> VisualizerState:
         errors.append({"code": "observe_failed", "message": str(exc)})
 
     browser_status = runtime.status()
+    observe_web = getattr(runtime, "observe_web", None)
+    if callable(observe_web) and (
+        browser_status.get("takeover_active")
+        or (browser_state is not None and bool(browser_state.url))
+    ):
+        try:
+            web_state = observe_web(WebObserveRequest(mode="page", detail="summary", limit=50)).state
+        except Exception as exc:
+            errors.append({"code": "web_observe_failed", "message": str(exc)})
+
     auth_session = get_auth_surface_session(request)
     if auth_session.get("active") and browser_state is not None and browser_state.auth.takeover != "auth_surface":
         browser_state.auth.takeover = "auth_surface"
         browser_state.auth.user_action_required = True
 
+    takeover_surface = _takeover_surface_payload(
+        request,
+        web_state=web_state,
+        browser_status=browser_status,
+        browser_state_url=browser_state.url if browser_state is not None else None,
+    )
+
     cached_preview = get_cached_preview(request)
-    if auth_session.get("active"):
+    if takeover_surface["active"]:
         preview_data_url = None
         preview_captured_at = None
     elif cached_preview is not None:
@@ -97,7 +144,14 @@ def build_visualizer_state(request: Request) -> VisualizerState:
         "status": "idle",
         "auth": {},
     }
-    if browser_state is not None:
+    if web_state is not None:
+        page = {
+            "url": web_state.url,
+            "title": web_state.title,
+            "status": web_state.status,
+            "auth": web_state.auth.model_dump(),
+        }
+    elif browser_state is not None:
         page = {
             "url": browser_state.url,
             "title": browser_state.title,
@@ -124,12 +178,14 @@ def build_visualizer_state(request: Request) -> VisualizerState:
             },
             "page": page,
             "browser_state": browser_state.model_dump() if browser_state is not None else None,
+            "web_state": web_state.model_dump() if web_state is not None else None,
             "preview": {
                 "format": "png",
                 "data_url": preview_data_url,
                 "captured_at": preview_captured_at,
             },
             "auth_surface": _auth_surface_payload(request, browser_state.url if browser_state else None),
+            "takeover_surface": takeover_surface,
             "recent_actions": get_action_log(request).recent(),
             "errors": errors,
         }
