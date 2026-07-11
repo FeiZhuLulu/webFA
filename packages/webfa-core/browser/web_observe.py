@@ -107,12 +107,21 @@ class WebObserveService:
         if not target.observable.range_readable:
             raise WebObserveRangeError(f"object is not range-readable: {target_id}")
 
-        total = len(target.relations.children)
+        range_ids = _range_object_ids(target)
+        total = len(range_ids)
         start = request.range.start
         end_exclusive = min(total, start + request.range.limit)
-        child_ids = target.relations.children[start:end_exclusive]
+        child_ids = range_ids[start:end_exclusive]
         target_projection = target.model_copy(deep=True)
         target_projection.relations.children = list(child_ids)
+        if target.relations.rows:
+            target_projection.relations.rows = list(child_ids)
+            target_projection.relations.items = list(child_ids)
+        elif target.relations.items:
+            target_projection.relations.items = list(child_ids)
+        elif target.relations.cells:
+            target_projection.relations.cells = list(child_ids)
+            target_projection.relations.items = list(child_ids)
         target_projection.observable.item_count = total
         target_projection.observable.visible_range = (
             WebVisibleRange(start=start, end=end_exclusive - 1)
@@ -256,8 +265,14 @@ def _standard(item: WebObject) -> WebObject:
     relations.controls = relations.controls[:STANDARD_RELATION_MAX_COUNT]
     relations.controlled_by = relations.controlled_by[:STANDARD_RELATION_MAX_COUNT]
     relations.owns = relations.owns[:STANDARD_RELATION_MAX_COUNT]
-    if projected.observable.range_readable and projected.observable.item_count is not None and relations.children:
-        projected.observable.visible_range = WebVisibleRange(start=0, end=len(relations.children) - 1)
+    relations.fields = relations.fields[:STANDARD_RELATION_MAX_COUNT]
+    relations.items = relations.items[:STANDARD_RELATION_MAX_COUNT]
+    relations.rows = relations.rows[:STANDARD_RELATION_MAX_COUNT]
+    relations.cells = relations.cells[:STANDARD_RELATION_MAX_COUNT]
+    relations.headers = relations.headers[:STANDARD_RELATION_MAX_COUNT]
+    range_ids = _range_object_ids(projected)
+    if projected.observable.range_readable and projected.observable.item_count is not None and range_ids:
+        projected.observable.visible_range = WebVisibleRange(start=0, end=len(range_ids) - 1)
     return projected
 
 
@@ -286,6 +301,16 @@ def _summary(item: WebObject) -> WebObjectSummary:
         version=item.version,
         state_summary=states,
     )
+
+
+def _range_object_ids(item: WebObject) -> list[str]:
+    if item.relations.rows:
+        return item.relations.rows
+    if item.relations.items:
+        return item.relations.items
+    if item.relations.cells:
+        return item.relations.cells
+    return item.relations.children
 
 
 def _full_object_map(state: WebState) -> dict[str, WebObject]:

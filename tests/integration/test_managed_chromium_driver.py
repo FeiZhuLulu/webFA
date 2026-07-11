@@ -16,6 +16,7 @@ from storage.db import reset_engine_for_tests
 
 
 FIXTURE_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "agent_validation_page.html"
+STRUCTURED_READING_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "structured_reading_page.html"
 
 
 def _require_managed_chromium() -> None:
@@ -71,6 +72,36 @@ def test_managed_chromium_compiles_real_web_objects(monkeypatch, tmp_path: Path)
             not set(item.capabilities).intersection({"click", "double_click", "type", "press", "focus"})
             for item in compilation.state.objects
         )
+    finally:
+        driver.close()
+
+
+def test_managed_chromium_compiles_structured_reading_objects(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    host = ManagedChromiumHost(headless=True)
+    driver = HostBrowserDriver(host)
+    try:
+        driver.open(STRUCTURED_READING_PAGE.as_uri())
+        snapshot = driver.observe_web_raw()
+        compilation = WebObjectCompiler().compile(snapshot)
+        objects = [item for item in compilation.state.objects if hasattr(item, "role")]
+        list_object = next(item for item in objects if item.role == "list")
+        table = next(item for item in objects if item.role == "table")
+        form = next(item for item in objects if item.role == "form")
+        status = next(item for item in objects if item.role == "status")
+
+        assert list_object.observable.range_readable is True
+        assert list_object.observable.item_count == 2
+        assert len(list_object.relations.items) == 2
+        assert table.observable.range_readable is True
+        assert table.observable.item_count == 3
+        assert len(table.relations.rows) == 3
+        assert len(table.relations.headers) >= 2
+        assert len(form.relations.fields) == 2
+        assert form.relations.submit_control is not None
+        assert status.text == "Report ready"
     finally:
         driver.close()
 

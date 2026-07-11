@@ -67,6 +67,8 @@ ObjectRole = Literal[
     "table",
     "row",
     "cell",
+    "column_header",
+    "row_header",
     "tree",
     "tree_item",
     "feed",
@@ -189,6 +191,11 @@ class WebObjectRelations(StrictModel):
     owned_by: str | None = None
     form: str | None = None
     submit_control: str | None = None
+    fields: list[str] = Field(default_factory=list)
+    items: list[str] = Field(default_factory=list)
+    rows: list[str] = Field(default_factory=list)
+    cells: list[str] = Field(default_factory=list)
+    headers: list[str] = Field(default_factory=list)
 
 
 class WebObjectObservable(StrictModel):

@@ -269,6 +269,11 @@ class ObjectRegistry:
             relations.owned_by = _mapped(relations.owned_by, transient_to_stable)
             relations.form = _mapped(relations.form, transient_to_stable)
             relations.submit_control = _mapped(relations.submit_control, transient_to_stable)
+            relations.fields = _mapped_list(relations.fields, transient_to_stable)
+            relations.items = _mapped_list(relations.items, transient_to_stable)
+            relations.rows = _mapped_list(relations.rows, transient_to_stable)
+            relations.cells = _mapped_list(relations.cells, transient_to_stable)
+            relations.headers = _mapped_list(relations.headers, transient_to_stable)
             stable[clone.id] = clone
         return stable
 

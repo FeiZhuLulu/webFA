@@ -21,6 +21,7 @@ from schemas.web import (
     WebOutlineItem,
     WebRegionRef,
     WebState,
+    WebVisibleRange,
 )
 
 
@@ -66,8 +67,8 @@ _AX_ROLE_SPECS: dict[str, _RoleSpec] = {
     "row": _RoleSpec("collection", "row"),
     "cell": _RoleSpec("collection", "cell"),
     "gridcell": _RoleSpec("collection", "cell"),
-    "columnheader": _RoleSpec("collection", "cell"),
-    "rowheader": _RoleSpec("collection", "cell"),
+    "columnheader": _RoleSpec("collection", "column_header"),
+    "rowheader": _RoleSpec("collection", "row_header"),
     "tree": _RoleSpec("collection", "tree"),
     "treeitem": _RoleSpec("collection", "tree_item"),
     "feed": _RoleSpec("collection", "feed"),
@@ -217,6 +218,7 @@ class WebObjectCompiler:
         )
 
         self._attach_document_children(objects, document_object_id)
+        self._finalize_structured_reading(objects)
         outline = self._build_outline(objects, heading_levels)
         regions = self._build_regions(objects)
         password_target = next(
@@ -313,6 +315,7 @@ class WebObjectCompiler:
         root_frame_id: str | None,
         origin: str,
     ) -> None:
+        ax_by_id = {node.node_id: node for node in snapshot.accessibility_nodes}
         for node in snapshot.accessibility_nodes:
             if node.ignored:
                 continue
@@ -321,7 +324,20 @@ class WebObjectCompiler:
             if spec is None:
                 continue
             name = node.name.strip()
-            if spec.role in {"heading", "paragraph", "list_item", "cell"} and not name:
+            if not name and spec.role in {
+                "heading",
+                "paragraph",
+                "list_item",
+                "row",
+                "cell",
+                "column_header",
+                "row_header",
+                "dialog",
+                "alert",
+                "status",
+            }:
+                name = _ax_descendant_text(node, ax_by_id)
+            if spec.role in {"heading", "paragraph", "list_item", "cell", "column_header", "row_header"} and not name:
                 continue
             semantic_key = (spec.role, _norm(name))
             object_id = allocator.allocate(f"ax_{node.node_id}")
@@ -335,6 +351,7 @@ class WebObjectCompiler:
                 role=spec.role,
                 name=name,
                 description=node.description,
+                text=name if spec.category in {"content", "collection", "dialog"} else "",
                 value=_safe_web_value(node.value),
                 state=state,
                 relations=WebObjectRelations(parent=parent),
@@ -543,6 +560,7 @@ class WebObjectCompiler:
                     parent=parent,
                     children=child_ids,
                     submit_control=submit_id,
+                    fields=[child_id for child_id in child_ids if child_id != submit_id],
                 ),
                 capabilities=capabilities,
                 origin=origin,
@@ -662,6 +680,78 @@ class WebObjectCompiler:
             elif parent_id == document_object_id and object_id not in root.relations.children:
                 root.relations.children.append(object_id)
 
+    def _finalize_structured_reading(self, objects: dict[str, WebObject]) -> None:
+        for item in objects.values():
+            item.relations.children = _existing_unique_ids(item.relations.children, objects)
+            if item.category in {"content", "collection"} and not item.text and item.name:
+                item.text = item.name
+
+        for item in objects.values():
+            relations = item.relations
+            if item.role == "form":
+                fields = [
+                    child_id
+                    for child_id in relations.children
+                    if objects[child_id].role
+                    in {"field", "searchbox", "textbox", "textarea", "checkbox", "radio", "switch", "combobox", "upload_target"}
+                ]
+                relations.fields = _existing_unique_ids(relations.fields or fields, objects)
+                for field_id in relations.fields:
+                    field = objects[field_id]
+                    field.relations.form = item.id
+                    if field.relations.belongs_to is None:
+                        field.relations.belongs_to = item.id
+
+            if item.role == "table":
+                rows = [child_id for child_id in relations.children if objects[child_id].role == "row"]
+                relations.rows = _existing_unique_ids(rows, objects)
+                relations.items = list(relations.rows)
+                headers: list[str] = []
+                for row_id in relations.rows:
+                    row = objects[row_id]
+                    cells = [
+                        child_id
+                        for child_id in row.relations.children
+                        if objects[child_id].role in {"cell", "column_header", "row_header"}
+                    ]
+                    row.relations.cells = _existing_unique_ids(cells, objects)
+                    row.relations.items = list(row.relations.cells)
+                    _set_range_metadata(row, row.relations.cells)
+                    for cell_id in row.relations.cells:
+                        cell = objects[cell_id]
+                        if cell.relations.belongs_to is None:
+                            cell.relations.belongs_to = row.id
+                        if cell.role in {"column_header", "row_header"}:
+                            headers.append(cell_id)
+                relations.headers = _existing_unique_ids(headers, objects)
+                _set_range_metadata(item, relations.rows)
+                for row_id in relations.rows:
+                    if objects[row_id].relations.belongs_to is None:
+                        objects[row_id].relations.belongs_to = item.id
+                continue
+
+            item_roles: set[str] | None = None
+            if item.role == "list":
+                item_roles = {"list_item"}
+            elif item.role == "tree":
+                item_roles = {"tree_item"}
+            elif item.role == "feed":
+                item_roles = {"article"}
+            elif item.role == "collection":
+                item_roles = {"list_item", "row", "tree_item", "article"}
+
+            if item_roles is not None:
+                semantic_items = [
+                    child_id
+                    for child_id in relations.children
+                    if objects[child_id].role in item_roles
+                ]
+                relations.items = _existing_unique_ids(semantic_items, objects)
+                _set_range_metadata(item, relations.items)
+                for child_id in relations.items:
+                    if objects[child_id].relations.belongs_to is None:
+                        objects[child_id].relations.belongs_to = item.id
+
     def _build_outline(
         self,
         objects: dict[str, WebObject],
@@ -681,6 +771,49 @@ class WebObjectCompiler:
             for item in objects.values()
             if item.role in _REGION_ROLES
         ]
+
+
+def _ax_descendant_text(
+    node: RawAccessibilityNode,
+    nodes: dict[str, RawAccessibilityNode],
+    *,
+    max_chars: int = 1000,
+) -> str:
+    pending = list(node.child_ids)
+    seen_nodes: set[str] = set()
+    seen_text: set[str] = set()
+    parts: list[str] = []
+    length = 0
+    while pending and length < max_chars:
+        node_id = pending.pop(0)
+        if node_id in seen_nodes:
+            continue
+        seen_nodes.add(node_id)
+        child = nodes.get(node_id)
+        if child is None:
+            continue
+        text = " ".join(child.name.split())
+        normalized = _norm(text)
+        if text and normalized not in seen_text:
+            parts.append(text)
+            seen_text.add(normalized)
+            length += len(text) + 1
+        pending.extend(child.child_ids)
+    return " ".join(parts)[:max_chars]
+
+
+def _existing_unique_ids(values: list[str], objects: dict[str, WebObject]) -> list[str]:
+    return list(dict.fromkeys(value for value in values if value in objects))
+
+
+def _set_range_metadata(item: WebObject, object_ids: list[str]) -> None:
+    item.observable.range_readable = True
+    item.observable.item_count = len(object_ids)
+    item.observable.visible_range = (
+        WebVisibleRange(start=0, end=len(object_ids) - 1)
+        if object_ids
+        else None
+    )
 
 
 class _ObjectIdAllocator:
