@@ -5,8 +5,8 @@ results page, that each result's title and description do not bleed into
 another block, that each block's element_ids point at the interactive
 elements inside it, and that the legacy visible_text still works.
 
-Requires Playwright; skipped when Playwright is not installed (mirrors
-test_browser_api.py).
+Runs through WebFA managed Chromium and skips only when no supported Chromium
+executable is available.
 """
 
 from pathlib import Path
@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
+from browser.managed_chromium_host import _find_chromium_executable
 from storage.db import reset_engine_for_tests
 
 FIXTURE_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "search_results_page.html"
@@ -26,8 +27,16 @@ EXPECTED_RESULTS = [
 ]
 
 
+def _require_managed_chromium() -> None:
+    pytest.importorskip("websockets.sync.client")
+    try:
+        _find_chromium_executable()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+
+
 def test_content_blocks_structured_for_search_results(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    _require_managed_chromium()
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
     reset_engine_for_tests()
@@ -82,7 +91,7 @@ def test_content_blocks_structured_for_search_results(monkeypatch, tmp_path: Pat
 
 
 def test_content_blocks_never_carry_html_or_storage(monkeypatch, tmp_path: Path):
-    pytest.importorskip("playwright.sync_api")
+    _require_managed_chromium()
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
     reset_engine_for_tests()

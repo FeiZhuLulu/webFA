@@ -81,8 +81,8 @@ P7
   Existing click/type/press remain as fallback primitives.
   Keep the five default MCP browser tools; page operations stay under
   webfa.act.
-  Engineering finish: managed-chromium is the default runtime path; Playwright
-  remains only as an explicit fallback via WEBFA_BROWSER_DRIVER=playwright.
+  Historical P7 state: managed-chromium became the default while a temporary
+  fallback still existed. P10.9 removes that fallback and its dependency.
   /health reports safe browser status without exposing cookies, storage,
   tokens, or internal debug endpoints.
   Complex validation: passed GitHub login persistence, authenticated

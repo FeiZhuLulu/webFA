@@ -28,16 +28,11 @@ def test_browser_runtime_config_headless_env_overrides_to_true(monkeypatch):
     assert config.headless is True
 
 
-def test_browser_runtime_config_allows_playwright_fallback(monkeypatch):
+def test_browser_runtime_config_rejects_removed_playwright_driver(monkeypatch):
     monkeypatch.setenv("WEBFA_BROWSER_DRIVER", "playwright")
-    monkeypatch.delenv("WEBFA_BROWSER_HEADLESS", raising=False)
-    monkeypatch.setenv("WEBFA_AUTH_TAKEOVER", "off")
 
-    config = resolve_browser_runtime_config()
-
-    assert config.driver_name == "playwright"
-    assert config.headless is True
-    assert config.auth_takeover == "off"
+    with pytest.raises(ValueError, match="managed-chromium"):
+        resolve_browser_runtime_config()
 
 
 def test_browser_runtime_config_rejects_unknown_driver(monkeypatch):

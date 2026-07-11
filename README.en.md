@@ -15,9 +15,9 @@ The agent decides what to do. WebFA opens real websites, keeps the local user's 
 
 Status: **Developer Preview**. APIs and behavior may change.
 
-## P10 Architecture Direction
+## P10 WebFA Object Model
 
-The next phase is not about adding more browser-automation primitives. It establishes the formal **WebFA Object Model**:
+The default Agent interface now uses the formal **WebFA Object Model** instead of browser-automation primitives:
 
 ```text
 real web page
@@ -28,9 +28,7 @@ real web page
 
 The target agent interface is based on web objects, object state, relations, capabilities, versions, and changes. DOM, selectors, coordinates, mouse/keyboard events, CDP, and browser-engine protocols remain Runtime implementation details.
 
-P10 incrementally introduces queryable `observe(page/object/query/changes)`, stable object identity, object versions, document revisions, ChangeSets, structured collections/tables/forms, and explicit `opaque_surface` objects with Human Takeover instead of screenshot-coordinate control.
-
-The current Developer Preview still uses `BrowserState` and the P7 compatibility actions. They are the migration base, not the final protocol. See `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`.
+The default MCP surface supports queryable `observe(page/object/query/changes)`, stable object identity, object versions, document revisions, ChangeSets, structured collections/tables/forms, and explicit `opaque_surface` objects with Human Takeover. Legacy `BrowserState` and P7 actions remain only in a temporary legacy REST compatibility layer. See `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`.
 
 ## What Works Today
 
@@ -41,9 +39,9 @@ The current Developer Preview still uses `BrowserState` and the P7 compatibility
   - `webfa.act`
   - `webfa.get_tabs`
   - `webfa.switch_tab`
-- Managed Chromium runtime path with persistent local profile.
-- Agent-readable `BrowserState` with URL parts, forms, elements, content blocks, auth status, and active agent lease metadata.
-- Generic actions for forms, links, controls, lists, blocks, and fallback primitives such as click/type/press.
+- Managed Chromium runtime path with persistent local profile and no Playwright dependency.
+- Agent-readable `WebState` with WebObjects, relations, capabilities, document revisions, ChangeSets, auth status, and takeover state.
+- `webfa.act` accepts declared semantic operations only; click/type/press remain internal Runtime strategies.
 - WebFA-owned Auth Surface by default for user-assisted login, QR, verification, 2FA, and authorization pages.
 - Single active agent lease so multiple connected agents do not silently fight over one browser session.
 - WebFA Visualizer MVP for Runtime status, page preview, Agent View, content blocks, and action log.
@@ -112,7 +110,7 @@ Generate an opencode config:
 webfa mcp-config --client opencode --agent-id opencode
 ```
 
-Each agent should use a distinct `WEBFA_AGENT_ID`. WebFA allows one active agent to change browser state at a time. Other agents can still observe and will see the active lease in `BrowserState` and `/health`.
+Each agent should use a distinct `WEBFA_AGENT_ID`. WebFA allows one active agent to change browser state at a time. Other agents can still observe and will see the active lease in `WebState` and `/health`.
 
 Integration docs:
 
@@ -141,7 +139,7 @@ Copy `.env.example` for local notes if needed. Common variables:
 ```powershell
 $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
 $env:WEBFA_AGENT_ID="opencode"
-$env:WEBFA_BROWSER_DRIVER="managed-chromium"  # becomes the only formal path after P10
+$env:WEBFA_BROWSER_DRIVER="managed-chromium"  # the only supported BrowserHost path
 $env:WEBFA_BROWSER_HEADLESS="0"
 $env:WEBFA_AUTH_TAKEOVER="auto"
 $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"

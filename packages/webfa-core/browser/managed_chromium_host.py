@@ -496,9 +496,6 @@ def _find_chromium_executable() -> Path:
         raise RuntimeError("WEBFA_CHROMIUM_EXECUTABLE does not exist")
 
     candidates: list[Path] = []
-    local_app_data = os.getenv("LOCALAPPDATA")
-    if local_app_data:
-        candidates.extend(sorted(Path(local_app_data).glob("ms-playwright/chromium-*/chrome-win/chrome.exe"), reverse=True))
     for command in ("chrome", "chrome.exe", "chromium", "chromium.exe", "msedge", "msedge.exe"):
         found = shutil.which(command)
         if found:

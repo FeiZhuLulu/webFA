@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 
 DEFAULT_BROWSER_DRIVER = "managed-chromium"
-SUPPORTED_BROWSER_DRIVERS = {"managed-chromium", "playwright"}
+SUPPORTED_BROWSER_DRIVERS = {"managed-chromium"}
 DEFAULT_AUTH_SURFACE_MODE = "electron"
 SUPPORTED_AUTH_SURFACE_MODES = {"electron", "legacy"}
 DEFAULT_PRIVATE_URL_POLICY = "warn"

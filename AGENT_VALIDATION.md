@@ -1,10 +1,14 @@
-# WebFA P4.5 Agent Validation Harness
+# WebFA Agent Validation Harness
 
-P4.5 validates that WebFA can be used by an external agent as an agent-native browser runtime.
+This harness validates the current P10 public Agent surface:
 
-Agents should read `AGENT_MANUAL.md` before validation. It describes WebFA-specific browser strategy, including when direct URL navigation is better than human-style clicking.
+```text
+WebState + stable WebObjects + queryable observe + declared capabilities + semantic operations
+```
 
-The target loop is:
+Agents should read `AGENT_MANUAL.md` before validation. WebFA is not a Playwright wrapper, a selector API, a screenshot-coordinate controller, a site API wrapper, or an autonomous agent.
+
+The public loop remains:
 
 ```text
 external agent / MCP client
@@ -14,17 +18,17 @@ external agent / MCP client
   -> webfa.observe
 ```
 
-This phase does not add site-specific tools, task planning, LLM summaries, multi-session support, or GitHub/Hugging Face business actions.
-
 ## Required Runtime Setup
 
-Install dependencies and Chromium once:
+Install project dependencies and ensure Google Chrome, Microsoft Edge, or another supported Chromium executable is installed:
 
 ```powershell
 pip install -e ".[dev]"
-python -m playwright install chromium
 npm install
+webfa doctor
 ```
+
+Set `WEBFA_CHROMIUM_EXECUTABLE` only when WebFA cannot discover a system Chromium installation.
 
 Start the desktop stack:
 
@@ -32,7 +36,7 @@ Start the desktop stack:
 npm run dev
 ```
 
-Or start only the Runtime:
+Or start only Runtime:
 
 ```powershell
 python -m uvicorn apps.runtime.main:app --host 127.0.0.1 --port 8787
@@ -44,7 +48,7 @@ The MCP server is started by the MCP client with:
 python -m apps.runtime.mcp.server
 ```
 
-Use this environment variable when launching MCP from an external agent:
+Use this environment variable when the MCP client connects to a separately running Runtime:
 
 ```powershell
 $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
@@ -52,7 +56,7 @@ $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
 
 ## Expected MCP Tools
 
-By default the agent should only see:
+By default the agent sees exactly:
 
 ```text
 webfa.open_url
@@ -62,29 +66,20 @@ webfa.get_tabs
 webfa.switch_tab
 ```
 
-The agent should not see:
+The agent must not see or send:
 
 ```text
-webfa.plan
-webfa.preview
-webfa.execute
-webfa.get_proof
-github.*
-hf.*
-raw_playwright
-raw_cdp
-selector/xpath/locator/evaluate tools
+click / double_click / type / press / focus
+selector / XPath / locator
+raw DOM / full HTML
+evaluate / raw CDP / Playwright
+cookies / storage / tokens / password values
+site-specific business tools
 ```
 
-Legacy transaction tools only appear if explicitly enabled:
+Legacy transaction tools appear only when explicitly enabled with `WEBFA_ENABLE_LEGACY_TRANSACTION=1`; they are not part of browser validation.
 
-```powershell
-$env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
-```
-
-## Level 0: REST Local Page
-
-Goal: prove Runtime browser primitives work without MCP.
+## Level 0: REST WebObject Loop
 
 Use:
 
@@ -95,28 +90,21 @@ tests/fixtures/agent_validation_page.html
 Expected flow:
 
 ```text
-POST /v1/browser/open
-GET  /v1/browser/observe
-POST /v1/browser/act  { action: "type", target: "el_*", text: "Fei" }
-POST /v1/browser/act  { action: "click", target: "el_*" }
-GET  /v1/browser/observe
-```
-
-Expected result:
-
-```text
-Hello Fei
+POST /v1/browser/web/open
+POST /v1/browser/web/observe  { mode: "query", query: { capability: "set_value" } }
+POST /v1/browser/web/act      { operation: "set_value", target: "obj_*", arguments: { value: "Fei" } }
+POST /v1/browser/web/observe  { mode: "query", query: { role: "form" } }
+POST /v1/browser/web/act      { operation: "submit", target: "obj_*" }
+POST /v1/browser/web/observe  { mode: "query", query: { text_contains: "Hello Fei" } }
 ```
 
 Automated test:
 
 ```powershell
-pytest tests/integration/test_browser_api.py -q
+pytest tests/integration/test_web_object_api.py -q
 ```
 
-## Level 1: MCP Stdio Local Page
-
-Goal: prove the real agent entrypoint works.
+## Level 1: MCP Stdio WebObject Loop
 
 Automated test:
 
@@ -124,112 +112,121 @@ Automated test:
 pytest tests/integration/test_mcp_stdio_browser.py -q
 ```
 
-This starts a real Runtime server, starts `python -m apps.runtime.mcp.server` over stdio, lists MCP tools, and runs:
+The test starts a real Runtime and MCP stdio server, verifies the five-tool schema, and runs:
 
 ```text
 webfa.open_url
-webfa.observe
-webfa.act(type)
-webfa.act(click)
-webfa.observe
+webfa.observe(query)
+webfa.act(set_value)
+webfa.observe(query)
+webfa.act(submit)
+webfa.observe(query)
+```
+
+It also verifies dialog recovery:
+
+```text
+webfa.act(activate)
+  -> dialog_required
+webfa.observe(query role=dialog)
+webfa.act(dismiss)
+webfa.observe(query)
 ```
 
 ## Level 2: External Agent Local Page
-
-Goal: prove an LLM agent can read `BrowserState` and choose element actions.
 
 Recommended prompt:
 
 ```text
 Use WebFA as your browser. Open the local validation page at <file-url>.
-Find the name input, type "Fei", click Submit, then observe the page and report the result text.
+Find the field WebObject that declares set_value, set it to "Fei", find the form
+that declares submit, submit it, then query for the result text.
 Use only webfa.open_url, webfa.observe, and webfa.act.
-Do not use selectors, raw Playwright, CDP, GitHub tools, or site-specific APIs.
-```
-
-Expected tool sequence:
-
-```text
-webfa.open_url
-webfa.observe
-webfa.act(type)
-webfa.act(click)
-webfa.observe
+Do not use click, type, press, selectors, coordinates, raw DOM, Playwright, CDP,
+or site-specific APIs.
 ```
 
 Pass condition:
 
 ```text
-The agent reports "Hello Fei" from the page state.
+The agent reports "Hello Fei" from a WebObject returned by observe.
 ```
 
-## Level 3: Simple Real Website
+## Level 3: Structured Public Pages
 
-Goal: test WebFA against low-risk public pages.
-
-Use simple pages first:
+Validate low-risk public pages such as:
 
 ```text
-documentation search
-public GitHub pages
-public Hugging Face search
-basic form demos
+documentation pages
+public repository search
+public model search
+articles
+lists and tables
+basic forms
 ```
 
-Do not log in, submit sensitive data, create repositories, post messages, or perform account actions at this level.
+The Agent should use:
 
-## Level 4: Persistent Profile
+- page mode for document overview;
+- query mode to locate objects by role, name, capability, origin, or text;
+- object mode for relations and range reads;
+- changes mode after dynamic updates.
 
-Goal: verify WebFA can reuse user login state.
+Do not perform account writes at this level.
+
+## Level 4: Human Takeover and Persistent Profile
 
 Manual flow:
 
 ```text
-1. Start WebFA in headful mode.
-2. Open a site such as github.com.
-3. User logs in manually in the Chromium window.
-4. Stop and restart Runtime.
-5. Open the same site through WebFA.
-6. Observe whether the page state indicates the user is still logged in.
+1. Open a site that requires authentication.
+2. Observe authentication or request Human Takeover.
+3. User completes login in the WebFA takeover surface.
+4. Complete takeover and resume with observe.
+5. Restart Runtime.
+6. Open the site again and confirm profile state persists.
 ```
 
-Pass condition:
+Also validate an opaque fixture:
 
 ```text
-Login survives Runtime restart through WEBFA_HOME/browser/profile-default.
+tests/fixtures/opaque_surface_page.html
 ```
 
-Do not expose cookies, localStorage, sessionStorage, IndexedDB, or token values to the agent.
+Expected result:
+
+```text
+canvas -> opaque_surface -> request_human_takeover
+```
+
+WebFA must not fall back to screenshot-coordinate control.
 
 ## Level 5: Real Task Preflight
 
-Goal: validate realistic pages without committing irreversible actions.
-
-Example:
+Use realistic pages but stop before irreversible final effects. For example:
 
 ```text
-Open GitHub new repository page.
-Fill repository name and description.
-Select public/private.
-Stop before clicking final Create, or require explicit human confirmation.
+Open a repository creation form.
+Set fields through semantic operations.
+Inspect the final form state.
+Stop before the final external write unless the safety layer explicitly approves it.
 ```
 
-This level validates WebFA as a browser runtime. It still should not add `github.create_repo`, `weibo.reply_dm`, or other site-specific tools.
+## Acceptance Gate
 
-## Current Acceptance Gate
+Run:
 
-P4.5 is acceptable when:
-
-```text
-pytest -q
+```powershell
+python -m pytest -q
 npm run typecheck:renderer
 npm run typecheck:electron
+python -m build
 ```
 
-all pass, and the MCP stdio test proves:
+The public MCP test must prove:
 
 ```text
-webfa.open_url -> webfa.observe -> webfa.act -> webfa.observe
+open_url -> observe WebObjects -> semantic act -> observe changes
 ```
 
-against `tests/fixtures/agent_validation_page.html`.
+No default Agent-facing request or response may require browser primitives, selectors, raw DOM, Playwright, or CDP.

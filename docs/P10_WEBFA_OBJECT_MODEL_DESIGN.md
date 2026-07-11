@@ -14,7 +14,8 @@ Implementation status:
 - P10.7 Structured Reading: complete (semantic form/list/table relations, AX subtree text normalization, real Chromium regression)
 - P10.8 Opaque Surface and Human Takeover: complete (Canvas/embed/object detection, generalized takeover state, Visualizer integration)
 - P10.9A Public Agent Surface: complete (default MCP and P10 REST use WebState/WebObjects/SemanticOperations)
-- P10.9B Removal and Final Migration: next (Playwright removal, legacy REST isolation/removal, final docs and acceptance)
+- P10.9B Playwright Removal: complete (dependency, config/factory path, browser discovery, tests, and current docs migrated)
+- P10.9C Legacy REST Isolation and Final Acceptance: next
 - Legacy BrowserState/BrowserAction REST endpoints remain temporarily for internal compatibility tests; default MCP no longer uses them
 
 P10 is the next core architecture phase for WebFA. It does not add more browser-automation primitives. It upgrades WebFA from a DOM-element-oriented runtime into an agent-native web-object runtime.
