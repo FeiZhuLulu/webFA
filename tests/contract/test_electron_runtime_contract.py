@@ -34,6 +34,21 @@ def test_electron_exposes_runtime_start_stop_ipc():
     assert "runtimeManager.stop()" in source
 
 
+def test_electron_visualizer_control_token_is_runtime_only_and_renderer_is_origin_locked():
+    main = (ROOT / "apps/desktop/electron/main.ts").read_text(encoding="utf-8")
+    runtime_process = (ROOT / "apps/desktop/electron/runtimeProcess.ts").read_text(encoding="utf-8")
+    renderer_api = (ROOT / "apps/desktop/renderer/src/lib/visualizer-api.ts").read_text(encoding="utf-8")
+
+    assert "randomBytes(32)" in main
+    assert "requireTrustedRenderer" in main
+    assert "event.sender.id !== mainWindow.webContents.id" in main
+    assert 'webContents.on("will-navigate"' in main
+    assert 'webContents.on("will-redirect"' in main
+    assert "setWindowOpenHandler" in main
+    assert "WEBFA_VISUALIZER_CONTROL_TOKEN" in runtime_process
+    assert "NEXT_PUBLIC_WEBFA_VISUALIZER_CONTROL_TOKEN" not in renderer_api
+
+
 def test_renderer_has_stopped_state_for_runtime_stop():
     page = (ROOT / "apps/desktop/renderer/src/app/page.tsx").read_text(encoding="utf-8")
     api = (ROOT / "apps/desktop/renderer/src/lib/visualizer-api.ts").read_text(encoding="utf-8")

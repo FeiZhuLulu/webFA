@@ -162,6 +162,65 @@ class ManagedChromiumHost:
             return result["value"]
         return None
 
+    def set_file_input_files(
+        self,
+        element_id: str,
+        file_paths: list[str],
+        *,
+        frame_id: str | None = None,
+    ) -> None:
+        if not file_paths:
+            raise RuntimeError("protected file upload requires at least one file")
+        resolved_files = []
+        for value in file_paths:
+            path = Path(value).expanduser().resolve()
+            if not path.is_file():
+                raise RuntimeError("protected upload resource is unavailable")
+            resolved_files.append(str(path))
+
+        client = self._ensure_page_client()
+        client.call("DOM.enable")
+        expression = _file_input_expression(element_id, frame_id)
+        response = client.call(
+            "Runtime.evaluate",
+            {
+                "expression": expression,
+                "returnByValue": False,
+                "awaitPromise": True,
+                "objectGroup": "webfa-protected-upload",
+            },
+        )
+        if "exceptionDetails" in response:
+            raise RuntimeError("protected file input could not be resolved")
+        remote = response.get("result", {})
+        object_id = remote.get("objectId")
+        if not isinstance(object_id, str) or not object_id:
+            raise RuntimeError("protected file input could not be resolved")
+        try:
+            client.call(
+                "DOM.setFileInputFiles",
+                {"files": resolved_files, "objectId": object_id},
+            )
+            client.call(
+                "Runtime.callFunctionOn",
+                {
+                    "objectId": object_id,
+                    "functionDeclaration": (
+                        "function(){"
+                        "this.dispatchEvent(new Event('input',{bubbles:true}));"
+                        "this.dispatchEvent(new Event('change',{bubbles:true}));"
+                        "return true;"
+                        "}"
+                    ),
+                    "returnByValue": True,
+                },
+            )
+        finally:
+            try:
+                client.call("Runtime.releaseObject", {"objectId": object_id})
+            except Exception:
+                pass
+
     def tabs(self) -> list[BrowserTab]:
         if self._port is None or not self._process_is_running():
             return []
@@ -478,6 +537,34 @@ class _CDPClient:
                 raise RuntimeError(message["error"].get("message", "CDP call failed"))
             return message.get("result", {})
         raise RuntimeError(f"CDP call timed out: {method}")
+
+
+def _file_input_expression(element_id: str, frame_id: str | None) -> str:
+    return f"""
+    (() => {{
+      const frameId = {json.dumps(frame_id)};
+      const resolveRoot = () => {{
+        if (!frameId || frameId === 'frame_1') return document;
+        const iframe = Array.from(document.querySelectorAll('iframe[data-webfa-frame-id]'))
+          .find((node) => node.getAttribute('data-webfa-frame-id') === frameId);
+        if (!iframe) throw new Error('frame not found');
+        try {{
+          const doc = iframe.contentDocument;
+          if (!doc) throw new Error('cross-origin frame is not supported');
+          return doc;
+        }} catch (err) {{
+          throw new Error('cross-origin frame is not supported');
+        }}
+      }};
+      const root = resolveRoot();
+      const element = root.querySelector(`[data-webfa-id="${{CSS.escape({json.dumps(element_id)})}}"]`);
+      if (!element) throw new Error('element id is stale');
+      if (!element.tagName || element.tagName.toLowerCase() !== 'input' || String(element.type).toLowerCase() !== 'file') {{
+        throw new Error('target is not a file input');
+      }}
+      return element;
+    }})()
+    """
 
 
 def _is_timeout_error(exc: BaseException) -> bool:

@@ -1,6 +1,6 @@
 # WebFA P11 详细实施方案
 
-Status: approved plan; implementation not started
+Status: complete; P11.0-P11.10 implemented and accepted
 
 Phase name:
 
@@ -1486,6 +1486,16 @@ P11 不做：
 
 ### P11.1 Schema Foundation
 
+状态：完成。
+
+实现位置：
+
+- `packages/schemas/safety.py`；
+- `packages/schemas/web.py`；
+- `tests/unit/test_safety_schemas.py`。
+
+阶段报告：`docs/reports/P11_1_SCHEMA_FOUNDATION_REPORT.md`。
+
 新增完整 Schema：
 
 - SafetyDimension union；
@@ -1511,6 +1521,15 @@ P11 不做：
 
 ### P11.2 Template Registry & Contract Compiler
 
+状态：完成。
+
+实现位置：
+
+- `packages/webfa-core/browser/safety_templates.py`；
+- `tests/unit/test_safety_templates.py`。
+
+阶段报告：`docs/reports/P11_2_TEMPLATE_CONTRACT_REPORT.md`。
+
 实现：
 
 - 版本化模板注册表；
@@ -1526,6 +1545,22 @@ P11 不做：
 - contract 输出稳定可测试。
 
 ### P11.3 SafetyContext Handshake
+
+状态：完成。
+
+实现位置：
+
+- `packages/webfa-core/browser/safety_context.py`；
+- `packages/webfa-core/browser/runtime.py`；
+- `apps/runtime/api/routes/browser.py`；
+- `apps/runtime/mcp/server.py`；
+- `apps/runtime/mcp/tools.py`；
+- `apps/runtime/mcp/runtime_client.py`；
+- `tests/unit/test_safety_context.py`；
+- `tests/integration/test_web_object_api.py`；
+- `tests/integration/test_mcp_stdio_browser.py`。
+
+阶段报告：`docs/reports/P11_3_SAFETY_CONTEXT_HANDSHAKE_REPORT.md`。
 
 实现：
 
@@ -1544,6 +1579,10 @@ P11 不做：
 
 ### P11.4 Runtime Evidence & Mismatch Detection
 
+状态：完成。
+
+实施报告：`docs/reports/P11_4_RUNTIME_EVIDENCE_REPORT.md`
+
 实现：
 
 - P10 effects 到最低风险维度映射；
@@ -1560,6 +1599,10 @@ P11 不做：
 
 ### P11.5 Credential & Human Takeover Boundary
 
+状态：完成。
+
+实施报告：`docs/reports/P11_5_CREDENTIAL_TAKEOVER_REPORT.md`
+
 实现：
 
 - protected-field handling；
@@ -1573,6 +1616,10 @@ P11 不做：
 - takeover 后通过 observe 恢复。
 
 ### P11.6 Local Resource Broker
+
+状态：完成。
+
+实施报告：`docs/reports/P11_6_LOCAL_RESOURCE_BROKER_REPORT.md`
 
 实现：
 
@@ -1589,6 +1636,8 @@ P11 不做：
 
 ### P11.7 Identity & Profile Policy
 
+状态：完成。
+
 实现：
 
 - profile owner；
@@ -1604,6 +1653,8 @@ P11 不做：
 - 与 P12 兼容。
 
 ### P11.8 Financial Policy & Payment Instrument Contract
+
+状态：完成。
 
 实现：
 
@@ -1623,6 +1674,8 @@ P11 不做：
 
 ### P11.9 Payment Backend MVP
 
+状态：完成。商户已保存支付方式已通过真实 Managed Chromium 闭环；系统/令牌化钱包已完成统一 Broker 合同和测试覆盖。
+
 暂定实现：
 
 1. merchant-saved payment method selection；
@@ -1639,15 +1692,35 @@ P11 不做：
 
 ### P11.10 Step-up UI, Audit & Final Acceptance
 
+状态：完成。
+
 实现：
 
-- boundary escalation card；
-- policy pages；
-- payment instrument UI；
-- receipt viewer；
-- real-task regression；
-- docs/manual；
-- migration cleanup。
+- 精确绑定的 boundary escalation request；
+- Visualizer Safety Center step-up 卡片；
+- Profile、金融策略和支付工具配置界面；
+- 单次 step-up approval/reject/consume 生命周期；
+- bounded session-local SafetyReceiptStore；
+- receipt viewer 和 REST 查询接口；
+- allow、assertion、step-up、takeover、deny 的统一 secret-free receipt；
+- 真实支付 step-up 回归；
+- Agent manual、validation harness、roadmap 和 release checklist 收口；
+- 默认五个 MCP 工具保持不变。
+
+验收：
+
+```text
+超自主额度
+  -> require_step_up
+  -> Visualizer 仅批准精确范围
+  -> Agent 使用 context_id + step_up_id 重试
+  -> 绑定和范围校验
+  -> 单次执行
+  -> step-up consumed
+  -> 前后两条 secret-free receipts
+```
+
+Step-up 绑定 Agent、Profile、Origin、WebObject、语义操作、SafetyContext、请求范围、有效期和一次使用。它不是通用审批 token，也不允许扩大到不同金额、币种、对象或操作。
 
 ---
 

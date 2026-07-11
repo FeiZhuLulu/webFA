@@ -11,7 +11,12 @@ contextBridge.exposeInMainWorld("webfaDesktop", {
   startMcp: (): Promise<McpStatus> => ipcRenderer.invoke("mcp:start"),
   stopMcp: (): Promise<McpStatus> => ipcRenderer.invoke("mcp:stop"),
   restartMcp: (): Promise<McpStatus> => ipcRenderer.invoke("mcp:restart"),
-  getDesktopConfig: (): Promise<{ apiUrl: string; consoleUrl: string; authSurfaceProfilePath: string }> =>
+  getDesktopConfig: (): Promise<{
+    apiUrl: string;
+    consoleUrl: string;
+    authSurfaceProfilePath: string;
+    visualizerControlToken: string;
+  }> =>
     ipcRenderer.invoke("desktop:getConfig"),
   getAuthSurfaceStatus: (): Promise<AuthSurfaceStatus> => ipcRenderer.invoke("auth-surface:getStatus"),
   showAuthSurface: (payload: { url: string; bounds: AuthSurfaceBounds }): Promise<AuthSurfaceStatus> =>

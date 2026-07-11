@@ -82,6 +82,24 @@ class HostBrowserDriver:
             return
         raise ValueError(f"{action} is not supported by managed chromium driver")
 
+    def upload_file(self, element_id: str, file_path: str) -> None:
+        setter = getattr(self._host, "set_file_input_files", None)
+        if not callable(setter):
+            raise ValueError("selected BrowserHost does not support protected file upload")
+        try:
+            setter(
+                element_id,
+                [file_path],
+                frame_id=self._element_frames.get(element_id),
+            )
+        except BrowserRuntimeError:
+            raise
+        except RuntimeError as exc:
+            message = str(exc)
+            if "cross-origin" in message or "frame not found" in message:
+                raise frame_unsupported(self._element_frames.get(element_id)) from exc
+            raise ValueError("protected file upload failed") from exc
+
     def has_pending_dialog(self) -> bool:
         getter = getattr(self._host, "get_pending_dialog", None)
         if not callable(getter):

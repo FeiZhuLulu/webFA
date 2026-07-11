@@ -20,6 +20,7 @@ for candidate in [APP_ROOT, APP_ROOT / "packages", APP_ROOT / "packages" / "webf
 
 from mcp.server.fastmcp import FastMCP
 
+from schemas.safety import SafetyOperationEnvelope
 from schemas.web import ObserveDetail, ObserveMode, SemanticOperationName
 
 from apps.runtime.mcp.tools import (
@@ -49,9 +50,15 @@ mcp = FastMCP(
 
 
 @mcp.tool(name="webfa.open_url")
-def webfa_open_url(url: str) -> str:
-    """Open a URL and return page state. Prefer constructed URLs for search, filters, pagination, and known resource paths."""
-    return json.dumps(tool_open_url(url=url), ensure_ascii=False)
+def webfa_open_url(url: str, safety: SafetyOperationEnvelope | None = None) -> str:
+    """Open a URL, prefer constructed URLs for known state, and optionally establish a task-scoped SafetyContext."""
+    return json.dumps(
+        tool_open_url(
+            url=url,
+            safety=safety.model_dump(mode="json") if safety is not None else None,
+        ),
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool(name="webfa.observe")
@@ -85,14 +92,18 @@ def webfa_act(
     target: str,
     arguments: dict[str, Any] | None = None,
     expected_object_version: int | None = None,
+    expected_document_revision: int | None = None,
+    safety: SafetyOperationEnvelope | None = None,
 ) -> str:
-    """Execute a semantic operation declared in the target WebObject capabilities."""
+    """Execute a semantic operation, optionally using a task-scoped SafetyContext."""
     return json.dumps(
         tool_act(
             operation=operation,
             target=target,
             arguments=arguments,
             expected_object_version=expected_object_version,
+            expected_document_revision=expected_document_revision,
+            safety=safety.model_dump(mode="json") if safety is not None else None,
         ),
         ensure_ascii=False,
     )

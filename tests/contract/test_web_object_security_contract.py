@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import get_args
 
+from schemas.safety import PaymentInstrumentRef, SafetyReceipt
 from schemas.web import (
     ObjectCapabilityName,
     SemanticOperationName,
@@ -93,5 +94,25 @@ def test_semantic_capabilities_exclude_human_browser_primitives() -> None:
 
 def test_operation_request_has_no_primitive_action_field() -> None:
     fields = set(WebOperationRequest.model_fields)
-    assert "operation" in fields
+    assert {"operation", "safety", "expected_document_revision"}.issubset(fields)
     assert "action" not in fields
+    assert "approve" not in fields
+
+
+def test_payment_and_receipt_schemas_do_not_expose_payment_secrets() -> None:
+    forbidden = {
+        "pan",
+        "card_number",
+        "full_card_number",
+        "cvv",
+        "cvc",
+        "payment_password",
+        "otp",
+        "cookie",
+        "token",
+    }
+    payment_fields = _collect_property_names(PaymentInstrumentRef.model_json_schema())
+    receipt_fields = _collect_property_names(SafetyReceipt.model_json_schema())
+
+    assert payment_fields.isdisjoint(forbidden)
+    assert receipt_fields.isdisjoint(forbidden)

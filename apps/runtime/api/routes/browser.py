@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, HTTPException, Request
 
 from apps.runtime.api.action_log import get_action_log
@@ -9,9 +11,24 @@ from browser.runtime import BrowserRuntime
 from browser.runtime_errors import BrowserRuntimeError, browser_host_closed, from_value_error
 from browser.semantic_operations import WebOperationError
 from schemas.browser import BrowserActionRequest, BrowserOpenRequest
-from schemas.web import WebObserveRequest, WebOperationRequest
+from schemas.web import WebObserveRequest, WebOpenRequest, WebOperationRequest
 
 router = APIRouter(tags=["browser"])
+
+
+def _require_unsafe_legacy_browser_api() -> None:
+    enabled = os.getenv("WEBFA_ENABLE_UNSAFE_LEGACY_BROWSER_API", "").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "code": "legacy_browser_api_disabled",
+                "message": (
+                    "Legacy BrowserState/BrowserAction endpoints are disabled because they bypass "
+                    "the P11 semantic safety contract. Use /v1/browser/web/* instead."
+                ),
+            },
+        )
 
 
 def get_browser_runtime(request: Request) -> BrowserRuntime:
@@ -86,6 +103,7 @@ def _handle_browser_errors(request: Request, tool: str, action):
     except WebOperationError as exc:
         status_code = 404 if exc.code == "object_not_found" else 409 if exc.code in {
             "object_version_conflict",
+            "document_revision_conflict",
             "operation_temporarily_unavailable",
         } else 400
         _record_browser_action(request, tool=tool, status="error", code=exc.code, message=str(exc))
@@ -118,13 +136,14 @@ def _handle_browser_errors(request: Request, tool: str, action):
 
 
 @router.post("/browser/web/open")
-def open_web_url(payload: BrowserOpenRequest, request: Request):
+def open_web_url(payload: WebOpenRequest, request: Request):
     def action():
-        runtime = get_browser_runtime(request)
-        runtime.open(payload.url, agent_id=get_agent_id(request))
-        state = runtime.observe_web(WebObserveRequest(mode="page")).state
+        result = get_browser_runtime(request).open_web(
+            payload,
+            agent_id=get_agent_id(request),
+        )
         _record_browser_action(request, tool="webfa.open_url", message=payload.url)
-        return {"ok": True, "url": payload.url, "state": state.model_dump()}
+        return result.model_dump()
 
     return _handle_browser_errors(request, "webfa.open_url", action)
 
@@ -168,6 +187,8 @@ def switch_web_tab(payload: dict, request: Request):
 @router.post("/browser/open", include_in_schema=False)
 @router.post("/browser/legacy/open")
 def open_url(payload: BrowserOpenRequest, request: Request):
+    _require_unsafe_legacy_browser_api()
+
     def action():
         result = get_browser_runtime(request).open(payload.url, agent_id=get_agent_id(request)).model_dump()
         _record_browser_action(request, tool="webfa.open_url", message=payload.url)
@@ -179,6 +200,8 @@ def open_url(payload: BrowserOpenRequest, request: Request):
 @router.get("/browser/observe", include_in_schema=False)
 @router.get("/browser/legacy/observe")
 def observe(request: Request):
+    _require_unsafe_legacy_browser_api()
+
     def action():
         result = get_browser_runtime(request).observe().model_dump()
         _record_browser_action(request, tool="webfa.observe")
@@ -190,6 +213,8 @@ def observe(request: Request):
 @router.post("/browser/act", include_in_schema=False)
 @router.post("/browser/legacy/act")
 def act(payload: BrowserActionRequest, request: Request):
+    _require_unsafe_legacy_browser_api()
+
     def action():
         result = get_browser_runtime(request).act(payload, agent_id=get_agent_id(request)).model_dump()
         _record_browser_action(request, tool="webfa.act", message=payload.action)
@@ -221,6 +246,8 @@ def tabs(request: Request):
 @router.post("/browser/tabs/switch", include_in_schema=False)
 @router.post("/browser/legacy/tabs/switch")
 def switch_tab(payload: dict, request: Request):
+    _require_unsafe_legacy_browser_api()
+
     def action():
         tab_id = payload.get("tab_id")
         if not isinstance(tab_id, str):

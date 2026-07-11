@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from schemas.browser import (
     BrowserAgentState,
@@ -11,6 +11,12 @@ from schemas.browser import (
     BrowserFrame,
     BrowserStateError,
     BrowserUrlSecurity,
+)
+from schemas.safety import (
+    SafetyContextState,
+    SafetyDecision,
+    SafetyOperationEnvelope,
+    SafetyReceipt,
 )
 
 
@@ -85,6 +91,14 @@ ObjectRole = Literal[
 
 ObjectLifetime = Literal["runtime", "session", "document", "frame", "transient"]
 ContentTrust = Literal["untrusted", "user_provided", "trusted_runtime"]
+ProtectedInputKind = Literal[
+    "password",
+    "one_time_code",
+    "captcha",
+    "payment_card",
+    "payment_verification",
+    "biometric_verification",
+]
 
 ObjectCapabilityName = Literal[
     "open",
@@ -100,6 +114,7 @@ ObjectCapabilityName = Literal[
     "dismiss",
     "download",
     "upload",
+    "provide_payment_instrument",
     "request_human_takeover",
 ]
 
@@ -133,6 +148,8 @@ WebStateStatus = Literal["idle", "loading", "error"]
 TakeoverReason = Literal[
     "authentication",
     "captcha",
+    "payment_verification",
+    "biometric_verification",
     "opaque_surface",
     "high_risk_confirmation",
     "permission_request",
@@ -208,6 +225,16 @@ class WebObjectObservable(StrictModel):
 class WebObjectSecurity(StrictModel):
     content_trust: ContentTrust = "untrusted"
     cross_origin: bool = False
+    protected_input: bool = False
+    protected_kind: ProtectedInputKind | None = None
+
+    @model_validator(mode="after")
+    def validate_protected_input(self) -> "WebObjectSecurity":
+        if self.protected_input and self.protected_kind is None:
+            raise ValueError("protected input requires protected_kind")
+        if not self.protected_input and self.protected_kind is not None:
+            raise ValueError("protected_kind requires protected_input=true")
+        return self
 
 
 class WebObjectBase(StrictModel):
@@ -351,6 +378,18 @@ class WebObserveQuery(StrictModel):
         return self
 
 
+class WebOpenRequest(StrictModel):
+    url: str
+    safety: SafetyOperationEnvelope | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        if not value.startswith(("http://", "https://", "file://")):
+            raise ValueError("url must start with http://, https://, or file://")
+        return value
+
+
 class WebObserveRequest(StrictModel):
     mode: ObserveMode = "page"
     target: str | None = None
@@ -400,6 +439,7 @@ class WebState(StrictModel):
     takeover: HumanTakeoverState = Field(default_factory=HumanTakeoverState)
     security: BrowserUrlSecurity = Field(default_factory=BrowserUrlSecurity)
     agent: BrowserAgentState = Field(default_factory=BrowserAgentState)
+    safety: SafetyContextState | None = None
     changes: WebChangeSet | None = None
     errors: list[BrowserStateError] = Field(default_factory=list)
 
@@ -410,11 +450,21 @@ class WebState(StrictModel):
         return self
 
 
+class WebOpenResult(StrictModel):
+    ok: bool = True
+    url: str
+    state: WebState
+    safety_decision: SafetyDecision | None = None
+    safety_receipt: SafetyReceipt | None = None
+
+
 class WebOperationRequest(StrictModel):
     target: str = Field(min_length=1)
     operation: SemanticOperationName
     arguments: dict[str, Any] = Field(default_factory=dict)
     expected_object_version: int | None = Field(default=None, ge=1)
+    expected_document_revision: int | None = Field(default=None, ge=0)
+    safety: SafetyOperationEnvelope | None = None
 
 
 class WebOperationResult(StrictModel):
@@ -425,6 +475,8 @@ class WebOperationResult(StrictModel):
     current_object_version: int | None = Field(default=None, ge=1)
     document_revision: int = Field(default=0, ge=0)
     state: WebState
+    safety_decision: SafetyDecision | None = None
+    safety_receipt: SafetyReceipt | None = None
     data: dict[str, Any] | None = None
 
 

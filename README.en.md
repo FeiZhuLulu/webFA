@@ -28,7 +28,7 @@ real web page
 
 The target agent interface is based on web objects, object state, relations, capabilities, versions, and changes. DOM, selectors, coordinates, mouse/keyboard events, CDP, and browser-engine protocols remain Runtime implementation details.
 
-The default MCP surface supports queryable `observe(page/object/query/changes)`, stable object identity, object versions, document revisions, ChangeSets, structured collections/tables/forms, and explicit `opaque_surface` objects with Human Takeover. Legacy `BrowserState` and P7 actions remain only in a temporary legacy REST compatibility layer. See `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`.
+The default MCP surface supports queryable `observe(page/object/query/changes)`, stable object identity, object versions, document revisions, ChangeSets, structured collections/tables/forms, and explicit `opaque_surface` objects with Human Takeover. Legacy `BrowserState` and P7 actions remain only as a default-disabled historical regression layer; without an explicit unsafe opt-in they return `410 legacy_browser_api_disabled`. See `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`.
 
 ## What Works Today
 
@@ -44,7 +44,8 @@ The default MCP surface supports queryable `observe(page/object/query/changes)`,
 - `webfa.act` accepts declared semantic operations only; click/type/press remain internal Runtime strategies.
 - WebFA-owned Auth Surface by default for user-assisted login, QR, verification, 2FA, and authorization pages.
 - Single active agent lease so multiple connected agents do not silently fight over one browser session.
-- WebFA Visualizer MVP for Runtime status, page preview, Agent View, content blocks, and action log.
+- WebFA Visualizer MVP for Runtime status, page preview, Agent View, Safety Center, Step-up, and safety receipts. The complete `/v1/visualizer/*` control plane uses a separate high-entropy token and is isolated from Agent REST/MCP calls.
+- P11 safety enforcement for task-scoped SafetyContext, Runtime evidence elevation, Profile/Origin binding, exact single-use Step-up, credential takeover, resource grants, and financial policy.
 
 ## Current Limits
 
@@ -52,8 +53,9 @@ The default MCP surface supports queryable `observe(page/object/query/changes)`,
 - All agents connected to the same Runtime and `WEBFA_HOME` share the default browser profile and website login state.
 - Multi-profile and multi-session isolation are not implemented yet.
 - WebFA does not bypass anti-bot, CAPTCHA, risk-control, or platform safety systems.
-- High-risk final actions such as send, delete, purchase, publish, or settings changes do not yet have a complete human confirmation layer.
-- Some historical transaction/provider code remains in the repository as legacy code. It is disabled from the default MCP surface.
+- SafetyContext, Step-up, financial usage, resource grants, and SafetyReceipt state are still session-local. Crash restoration and durable state belong to P13.
+- `open_url` and link navigation are still modeled as navigation. If a site abuses GET navigation to perform an external write, Runtime cannot determine that business side effect from protocol semantics alone; this remains a documented boundary.
+- Some historical transaction/provider code remains in the repository as legacy code. Primitive BrowserAction REST is disabled by default and is not exposed through MCP.
 
 ## Install
 
@@ -84,11 +86,13 @@ webfa-mcp
 
 `webfa-mcp` reuses an already-running Runtime. If none is reachable at `WEBFA_RUNTIME_URL`, it starts one automatically.
 
-Start the development Visualizer:
+Start the complete development Visualizer (Renderer + Electron; Electron generates the control token and starts Runtime):
 
 ```powershell
-npm run dev:renderer
+npm run dev
 ```
+
+`npm run dev:renderer` starts only the static Renderer and does not receive a securely injected Visualizer control token, so it is not a complete control plane.
 
 Default URL:
 
@@ -143,6 +147,10 @@ $env:WEBFA_BROWSER_DRIVER="managed-chromium"  # the only supported BrowserHost p
 $env:WEBFA_BROWSER_HEADLESS="0"
 $env:WEBFA_AUTH_TAKEOVER="auto"
 $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
+# A standalone Runtime must receive an explicit high-entropy value before its Visualizer control plane can be used:
+$env:WEBFA_VISUALIZER_CONTROL_TOKEN="<random-secret>"
+# Historical regression only; never enable in production:
+# $env:WEBFA_ENABLE_UNSAFE_LEGACY_BROWSER_API="1"
 ```
 
 If `WEBFA_HOME` is unset on Windows, WebFA uses `%APPDATA%\WebFA`.
@@ -179,11 +187,10 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 See `docs/browser-runtime-roadmap.md`.
 
-Current milestone: P10 WebFA Object Model is complete.
+Current milestone: P10 WebFA Object Model and P11 Agent Safety Contract are complete. P11 now provides the full loop: SafetyContext, Runtime evidence elevation, credential/payment-verification takeover, LocalResourceBroker, Profile ownership and binding policy, user-defined financial limits, protected payment instruments, exact single-use step-up grants, Safety Center policy UI, and secret-free SafetyReceipt audit. P12 Multi Session / Multi Profile is next.
 
 Next work:
 
-- P11 Real Task Safety Layer
 - P12 Multi Session / Multi Profile
 - P13 Durable Trace / Resume
 

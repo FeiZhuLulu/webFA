@@ -12,13 +12,18 @@ SENSITIVE_MESSAGE_KEYS = {
     "access_token",
     "auth",
     "authorization",
+    "card_number",
     "client_secret",
     "code",
     "credential",
+    "cvc",
+    "cvv",
+    "otp",
     "password",
     "secret",
     "session",
     "token",
+    "verification_code",
 }
 
 

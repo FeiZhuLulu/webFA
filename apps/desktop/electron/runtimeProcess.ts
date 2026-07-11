@@ -17,6 +17,7 @@ export interface RuntimeProcessManagerOptions {
   host?: string;
   port?: number;
   pythonExecutable?: string;
+  visualizerControlToken: string;
   onStatus?: (status: RuntimeStatus) => void;
 }
 
@@ -27,6 +28,7 @@ export class RuntimeProcessManager {
   private readonly host: string;
   private readonly port: number;
   private readonly pythonExecutable: string;
+  private readonly visualizerControlToken: string;
   private readonly onStatus?: (status: RuntimeStatus) => void;
 
   constructor(options: RuntimeProcessManagerOptions) {
@@ -34,6 +36,7 @@ export class RuntimeProcessManager {
     this.host = options.host ?? "127.0.0.1";
     this.port = options.port ?? 8787;
     this.pythonExecutable = options.pythonExecutable ?? process.env.WEBFA_PYTHON ?? "python";
+    this.visualizerControlToken = options.visualizerControlToken;
     this.onStatus = options.onStatus;
     this.status = {
       state: "stopped",
@@ -65,7 +68,8 @@ export class RuntimeProcessManager {
       WEBFA_API_HOST: this.host,
       WEBFA_API_PORT: String(this.port),
       WEBFA_BROWSER_HEADLESS: process.env.WEBFA_BROWSER_HEADLESS ?? "1",
-      WEBFA_AUTH_SURFACE_MODE: process.env.WEBFA_AUTH_SURFACE_MODE ?? "electron"
+      WEBFA_AUTH_SURFACE_MODE: process.env.WEBFA_AUTH_SURFACE_MODE ?? "electron",
+      WEBFA_VISUALIZER_CONTROL_TOKEN: this.visualizerControlToken
     };
 
     const args = [

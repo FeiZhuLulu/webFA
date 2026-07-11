@@ -56,7 +56,7 @@ def _build_frame(item: dict) -> BrowserFrame:
 
 def _sanitize_element(item: dict) -> dict:
     sanitized = dict(item)
-    if str(sanitized.get("input_type") or "").lower() == "password":
+    if _is_protected_field(sanitized, type_key="input_type"):
         sanitized["value"] = ""
     return sanitized
 
@@ -66,11 +66,40 @@ def _sanitize_form(item: dict) -> dict:
     field_details = []
     for field in sanitized.get("field_details", []):
         clean = dict(field)
-        if str(clean.get("type") or "").lower() == "password":
+        if _is_protected_field(clean, type_key="type"):
             clean["value"] = ""
         field_details.append(clean)
     sanitized["field_details"] = field_details
     return sanitized
+
+
+def _is_protected_field(value: dict, *, type_key: str) -> bool:
+    input_type = str(value.get(type_key) or "").lower()
+    autocomplete = str(value.get("autocomplete") or "").lower()
+    combined = " ".join(
+        str(value.get(key) or "").lower()
+        for key in ("name", "field_name", "placeholder", "key", "label")
+    )
+    if input_type in {"password", "file"}:
+        return True
+    if autocomplete in {"one-time-code", "cc-number", "cc-csc", "cc-exp", "cc-exp-month", "cc-exp-year"}:
+        return True
+    return any(
+        marker in combined
+        for marker in (
+            "one-time code",
+            "verification code",
+            "otp",
+            "2fa",
+            "captcha",
+            "cvv",
+            "cvc",
+            "card number",
+            "验证码",
+            "支付密码",
+            "银行卡号",
+        )
+    )
 
 
 def _detect_auth_surface(raw: RawPageSnapshot, elements: list[dict], forms: list[dict]) -> BrowserAuthState:

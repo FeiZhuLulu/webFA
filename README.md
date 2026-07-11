@@ -28,7 +28,7 @@ WebFA 当前默认 Agent 接口已经迁移到正式的 **WebFA Object Model**�
 
 Agent 的正式目标接口是网页对象、对象状态、对象关系和语义操作。DOM、selector、坐标、鼠标键盘事件、CDP 和浏览器引擎协议都属于 Runtime 内部实现。
 
-默认 MCP 已支持可查询的 `observe(page/object/query/changes)`、稳定对象身份、对象版本、文档 revision、ChangeSet、结构化集合/表格/表单，以及 `opaque_surface` 和 Human Takeover。旧 `BrowserState` / P7 action 只保留在临时 legacy REST 兼容层，不再是默认 Agent 接口。完整设计见 `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`。
+默认 MCP 已支持可查询的 `observe(page/object/query/changes)`、稳定对象身份、对象版本、文档 revision、ChangeSet、结构化集合/表格/表单，以及 `opaque_surface` 和 Human Takeover。旧 `BrowserState` / P7 action 仅保留为默认禁用的历史回归层；除非显式设置危险开关，否则返回 `410 legacy_browser_api_disabled`。完整设计见 `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`。
 
 ## 当前能力
 
@@ -44,7 +44,8 @@ Agent 的正式目标接口是网页对象、对象状态、对象关系和语�
 - `webfa.act` 只接受对象声明的 semantic operation；click/type/press 等浏览器原语只存在于 Runtime 内部实现。
 - 默认使用 WebFA-owned Auth Surface，方便用户在 WebFA 接管区完成登录、扫码、验证码、2FA 和授权。
 - 通过 active agent lease 限制同一时间只有一个 agent 修改浏览器状态，避免多个 agent 同时抢同一个页面。
-- 提供 WebFA Visualizer MVP，用于查看 Runtime 状态、当前页面预览、Agent View、内容块和操作日志。
+- 提供 WebFA Visualizer MVP，用于查看 Runtime 状态、当前页面预览、Agent View、Safety Center、Step-up 和安全回执；完整 `/v1/visualizer/*` 控制面使用独立高熵 Token，与 Agent REST/MCP 隔离。
+- P11 对高风险语义操作执行 SafetyContext、Runtime 证据提升、Profile/Origin 绑定、精确单次 Step-up、凭据接管、资源授权和金融策略。
 
 ## 当前限制
 
@@ -52,8 +53,9 @@ Agent 的正式目标接口是网页对象、对象状态、对象关系和语�
 - 连接同一个 Runtime 和 `WEBFA_HOME` 的所有 agent 默认共享同一个浏览器 profile，也就是共享同一组网站登录态。
 - 多 profile、多 session 隔离尚未实现。
 - WebFA 不绕过反爬、验证码、风控或平台安全系统。
-- 发送、删除、购买、发布、修改设置等高风险最终动作还没有完整的人类确认层。
-- 仓库里仍保留少量历史 transaction/provider 代码作为 legacy；默认 MCP surface 不会暴露这些能力。
+- SafetyContext、Step-up、金融 usage、资源授权和 SafetyReceipt 当前仍是 session-local；崩溃恢复与持久化属于 P13。
+- `open_url`/链接导航仍按导航语义处理；站点若滥用 GET 导航产生外部写入，Runtime 无法仅凭协议确定其业务副作用，这是当前已知边界。
+- 仓库里仍保留少量历史 transaction/provider 代码作为 legacy；默认 MCP surface 不会暴露这些能力。原始 BrowserAction REST 默认禁用。
 
 ## 安装
 
@@ -84,11 +86,13 @@ webfa-mcp
 
 `webfa-mcp` 会复用已经运行的 Runtime。如果 `WEBFA_RUNTIME_URL` 指向的位置没有可用 Runtime，它会自动启动一个。
 
-启动开发版 Visualizer：
+启动完整开发版 Visualizer（Renderer + Electron；Electron 负责生成控制 Token 并启动 Runtime）：
 
 ```powershell
-npm run dev:renderer
+npm run dev
 ```
+
+`npm run dev:renderer` 只启动静态 Renderer，不具备安全注入的 Visualizer 控制 Token，因此不能作为完整控制面使用。
 
 默认访问：
 
@@ -143,6 +147,10 @@ $env:WEBFA_BROWSER_DRIVER="managed-chromium"  # 唯一支持的 BrowserHost 路�
 $env:WEBFA_BROWSER_HEADLESS="0"
 $env:WEBFA_AUTH_TAKEOVER="auto"
 $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
+# 独立 Runtime 若需要 Visualizer 控制面，必须显式提供高熵随机值：
+$env:WEBFA_VISUALIZER_CONTROL_TOKEN="<random-secret>"
+# 仅历史测试使用；生产环境不要启用：
+# $env:WEBFA_ENABLE_UNSAFE_LEGACY_BROWSER_API="1"
 ```
 
 Windows 上如果没有设置 `WEBFA_HOME`，WebFA 默认使用 `%APPDATA%\WebFA`。
@@ -179,11 +187,10 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 见 `docs/browser-runtime-roadmap.md`。
 
-当前阶段：P10 WebFA Object Model 已完成。
+当前阶段：P10 WebFA Object Model 与 P11 Agent Safety Contract 已完成。P11 已形成完整闭环：SafetyContext、Runtime 证据提升、凭据/支付验证接管、LocalResourceBroker、Profile 所有权与绑定策略、用户自定义金融限额、受保护支付工具、精确单次 Step-up、安全策略 UI 与 SafetyReceipt 审计。下一步是 P12 Multi Session / Multi Profile。
 
 后续方向：
 
-- P11 Real Task Safety Layer
 - P12 Multi Session / Multi Profile
 - P13 Durable Trace / Resume
 

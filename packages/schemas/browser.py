@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from schemas.safety import AccountOwner, TrustMode, UnknownEffectPolicy
+
 
 BrowserActionName = Literal[
     "click",
@@ -249,6 +251,9 @@ class BrowserAgentState(BaseModel):
     agent_lease_expires_at: str | None = None
     profile_shared: bool = True
     profile_id: str = "default"
+    profile_owner: AccountOwner = "shared"
+    trust_mode: TrustMode = "trusted_agent"
+    unknown_external_effect_policy: UnknownEffectPolicy = "require_step_up"
 
 
 class BrowserState(BaseModel):

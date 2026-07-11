@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>WebFA P11 Safety Validation</title>
+  <style>
+    body { font-family: sans-serif; max-width: 760px; margin: 32px auto; }
+    section { margin: 20px 0; padding: 16px; border: 1px solid #ccc; }
+    label { display: block; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>WebFA P11 Safety Validation</h1>
+
+  <section>
+    <h2>Protected authentication</h2>
+    <label>Password <input id="password" name="password" type="password" value="secret-password" /></label>
+    <label>One-time code <input id="otp" name="verification_code" autocomplete="one-time-code" value="123456" /></label>
+    <label>CAPTCHA <input id="captcha" name="captcha" placeholder="CAPTCHA" value="human-answer" /></label>
+  </section>
+
+  <section>
+    <h2>Protected payment</h2>
+    <label>Card number <input id="card" name="card_number" aria-label="Card number" autocomplete="cc-number" value="4111111111111111" /></label>
+    <label>CVV <input id="cvv" name="cvv" aria-label="CVV" autocomplete="cc-csc" value="123" /></label>
+    <label>Payment password <input id="payment-password" name="payment_password" placeholder="Payment password" type="password" value="pay-secret" /></label>
+    <button id="biometric" aria-label="Confirm with fingerprint">Confirm with fingerprint</button>
+  </section>
+
+  <section>
+    <h2>Merchant saved payment</h2>
+    <form id="checkout-form" onsubmit="event.preventDefault(); const method = document.getElementById('selected-payment').value || 'none'; document.getElementById('payment-result').textContent = method === 'visa-4821' ? 'Payment completed with Visa ending in 4821' : method === 'google-pay' ? 'Payment completed with Google Pay' : 'No payment method selected';">
+      <p id="order-total">Order total: CNY 279.00</p>
+      <input id="selected-payment" type="hidden" value="" />
+      <label>
+        <input id="saved-card" type="radio" name="payment-method" aria-label="Pay with Visa ending in 4821" onchange="document.getElementById('selected-payment').value = 'visa-4821'; document.getElementById('payment-result').textContent = 'Payment method selected: Visa ending in 4821';" />
+        Pay with Visa ending in 4821
+      </label>
+      <label>
+        <input id="tokenized-wallet" type="radio" name="payment-method" aria-label="Pay with Google Pay" onchange="document.getElementById('selected-payment').value = 'google-pay'; document.getElementById('payment-result').textContent = 'Payment method selected: Google Pay';" />
+        Pay with Google Pay
+      </label>
+      <button id="place-order" type="submit">Place order</button>
+      <button id="one-click-payment" type="button" onclick="document.getElementById('payment-result').textContent = 'One-click payment completed with Visa ending in 4821';">
+        Pay now with Visa ending in 4821
+      </button>
+    </form>
+    <p id="payment-result">Payment pending</p>
+  </section>
+
+  <section>
+    <h2>Protected local upload</h2>
+    <form id="upload-form" onsubmit="event.preventDefault(); document.getElementById('upload-result').textContent = document.getElementById('file').files[0]?.name || 'none';">
+      <label>Attachment <input id="file" name="attachment" type="file" onchange="document.getElementById('upload-result').textContent = this.files[0]?.name || 'none';" /></label>
+      <button type="submit">Submit upload</button>
+    </form>
+    <p id="upload-result">none</p>
+  </section>
+</body>
+</html>

@@ -16,6 +16,14 @@ class BrowserHost(Protocol):
 
     def evaluate(self, expression: str) -> object: ...
 
+    def set_file_input_files(
+        self,
+        element_id: str,
+        file_paths: list[str],
+        *,
+        frame_id: str | None = None,
+    ) -> None: ...
+
     def capture_accessibility_tree(self) -> dict[str, Any]: ...
 
     def capture_dom_snapshot(self) -> dict[str, Any]: ...

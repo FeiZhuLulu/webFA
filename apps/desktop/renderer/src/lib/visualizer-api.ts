@@ -1,6 +1,30 @@
-import type { VisualizerState } from "../types/visualizer";
+import type {
+  AccountOwner,
+  FinancialPolicy,
+  LocalResourceGrantState,
+  PaymentInstrumentState,
+  StepUpRequestState,
+  TrustMode,
+  UnknownEffectPolicy,
+  VisualizerState,
+} from "../types/visualizer";
 
 const API_FALLBACK = "http://127.0.0.1:8787";
+let visualizerControlToken = "";
+
+export function setVisualizerControlToken(token: string | null | undefined): void {
+  visualizerControlToken = token?.trim() ?? "";
+}
+
+function controlHeaders(json = false): HeadersInit {
+  if (!visualizerControlToken) {
+    throw new Error("Visualizer control token is unavailable");
+  }
+  return {
+    ...(json ? { "Content-Type": "application/json" } : {}),
+    "X-WebFA-Visualizer-Token": visualizerControlToken,
+  };
+}
 
 export function resolveApiUrl(preferred?: string | null): string {
   return preferred || API_FALLBACK;
@@ -25,7 +49,10 @@ async function readApiError(response: Response, fallback: string): Promise<strin
 }
 
 export async function fetchVisualizerState(apiUrl: string): Promise<VisualizerState> {
-  const response = await fetch(`${apiUrl}/v1/visualizer/state`, { cache: "no-store" });
+  const response = await fetch(`${apiUrl}/v1/visualizer/state`, {
+    cache: "no-store",
+    headers: controlHeaders(),
+  });
   if (!response.ok) {
     throw new Error(await readApiError(response, "Visualizer state failed"));
   }
@@ -33,7 +60,10 @@ export async function fetchVisualizerState(apiUrl: string): Promise<VisualizerSt
 }
 
 export async function restartHost(apiUrl: string): Promise<VisualizerState> {
-  const response = await fetch(`${apiUrl}/v1/visualizer/restart-host`, { method: "POST" });
+  const response = await fetch(`${apiUrl}/v1/visualizer/restart-host`, {
+    method: "POST",
+    headers: controlHeaders(),
+  });
   if (!response.ok) {
     throw new Error(await readApiError(response, "Restart host failed"));
   }
@@ -43,7 +73,7 @@ export async function restartHost(apiUrl: string): Promise<VisualizerState> {
 export async function openAuthSurface(apiUrl: string, url?: string | null): Promise<VisualizerState> {
   const response = await fetch(`${apiUrl}/v1/visualizer/open-auth-surface`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: controlHeaders(true),
     body: JSON.stringify(url ? { url } : {})
   });
   if (!response.ok) {
@@ -55,13 +85,175 @@ export async function openAuthSurface(apiUrl: string, url?: string | null): Prom
 export async function closeAuthSurface(apiUrl: string, url?: string | null): Promise<VisualizerState> {
   const response = await fetch(`${apiUrl}/v1/visualizer/close-auth-surface`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: controlHeaders(true),
     body: JSON.stringify(url ? { url } : {})
   });
   if (!response.ok) {
     throw new Error(await readApiError(response, "Close auth surface failed"));
   }
   return (await response.json()) as VisualizerState;
+}
+
+export type CreateLocalResourcePayload = {
+  display_name: string;
+  content_base64: string;
+  owner: "agent" | "user" | "shared";
+  purpose: string;
+  allowed_origins: string[];
+  bound_agent_ids: string[];
+  bound_profile_ids: string[];
+  expires_in_seconds: number;
+  max_uses: number;
+};
+
+export async function createLocalResource(
+  apiUrl: string,
+  payload: CreateLocalResourcePayload,
+): Promise<LocalResourceGrantState> {
+  const response = await fetch(`${apiUrl}/v1/visualizer/resources`, {
+    method: "POST",
+    headers: controlHeaders(true),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Create resource grant failed"));
+  }
+  const body = (await response.json()) as { resource: LocalResourceGrantState };
+  return body.resource;
+}
+
+export async function revokeLocalResource(
+  apiUrl: string,
+  resourceRef: string,
+): Promise<LocalResourceGrantState> {
+  const response = await fetch(
+    `${apiUrl}/v1/visualizer/resources/${encodeURIComponent(resourceRef)}`,
+    { method: "DELETE", headers: controlHeaders() },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Revoke resource grant failed"));
+  }
+  const body = (await response.json()) as { resource: LocalResourceGrantState };
+  return body.resource;
+}
+
+export type ProfilePolicyPayload = {
+  profile_id: string;
+  owner: AccountOwner;
+  bound_agent_ids: string[];
+  allowed_origins: string[];
+  safety_policy_id: string | null;
+  financial_policy_id: string | null;
+  trust_mode: TrustMode;
+  unknown_external_effect_policy: UnknownEffectPolicy;
+};
+
+export async function updateProfilePolicy(
+  apiUrl: string,
+  payload: ProfilePolicyPayload,
+): Promise<ProfilePolicyPayload> {
+  const response = await fetch(
+    `${apiUrl}/v1/visualizer/profile-policy/${encodeURIComponent(payload.profile_id)}`,
+    {
+      method: "PUT",
+      headers: controlHeaders(true),
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Update profile policy failed"));
+  }
+  const body = (await response.json()) as { profile: ProfilePolicyPayload };
+  return body.profile;
+}
+
+export async function createFinancialPolicy(
+  apiUrl: string,
+  payload: FinancialPolicy,
+): Promise<FinancialPolicy> {
+  const response = await fetch(`${apiUrl}/v1/visualizer/financial-policies`, {
+    method: "POST",
+    headers: controlHeaders(true),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Create financial policy failed"));
+  }
+  const body = (await response.json()) as { policy: FinancialPolicy };
+  return body.policy;
+}
+
+export type CreatePaymentInstrumentPayload = PaymentInstrumentState["instrument"];
+
+export async function createPaymentInstrument(
+  apiUrl: string,
+  payload: CreatePaymentInstrumentPayload,
+): Promise<PaymentInstrumentState> {
+  const response = await fetch(`${apiUrl}/v1/visualizer/payment-instruments`, {
+    method: "POST",
+    headers: controlHeaders(true),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Create payment instrument failed"));
+  }
+  const body = (await response.json()) as { instrument: PaymentInstrumentState };
+  return body.instrument;
+}
+
+export async function revokePaymentInstrument(
+  apiUrl: string,
+  instrumentId: string,
+): Promise<PaymentInstrumentState> {
+  const response = await fetch(
+    `${apiUrl}/v1/visualizer/payment-instruments/${encodeURIComponent(instrumentId)}`,
+    { method: "DELETE", headers: controlHeaders() },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Revoke payment instrument failed"));
+  }
+  const body = (await response.json()) as { instrument: PaymentInstrumentState };
+  return body.instrument;
+}
+
+export async function approveStepUp(
+  apiUrl: string,
+  stepUpId: string,
+  decisionNote = "",
+): Promise<StepUpRequestState> {
+  const response = await fetch(
+    `${apiUrl}/v1/visualizer/step-ups/${encodeURIComponent(stepUpId)}/approve`,
+    {
+      method: "POST",
+      headers: controlHeaders(true),
+      body: JSON.stringify({ decided_by: "local_user", decision_note: decisionNote }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Approve step-up failed"));
+  }
+  const body = (await response.json()) as { step_up: StepUpRequestState };
+  return body.step_up;
+}
+
+export async function rejectStepUp(
+  apiUrl: string,
+  stepUpId: string,
+  decisionNote = "",
+): Promise<StepUpRequestState> {
+  const response = await fetch(
+    `${apiUrl}/v1/visualizer/step-ups/${encodeURIComponent(stepUpId)}/reject`,
+    {
+      method: "POST",
+      headers: controlHeaders(true),
+      body: JSON.stringify({ decided_by: "local_user", decision_note: decisionNote }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Reject step-up failed"));
+  }
+  const body = (await response.json()) as { step_up: StepUpRequestState };
+  return body.step_up;
 }
 
 /** @deprecated Use openAuthSurface */

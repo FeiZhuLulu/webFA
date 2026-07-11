@@ -13,7 +13,24 @@ OBSERVE_PROBE = r"""
   };
   const textOf = (el) => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
   const inputTypeOf = (el) => el.tagName.toLowerCase() === 'input' ? (el.getAttribute('type') || 'text').toLowerCase() : null;
-  const valueOf = (el) => inputTypeOf(el) === 'password' ? '' : (el.value || '');
+  const protectedInputKindOf = (el) => {
+    const type = inputTypeOf(el) || '';
+    const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+    const combined = [
+      el.getAttribute('name') || '',
+      el.getAttribute('placeholder') || '',
+      el.getAttribute('aria-label') || '',
+      autocomplete,
+      type
+    ].join(' ').toLowerCase();
+    if (type === 'password') return combined.includes('payment') || combined.includes('支付') ? 'payment_verification' : 'password';
+    if (/captcha|图形验证码|人机验证/.test(combined)) return 'captcha';
+    if (autocomplete === 'one-time-code' || /one-time code|verification code|\botp\b|\b2fa\b|短信验证码|动态码/.test(combined)) return 'one_time_code';
+    if (['cc-number','cc-csc','cc-exp','cc-exp-month','cc-exp-year'].includes(autocomplete) || /card number|credit card|debit card|\bcvv\b|\bcvc\b|银行卡号|信用卡/.test(combined)) return 'payment_card';
+    if (/payment verification|3d secure|3-d secure|支付验证/.test(combined)) return 'payment_verification';
+    return null;
+  };
+  const valueOf = (el) => inputTypeOf(el) === 'file' || protectedInputKindOf(el) ? '' : (el.value || '');
   const nameOf = (el) => (
     el.getAttribute('aria-label') ||
     el.getAttribute('title') ||
@@ -103,6 +120,8 @@ OBSERVE_PROBE = r"""
         text: textOf(el),
         value: valueOf(el),
         placeholder: el.getAttribute('placeholder') || '',
+        field_name: el.getAttribute('name') || '',
+        autocomplete: el.getAttribute('autocomplete') || '',
         input_type: inputTypeOf(el),
         visible: true,
         enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true',
@@ -210,6 +229,8 @@ OBSERVE_PROBE = r"""
           text: textOf(el),
           value: valueOf(el),
           placeholder: el.getAttribute('placeholder') || '',
+          field_name: el.getAttribute('name') || '',
+          autocomplete: el.getAttribute('autocomplete') || '',
           input_type: inputTypeOf(el),
           visible: true,
           enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true',

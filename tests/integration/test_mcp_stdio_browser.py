@@ -171,13 +171,21 @@ async def _run_mcp_browser_flow(port: int, tmp_path: Path) -> None:
             assert "WebState" in descriptions["webfa.observe"]
             assert "semantic operation" in descriptions["webfa.act"]
             schemas = {tool.name: tool.inputSchema for tool in tools.tools}
+            open_properties = schemas["webfa.open_url"]["properties"]
             observe_properties = schemas["webfa.observe"]["properties"]
             act_properties = schemas["webfa.act"]["properties"]
+            assert {"url", "safety"}.issubset(open_properties)
             assert {"mode", "target", "query", "range", "since_revision", "detail", "limit"}.issubset(observe_properties)
-            assert "operation" in act_properties
+            assert {"operation", "expected_document_revision", "safety"}.issubset(act_properties)
             assert "action" not in act_properties
             operation_enum = set(act_properties["operation"]["enum"])
-            assert {"set_value", "submit", "activate", "dismiss"}.issubset(operation_enum)
+            assert {
+                "set_value",
+                "submit",
+                "activate",
+                "dismiss",
+                "provide_payment_instrument",
+            }.issubset(operation_enum)
             assert operation_enum.isdisjoint({"click", "double_click", "type", "press", "focus", "select"})
 
             opened = _tool_json(await session.call_tool("webfa.open_url", {"url": FIXTURE_PAGE.as_uri()}))

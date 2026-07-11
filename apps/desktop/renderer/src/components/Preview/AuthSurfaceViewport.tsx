@@ -64,11 +64,24 @@ export function AuthSurfaceViewport({ active, url, reason }: AuthSurfaceViewport
     <div ref={hostRef} className={`viz-auth-surface-host${active ? " active" : ""}`}>
       {active ? (
         <div className="viz-auth-surface-label">
-          WebFA 接管区 · {reason === "authentication" ? "登录/扫码/验证码请在此完成" : "请在此完成需要人工处理的页面步骤"}
+          WebFA 接管区 · {takeoverLabel(reason)}
         </div>
       ) : (
         <div className="viz-auth-surface-placeholder" />
       )}
     </div>
   );
+}
+
+function takeoverLabel(reason: HumanTakeoverReason | null): string {
+  if (reason === "authentication" || reason === "captcha") {
+    return "登录、2FA、扫码或人机验证请在此完成";
+  }
+  if (reason === "payment_verification") {
+    return "支付密码、银行确认或 3-D Secure 请在此完成";
+  }
+  if (reason === "biometric_verification") {
+    return "指纹、面容或安全密钥验证请在此完成";
+  }
+  return "请在此完成需要人工处理的页面步骤";
 }

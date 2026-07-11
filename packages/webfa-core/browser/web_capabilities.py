@@ -95,13 +95,51 @@ _CAPABILITIES: dict[ObjectCapabilityName, CapabilityDescriptor] = {
         effect="upload",
         requires_confirmation=True,
         arguments={
-            "resource_id": CapabilityArgumentDescriptor(
+            "resource_ref": CapabilityArgumentDescriptor(
                 type="string",
                 required=True,
-                description="A WebFA-approved local resource identifier, never an arbitrary local path.",
-            )
+                description="A WebFA-approved local resource reference, never an arbitrary local path.",
+            ),
+            "purpose": CapabilityArgumentDescriptor(
+                type="string",
+                required=False,
+                description="Optional task purpose; when provided it must match the resource grant.",
+            ),
         },
-        description="Upload a WebFA-approved resource through the future resource bridge.",
+        description="Upload a scoped WebFA-approved resource through the local resource broker.",
+    ),
+    "provide_payment_instrument": CapabilityDescriptor(
+        name="provide_payment_instrument",
+        effect="external_write",
+        requires_confirmation=True,
+        arguments={
+            "instrument_id": CapabilityArgumentDescriptor(
+                type="string",
+                required=True,
+                description="Opaque WebFA payment instrument reference. Payment secrets are never Agent-visible.",
+            ),
+            "amount": CapabilityArgumentDescriptor(
+                type="string",
+                required=True,
+                description="Expected transaction amount as a decimal string.",
+            ),
+            "currency": CapabilityArgumentDescriptor(
+                type="string",
+                required=True,
+                description="Three-letter transaction currency code.",
+            ),
+            "transaction_kind": CapabilityArgumentDescriptor(
+                type="string",
+                required=True,
+                description="Financial transaction kind declared in the SafetyContext.",
+            ),
+            "recurring": CapabilityArgumentDescriptor(
+                type="boolean",
+                required=False,
+                description="Whether the transaction creates a recurring commitment.",
+            ),
+        },
+        description="Use an opaque payment instrument through the protected Payment Instrument Broker.",
     ),
     "request_human_takeover": CapabilityDescriptor(
         name="request_human_takeover",

@@ -39,6 +39,10 @@ class WebObjectVersionConflictError(WebOperationError):
     pass
 
 
+class WebDocumentRevisionConflictError(WebOperationError):
+    pass
+
+
 class WebOperationNotSupportedError(WebOperationError):
     pass
 
@@ -57,6 +61,9 @@ class WebOperationPlan:
     target: WebObject
     actions: tuple[BrowserActionRequest, ...] = ()
     takeover_reason: TakeoverReason | None = None
+    upload_resource_ref: str | None = None
+    upload_purpose: str | None = None
+    upload_legacy_target: str | None = None
     no_op: bool = False
 
 
@@ -67,6 +74,7 @@ class SemanticOperationExecutor:
         self._registry = registry
 
     def plan(self, request: WebOperationRequest) -> WebOperationPlan:
+        self._validate_document_revision(request)
         target = self._require_target(request)
         self._validate_version(request, target)
         self._validate_capability(request, target)
@@ -137,7 +145,44 @@ class SemanticOperationExecutor:
                 target=target,
                 takeover_reason=_takeover_reason(target),
             )
-        if operation in {"open_in_new_context", "download", "upload"}:
+        if operation == "provide_payment_instrument":
+            self._require_only_arguments(
+                request,
+                {"instrument_id", "amount", "currency", "transaction_kind", "recurring"},
+            )
+            for name in ("instrument_id", "amount", "currency", "transaction_kind"):
+                value = request.arguments.get(name)
+                if not isinstance(value, str) or not value.strip():
+                    raise self._argument_error(request, f"{name} must be a non-empty string")
+            recurring = request.arguments.get("recurring", False)
+            if not isinstance(recurring, bool):
+                raise self._argument_error(request, "recurring must be a boolean")
+            if target.role not in {"button", "radio", "checkbox", "option", "menuitem"}:
+                raise WebOperationUnavailableError(
+                    "operation_temporarily_unavailable",
+                    "payment instrument target is not executable by the current BrowserHost",
+                    target=request.target,
+                    operation=request.operation,
+                    recover_hint="Observe available payment-method objects or request human takeover.",
+                )
+            return self._single_legacy_action(request, target, "click")
+        if operation == "upload":
+            self._require_only_arguments(request, {"resource_ref", "purpose"})
+            resource_ref = request.arguments.get("resource_ref")
+            if not isinstance(resource_ref, str) or not resource_ref.strip():
+                raise self._argument_error(request, "resource_ref must be a non-empty string")
+            resource_ref = resource_ref.strip()
+            purpose = request.arguments.get("purpose")
+            if purpose is not None and (not isinstance(purpose, str) or not purpose.strip()):
+                raise self._argument_error(request, "purpose must be a non-empty string")
+            return WebOperationPlan(
+                request=request,
+                target=target,
+                upload_resource_ref=resource_ref,
+                upload_purpose=purpose.strip() if isinstance(purpose, str) else None,
+                upload_legacy_target=self._require_legacy_target(request, target),
+            )
+        if operation in {"open_in_new_context", "download"}:
             raise WebOperationUnavailableError(
                 "operation_temporarily_unavailable",
                 f"{operation} is defined by the WebFA Object Model but is not implemented by the current resource/host bridge",
@@ -168,6 +213,22 @@ class SemanticOperationExecutor:
                 operation=request.operation,
                 recover_hint="Call observe in changes or query mode and choose a current object id.",
             ) from exc
+
+    def _validate_document_revision(self, request: WebOperationRequest) -> None:
+        expected = request.expected_document_revision
+        if expected is None:
+            return
+        current = self._registry.current_state()
+        current_revision = current.document_revision if current is not None else 0
+        if expected == current_revision:
+            return
+        raise WebDocumentRevisionConflictError(
+            "document_revision_conflict",
+            f"expected document revision {expected}, current revision is {current_revision}",
+            target=request.target,
+            operation=request.operation,
+            recover_hint="Observe page changes and retry using the current document revision.",
+        )
 
     def _validate_version(self, request: WebOperationRequest, target: WebObject) -> None:
         expected = request.expected_object_version
@@ -302,6 +363,15 @@ class SemanticOperationExecutor:
 def _takeover_reason(target: WebObject) -> TakeoverReason:
     if target.category == "opaque_surface" or target.role == "opaque_surface":
         return "opaque_surface"
+    protected_kind = target.security.protected_kind
+    if protected_kind == "captcha":
+        return "captcha"
+    if protected_kind in {"payment_card", "payment_verification"}:
+        return "payment_verification"
+    if protected_kind == "biometric_verification":
+        return "biometric_verification"
+    if protected_kind in {"password", "one_time_code"}:
+        return "authentication"
     if target.role == "upload_target":
         return "file_selection"
     if target.role in {"field", "textbox", "searchbox"}:

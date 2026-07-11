@@ -41,8 +41,11 @@ export function StatusPanel({ state, runtimeState, apiUrl }: StatusPanelProps) {
           <div className="viz-status-label">Active Agent</div>
           <div className="viz-status-value">{state?.agent.active_agent_id ?? "无"}</div>
           <div className="viz-status-subtext">
-            Profile: {state?.profile.profile_id ?? "default"}
+            Profile: {state?.profile.profile_id ?? "default"} · {state?.profile.owner ?? "shared"}
             {state?.profile.shared ? " (共享)" : ""}
+          </div>
+          <div className="viz-status-subtext">
+            Trust: {state?.profile.trust_mode ?? "trusted_agent"} · Unknown: {state?.profile.unknown_external_effect_policy ?? "require_step_up"}
           </div>
         </div>
 

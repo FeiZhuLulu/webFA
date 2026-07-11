@@ -8,8 +8,17 @@ import { ContentBlocksList } from "../components/Inspector/ContentBlocksList";
 import { ElementTable } from "../components/Inspector/ElementTable";
 import { PagePreview } from "../components/Preview/PagePreview";
 import { ControlPanel } from "../components/Runtime/ControlPanel";
+import { ResourceGrantPanel } from "../components/Runtime/ResourceGrantPanel";
+import { SafetyCenterPanel } from "../components/Runtime/SafetyCenterPanel";
 import { StatusPanel } from "../components/Runtime/StatusPanel";
-import { closeAuthSurface, fetchVisualizerState, openAuthSurface, resolveApiUrl, restartHost } from "../lib/visualizer-api";
+import {
+  closeAuthSurface,
+  fetchVisualizerState,
+  openAuthSurface,
+  resolveApiUrl,
+  restartHost,
+  setVisualizerControlToken,
+} from "../lib/visualizer-api";
 import type { VisualizerState } from "../types/visualizer";
 import type { RuntimeState } from "../types/webfa-desktop";
 
@@ -103,6 +112,7 @@ export default function VisualizerPage() {
       try {
         const config = await window.webfaDesktop?.getDesktopConfig();
         if (!cancelled && config?.apiUrl) {
+          setVisualizerControlToken(config.visualizerControlToken);
           apiUrlRef.current = config.apiUrl;
           setApiUrl(config.apiUrl);
         }
@@ -167,7 +177,7 @@ export default function VisualizerPage() {
       <header className="viz-app-header">
         <div className="viz-brand">
           <span className="viz-brand-name">WebFA Visualizer</span>
-          <span className="viz-tag-version">P9 MVP</span>
+          <span className="viz-tag-version">P11 Safety</span>
         </div>
         <div className="viz-header-status">
           <span className={`viz-header-pill ${runtimeState}`}>{runtimeState}</span>
@@ -228,6 +238,47 @@ export default function VisualizerPage() {
                   setRuntimeState(mapDesktopRuntimeState(status.state));
                 }
               }}
+            />
+            <div className="viz-column-header">
+              <span className="viz-column-title">Local Resource Grants</span>
+            </div>
+            <ResourceGrantPanel
+              apiUrl={apiUrl}
+              resources={visualizerState?.local_resources ?? []}
+              pageUrl={visualizerState?.page.url ?? ""}
+              activeAgentId={visualizerState?.agent.active_agent_id ?? null}
+              profileId={visualizerState?.profile.profile_id ?? "default"}
+              disabled={runtimeState !== "running"}
+              onChanged={() => refresh(apiUrlRef.current)}
+              onMessage={setToast}
+              onError={setLastError}
+            />
+            <div className="viz-column-header">
+              <span className="viz-column-title">Safety Center</span>
+            </div>
+            <SafetyCenterPanel
+              apiUrl={apiUrl}
+              profile={visualizerState?.profile ?? {
+                profile_id: "default",
+                shared: true,
+                owner: "shared",
+                trust_mode: "trusted_agent",
+                unknown_external_effect_policy: "require_step_up",
+                bound_agent_ids: [],
+                allowed_origins: [],
+                safety_policy_id: null,
+                financial_policy_id: null,
+              }}
+              activeAgentId={visualizerState?.agent.active_agent_id ?? null}
+              pageUrl={visualizerState?.page.url ?? ""}
+              financialPolicies={visualizerState?.financial_policies ?? []}
+              paymentInstruments={visualizerState?.payment_instruments ?? []}
+              stepUps={visualizerState?.step_ups ?? []}
+              receipts={visualizerState?.safety_receipts ?? []}
+              disabled={runtimeState !== "running"}
+              onChanged={() => refresh(apiUrlRef.current)}
+              onMessage={setToast}
+              onError={setLastError}
             />
           </>
         }

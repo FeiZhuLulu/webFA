@@ -166,7 +166,7 @@ def _sanitize_legacy_elements(value: Any) -> list[dict]:
     elements: list[dict] = []
     for item in _dict_list(value):
         clean = dict(item)
-        if str(clean.get("input_type") or "").lower() == "password":
+        if _is_protected_legacy_field(clean, type_key="input_type"):
             clean["value"] = ""
         elements.append(clean)
     return elements
@@ -179,12 +179,41 @@ def _sanitize_legacy_forms(value: Any) -> list[dict]:
         details: list[dict] = []
         for field in _dict_list(clean.get("field_details")):
             field_clean = dict(field)
-            if str(field_clean.get("type") or "").lower() == "password":
+            if _is_protected_legacy_field(field_clean, type_key="type"):
                 field_clean["value"] = ""
             details.append(field_clean)
         clean["field_details"] = details
         forms.append(clean)
     return forms
+
+
+def _is_protected_legacy_field(value: dict, *, type_key: str) -> bool:
+    input_type = str(value.get(type_key) or "").lower()
+    autocomplete = str(value.get("autocomplete") or "").lower()
+    combined = " ".join(
+        str(value.get(key) or "").lower()
+        for key in ("name", "field_name", "placeholder", "key", "label")
+    )
+    if input_type in {"password", "file"}:
+        return True
+    if autocomplete in {"one-time-code", "cc-number", "cc-csc", "cc-exp", "cc-exp-month", "cc-exp-year"}:
+        return True
+    return any(
+        marker in combined
+        for marker in (
+            "one-time code",
+            "verification code",
+            "otp",
+            "2fa",
+            "captcha",
+            "cvv",
+            "cvc",
+            "card number",
+            "验证码",
+            "支付密码",
+            "银行卡号",
+        )
+    )
 
 
 def _dict_list(value: Any) -> list[dict]:

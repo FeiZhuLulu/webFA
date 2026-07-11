@@ -7,7 +7,7 @@
     "apps/desktop/renderer"
   ],
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:runtime\" \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:runtime": "python -m uvicorn apps.runtime.main:app --host 127.0.0.1 --port 8787 --reload",
     "dev:renderer": "next dev apps/desktop/renderer -H 127.0.0.1 -p 8788",
     "build:electron": "tsc -p apps/desktop/electron/tsconfig.json",

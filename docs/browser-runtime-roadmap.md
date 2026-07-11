@@ -222,8 +222,17 @@ P11
   financial limits. The normal trusted-Agent path is allow-with-audit rather
   than duplicate WebFA approval. No site-specific operation allowlists and no
   additional default MCP tools.
-  Status: P11.0 target model approved and frozen; implementation has not started.
-  Detailed plan: docs/p11plan.md. The earlier design draft remains at
+  Status: complete. P11.0-P11.10 are implemented and accepted. Safety schema,
+  versioned templates, task-scoped SafetyContext, Runtime evidence/mismatch
+  detection, protected credential takeover, LocalResourceBroker, Profile policy,
+  user-defined financial limits, opaque PaymentInstrumentBroker, exact-scope
+  single-use step-up grants, Visualizer Safety Center, and bounded secret-free
+  SafetyReceipt audit are live. Real Managed Chromium validation covers external-
+  write preflight, user-owned identity escalation, protected upload, payment
+  verification takeover, Runtime-observed totals, autonomous saved-method payment,
+  and approved over-autonomy payment scope escalation. P12 Multi Session / Multi
+  Profile is next. Detailed plan: docs/p11plan.md. Final acceptance:
+  docs/reports/P11_FINAL_ACCEPTANCE_REPORT.md. The earlier design draft remains at
   docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md for design history.
 
 P12

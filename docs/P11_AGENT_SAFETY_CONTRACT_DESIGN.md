@@ -1,6 +1,6 @@
 # P11 Agent Safety Contract & Hard Boundaries
 
-Status: design draft for review; implementation not started
+Status: historical design draft; P11.0-P11.10 implementation is complete. See docs/p11plan.md and docs/reports/P11_10_STEP_UP_AUDIT_FINAL_ACCEPTANCE_REPORT.md.
 
 Working name:
 

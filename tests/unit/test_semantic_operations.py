@@ -5,6 +5,7 @@ import pytest
 from browser.object_registry import ObjectRegistry
 from browser.semantic_operations import (
     SemanticOperationExecutor,
+    WebDocumentRevisionConflictError,
     WebObjectVersionConflictError,
     WebOperationArgumentError,
     WebOperationNotSupportedError,
@@ -163,6 +164,7 @@ def test_capability_registry_defines_complete_target_without_primitives():
         "dismiss",
         "download",
         "upload",
+        "provide_payment_instrument",
         "request_human_takeover",
     } == set(descriptors)
     assert descriptors["submit"].effect == "external_write"
@@ -231,6 +233,24 @@ def test_toggle_supports_desired_state_and_no_op():
     assert toggle.actions[0].target == "el_checkbox"
 
 
+def test_document_revision_conflict_is_explicit():
+    registry, objects = _registry()
+    executor = SemanticOperationExecutor(registry)
+    field = objects["Name"]
+
+    with pytest.raises(WebDocumentRevisionConflictError) as raised:
+        executor.plan(
+            WebOperationRequest(
+                target=field.id,
+                operation="clear_value",
+                expected_document_revision=999,
+            )
+        )
+
+    assert raised.value.code == "document_revision_conflict"
+    assert "Observe" in raised.value.recover_hint
+
+
 def test_object_version_conflict_is_explicit():
     registry, objects = _registry()
     executor = SemanticOperationExecutor(registry)
@@ -296,6 +316,52 @@ def test_request_human_takeover_is_semantic_and_has_no_driver_actions():
 
     assert plan.actions == ()
     assert plan.takeover_reason == "authentication"
+
+
+def test_upload_requires_only_an_opaque_resource_reference():
+    item, provenance = _object(
+        "tmp_upload",
+        "upload_target",
+        "Attachment",
+        capabilities=["upload"],
+        legacy_id="el_upload",
+    )
+    registry = ObjectRegistry()
+    registry.update(
+        WebObjectCompilation(
+            state=WebState(document_id="doc_1", objects=[item], object_count=1),
+            provenance={item.id: provenance},
+        )
+    )
+    target = next(item for item in registry.current_state().objects if isinstance(item, WebObject))
+    executor = SemanticOperationExecutor(registry)
+
+    plan = executor.plan(
+        WebOperationRequest(
+            target=target.id,
+            operation="upload",
+            arguments={"resource_ref": "resource_123", "purpose": "application"},
+        )
+    )
+
+    assert plan.upload_resource_ref == "resource_123"
+    assert plan.upload_purpose == "application"
+    assert plan.upload_legacy_target == "el_upload"
+    assert plan.actions == ()
+
+    for arguments in (
+        {"path": "C:/Users/user/secret.txt"},
+        {"file_path": "/home/user/secret.txt"},
+        {"resource_id": "legacy-resource"},
+    ):
+        with pytest.raises(WebOperationArgumentError):
+            executor.plan(
+                WebOperationRequest(
+                    target=target.id,
+                    operation="upload",
+                    arguments=arguments,
+                )
+            )
 
 
 def test_complete_but_unimplemented_resource_operation_reports_unavailable():

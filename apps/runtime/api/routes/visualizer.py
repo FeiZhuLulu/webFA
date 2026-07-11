@@ -2,25 +2,59 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from apps.runtime.api.action_log import get_action_log
 from apps.runtime.api.auth_surface_session import get_auth_surface_session, set_auth_surface_session
 from apps.runtime.api.preview_cache import get_cached_preview, store_preview_cache
+from apps.runtime.api.visualizer_control import require_visualizer_control
 from apps.runtime.api.routes.browser import get_browser_runtime
 from browser.config import resolve_browser_runtime_config
+from browser.local_resource_broker import LocalResourceError
+from browser.payment_broker import PaymentInstrumentError
+from browser.step_up import StepUpError
 from browser.exceptions import BrowserHostClosedError
+from schemas.safety import (
+    FinancialPolicy,
+    PaymentInstrumentRef,
+    ProfileOwnershipMetadata,
+    ResourceOwner,
+    StepUpScopeScalar,
+)
 from schemas.visualizer import VisualizerState
 from schemas.web import WebObserveRequest
 
-router = APIRouter(tags=["visualizer"])
+_CONTROL_DEPENDENCIES = [Depends(require_visualizer_control)]
+router = APIRouter(tags=["visualizer"], dependencies=_CONTROL_DEPENDENCIES)
 
 
 class AuthSurfaceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     url: str | None = None
+
+
+class StepUpDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decided_by: str = Field(default="local_user", min_length=1, max_length=200)
+    decision_note: str = Field(default="", max_length=1000)
+    approved_scope: dict[str, StepUpScopeScalar] | None = Field(default=None, max_length=50)
+
+
+class LocalResourceGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = Field(min_length=1, max_length=500)
+    content_base64: str = Field(min_length=1)
+    owner: ResourceOwner = "user"
+    purpose: str = Field(min_length=1, max_length=500)
+    allowed_origins: list[str] = Field(min_length=1, max_length=100)
+    bound_agent_ids: list[str] = Field(default_factory=list, max_length=100)
+    bound_profile_ids: list[str] = Field(default_factory=list, max_length=100)
+    expires_in_seconds: int | None = Field(default=3600, ge=1, le=86400)
+    max_uses: int = Field(default=1, ge=1, le=10000)
 
 
 def _record_action(
@@ -99,6 +133,8 @@ def build_visualizer_state(request: Request) -> VisualizerState:
         errors.append({"code": "observe_failed", "message": str(exc)})
 
     browser_status = runtime.status()
+    profile_id = browser_status.get("profile_id", "default")
+    profile_metadata = runtime.get_profile_policy(profile_id)
     observe_web = getattr(runtime, "observe_web", None)
     if callable(observe_web) and (
         browser_status.get("takeover_active")
@@ -173,8 +209,15 @@ def build_visualizer_state(request: Request) -> VisualizerState:
                 "lease_expires_at": browser_status.get("agent_lease_expires_at"),
             },
             "profile": {
-                "profile_id": browser_status.get("profile_id", "default"),
-                "shared": bool(browser_status.get("profile_shared", True)),
+                "profile_id": profile_metadata.profile_id,
+                "shared": profile_metadata.owner == "shared",
+                "owner": profile_metadata.owner,
+                "trust_mode": profile_metadata.trust_mode,
+                "unknown_external_effect_policy": profile_metadata.unknown_external_effect_policy,
+                "bound_agent_ids": profile_metadata.bound_agent_ids,
+                "allowed_origins": profile_metadata.allowed_origins,
+                "safety_policy_id": profile_metadata.safety_policy_id,
+                "financial_policy_id": profile_metadata.financial_policy_id,
             },
             "page": page,
             "browser_state": browser_state.model_dump() if browser_state is not None else None,
@@ -186,6 +229,26 @@ def build_visualizer_state(request: Request) -> VisualizerState:
             },
             "auth_surface": _auth_surface_payload(request, browser_state.url if browser_state else None),
             "takeover_surface": takeover_surface,
+            "local_resources": [
+                item.model_dump()
+                for item in runtime.list_local_resources()
+            ],
+            "financial_policies": [
+                item.model_dump()
+                for item in runtime.list_financial_policies()
+            ],
+            "payment_instruments": [
+                item.model_dump()
+                for item in runtime.list_payment_instruments()
+            ],
+            "step_ups": [
+                item.model_dump()
+                for item in runtime.list_step_ups(include_terminal=True)
+            ],
+            "safety_receipts": [
+                item.model_dump()
+                for item in runtime.list_safety_receipts(limit=100)
+            ],
             "recent_actions": get_action_log(request).recent(),
             "errors": errors,
         }
@@ -205,7 +268,7 @@ def visualizer_state(request: Request) -> dict:
     return build_visualizer_state(request).model_dump()
 
 
-@router.post("/visualizer/open-auth-surface")
+@router.post("/visualizer/open-auth-surface", dependencies=_CONTROL_DEPENDENCIES)
 def open_auth_surface(request: Request, payload: AuthSurfaceRequest | None = None) -> dict:
     runtime = get_browser_runtime(request)
     body = payload or AuthSurfaceRequest()
@@ -235,13 +298,13 @@ def open_auth_surface(request: Request, payload: AuthSurfaceRequest | None = Non
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.post("/visualizer/open-host")
+@router.post("/visualizer/open-host", dependencies=_CONTROL_DEPENDENCIES)
 def open_host(request: Request, payload: AuthSurfaceRequest | None = None) -> dict:
     """Compatibility wrapper: open-host now means open-auth-surface, not external Chromium."""
     return open_auth_surface(request, payload)
 
 
-@router.post("/visualizer/close-auth-surface")
+@router.post("/visualizer/close-auth-surface", dependencies=_CONTROL_DEPENDENCIES)
 def close_auth_surface(request: Request, payload: AuthSurfaceRequest | None = None) -> dict:
     runtime = get_browser_runtime(request)
     body = payload or AuthSurfaceRequest()
@@ -263,7 +326,276 @@ def close_auth_surface(request: Request, payload: AuthSurfaceRequest | None = No
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.post("/visualizer/restart-host")
+@router.get("/visualizer/profile-policy/{profile_id}")
+def get_profile_policy(profile_id: str, request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    return {"profile": runtime.get_profile_policy(profile_id).model_dump()}
+
+
+@router.put("/visualizer/profile-policy/{profile_id}", dependencies=_CONTROL_DEPENDENCIES)
+def set_profile_policy(
+    profile_id: str,
+    payload: ProfileOwnershipMetadata,
+    request: Request,
+) -> dict:
+    if payload.profile_id != profile_id:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "profile_id_mismatch", "message": "profile_id in path and body must match"},
+        )
+    runtime = get_browser_runtime(request)
+    metadata = runtime.set_profile_policy(payload)
+    _record_action(
+        request,
+        tool="visualizer.set_profile_policy",
+        message=f"profile policy updated: {profile_id}",
+    )
+    return {"profile": metadata.model_dump()}
+
+
+@router.get("/visualizer/financial-policies")
+def list_financial_policies(request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    return {"policies": [item.model_dump() for item in runtime.list_financial_policies()]}
+
+
+@router.post("/visualizer/financial-policies", dependencies=_CONTROL_DEPENDENCIES)
+def create_financial_policy(payload: FinancialPolicy, request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    policy = runtime.register_financial_policy(payload)
+    _record_action(
+        request,
+        tool="visualizer.create_financial_policy",
+        message=f"financial policy registered: {policy.policy_id}",
+    )
+    return {"policy": policy.model_dump()}
+
+
+@router.get("/visualizer/financial-policies/{policy_id}/usage")
+def get_financial_usage(policy_id: str, request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    try:
+        return {"usage": runtime.financial_usage(policy_id).model_dump()}
+    except PaymentInstrumentError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.get("/visualizer/payment-instruments")
+def list_payment_instruments(request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    return {
+        "instruments": [item.model_dump() for item in runtime.list_payment_instruments()]
+    }
+
+
+@router.post("/visualizer/payment-instruments", dependencies=_CONTROL_DEPENDENCIES)
+def create_payment_instrument(payload: PaymentInstrumentRef, request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    profile = runtime.get_profile_policy(payload.profile_id)
+    if profile.financial_policy_id is not None and profile.financial_policy_id != payload.policy_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "profile_financial_policy_mismatch",
+                "message": "payment instrument policy must match the active Profile financial policy",
+            },
+        )
+    try:
+        state = runtime.register_payment_instrument(payload)
+        if profile.financial_policy_id is None:
+            runtime.set_profile_policy(
+                profile.model_copy(update={"financial_policy_id": payload.policy_id}, deep=True)
+            )
+        _record_action(
+            request,
+            tool="visualizer.create_payment_instrument",
+            message=f"payment instrument registered: {payload.instrument_id}",
+        )
+        return {"instrument": state.model_dump()}
+    except PaymentInstrumentError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.delete("/visualizer/payment-instruments/{instrument_id}", dependencies=_CONTROL_DEPENDENCIES)
+def revoke_payment_instrument(instrument_id: str, request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    try:
+        state = runtime.revoke_payment_instrument(instrument_id)
+        _record_action(
+            request,
+            tool="visualizer.revoke_payment_instrument",
+            message=f"payment instrument revoked: {instrument_id}",
+        )
+        return {"instrument": state.model_dump()}
+    except PaymentInstrumentError as exc:
+        raise HTTPException(
+            status_code=404 if exc.code == "payment_instrument_missing" else 400,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.get("/visualizer/step-ups")
+def list_step_ups(request: Request, include_terminal: bool = True) -> dict:
+    runtime = get_browser_runtime(request)
+    return {
+        "step_ups": [
+            item.model_dump()
+            for item in runtime.list_step_ups(include_terminal=include_terminal)
+        ]
+    }
+
+
+@router.post("/visualizer/step-ups/{step_up_id}/approve", dependencies=_CONTROL_DEPENDENCIES)
+def approve_step_up(
+    step_up_id: str,
+    payload: StepUpDecisionRequest,
+    request: Request,
+) -> dict:
+    runtime = get_browser_runtime(request)
+    try:
+        state = runtime.approve_step_up(
+            step_up_id,
+            decided_by=payload.decided_by,
+            decision_note=payload.decision_note,
+            approved_scope=payload.approved_scope,
+        )
+        _record_action(
+            request,
+            tool="visualizer.approve_step_up",
+            message=f"step-up approved: {step_up_id}",
+        )
+        return {"step_up": state.model_dump()}
+    except StepUpError as exc:
+        raise HTTPException(
+            status_code=404 if exc.code == "step_up_not_found" else 400,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.post("/visualizer/step-ups/{step_up_id}/reject", dependencies=_CONTROL_DEPENDENCIES)
+def reject_step_up(
+    step_up_id: str,
+    payload: StepUpDecisionRequest,
+    request: Request,
+) -> dict:
+    runtime = get_browser_runtime(request)
+    try:
+        state = runtime.reject_step_up(
+            step_up_id,
+            decided_by=payload.decided_by,
+            decision_note=payload.decision_note,
+        )
+        _record_action(
+            request,
+            tool="visualizer.reject_step_up",
+            message=f"step-up rejected: {step_up_id}",
+        )
+        return {"step_up": state.model_dump()}
+    except StepUpError as exc:
+        raise HTTPException(
+            status_code=404 if exc.code == "step_up_not_found" else 400,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.get("/visualizer/safety-receipts")
+def list_safety_receipts(request: Request, limit: int = 100) -> dict:
+    runtime = get_browser_runtime(request)
+    return {
+        "receipts": [
+            item.model_dump()
+            for item in runtime.list_safety_receipts(limit=limit)
+        ]
+    }
+
+
+@router.get("/visualizer/safety-receipts/{receipt_id}")
+def get_safety_receipt(receipt_id: str, request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    receipt = runtime.get_safety_receipt(receipt_id)
+    if receipt is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "safety_receipt_not_found", "message": "safety receipt was not found"},
+        )
+    return {"receipt": receipt.model_dump()}
+
+
+@router.get("/visualizer/resources")
+def list_local_resources(request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    return {
+        "resources": [item.model_dump() for item in runtime.list_local_resources()]
+    }
+
+
+@router.post("/visualizer/resources", dependencies=_CONTROL_DEPENDENCIES)
+def create_local_resource(payload: LocalResourceGrantRequest, request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    try:
+        state = runtime.register_local_resource(
+            display_name=payload.display_name,
+            content_base64=payload.content_base64,
+            owner=payload.owner,
+            purpose=payload.purpose,
+            allowed_origins=payload.allowed_origins,
+            bound_agent_ids=payload.bound_agent_ids,
+            bound_profile_ids=payload.bound_profile_ids,
+            expires_in_seconds=payload.expires_in_seconds,
+            max_uses=payload.max_uses,
+        )
+        _record_action(
+            request,
+            tool="visualizer.create_resource_grant",
+            message=f"resource grant created: {state.grant.resource_ref}",
+        )
+        return {"resource": state.model_dump()}
+    except LocalResourceError as exc:
+        _record_action(
+            request,
+            tool="visualizer.create_resource_grant",
+            status="error",
+            code=exc.code,
+            message=str(exc),
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.delete("/visualizer/resources/{resource_ref}", dependencies=_CONTROL_DEPENDENCIES)
+def revoke_local_resource(resource_ref: str, request: Request) -> dict:
+    runtime = get_browser_runtime(request)
+    try:
+        state = runtime.revoke_local_resource(resource_ref)
+        _record_action(
+            request,
+            tool="visualizer.revoke_resource_grant",
+            message=f"resource grant revoked: {resource_ref}",
+        )
+        return {"resource": state.model_dump()}
+    except LocalResourceError as exc:
+        _record_action(
+            request,
+            tool="visualizer.revoke_resource_grant",
+            status="error",
+            code=exc.code,
+            message=str(exc),
+        )
+        raise HTTPException(
+            status_code=404 if exc.code == "resource_not_found" else 400,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+
+@router.post("/visualizer/restart-host", dependencies=_CONTROL_DEPENDENCIES)
 def restart_host(request: Request) -> dict:
     runtime = get_browser_runtime(request)
     try:

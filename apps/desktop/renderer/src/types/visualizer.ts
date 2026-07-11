@@ -59,6 +59,10 @@ export type BrowserContentBlock = {
   frame_id?: string | null;
 };
 
+export type AccountOwner = "agent_owned" | "user_owned" | "shared" | "unknown";
+export type TrustMode = "trusted_agent" | "host_attested" | "guarded";
+export type UnknownEffectPolicy = "allow_with_audit" | "require_assertion" | "require_step_up" | "deny";
+
 export type BrowserState = {
   session_id: string;
   url: string;
@@ -76,6 +80,9 @@ export type BrowserState = {
     agent_lease_expires_at: string | null;
     profile_shared: boolean;
     profile_id: string;
+    profile_owner: AccountOwner;
+    trust_mode: TrustMode;
+    unknown_external_effect_policy: UnknownEffectPolicy;
   };
   security: BrowserUrlSecurity;
   dialogs: BrowserDialog[];
@@ -86,6 +93,8 @@ export type BrowserState = {
 export type HumanTakeoverReason =
   | "authentication"
   | "captcha"
+  | "payment_verification"
+  | "biometric_verification"
   | "opaque_surface"
   | "high_risk_confirmation"
   | "permission_request"
@@ -126,6 +135,103 @@ export type WebState = {
   auth: BrowserAuthState;
 };
 
+export type LocalResourceGrantState = {
+  grant: {
+    resource_ref: string;
+    display_name: string;
+    owner: "agent" | "user" | "shared";
+    purpose: string;
+    allowed_origins: string[];
+    bound_agent_ids: string[];
+    bound_profile_ids: string[];
+    expires_at: string | null;
+    max_uses: number;
+  };
+  status: "active" | "consumed" | "expired" | "revoked";
+  remaining_uses: number;
+  size_bytes: number;
+  created_at: string;
+};
+
+export type FinancialPolicy = {
+  policy_id: string;
+  currency: string;
+  autonomy_limit: string;
+  step_up_limit: string;
+  absolute_limit: string;
+  daily_limit: string | null;
+  monthly_limit: string | null;
+  subscriptions_allowed: boolean;
+  transfers_allowed: boolean;
+  cash_equivalents_allowed: boolean;
+  minimum_assurance: "agent_asserted" | "runtime_observed" | "provider_verified" | "user_confirmed";
+};
+
+export type PaymentInstrumentState = {
+  instrument: {
+    instrument_id: string;
+    owner: "agent" | "user" | "shared";
+    profile_id: string;
+    type: "merchant_saved" | "system_wallet" | "tokenized_wallet" | "issuer_virtual_card" | "prepaid_card_reference" | "local_protected_card";
+    brand: string;
+    last4: string;
+    currency: string;
+    policy_id: string;
+    bound_agent_ids: string[];
+    allowed_origins: string[];
+    display_name: string;
+  };
+  status: "active" | "revoked";
+  created_at: string;
+};
+
+export type StepUpRequestState = {
+  request: {
+    step_up_id: string;
+    reason: "financial_limit" | "financial_assurance" | "identity_switch" | "profile_scope" | "unknown_external_effect" | "policy_escalation";
+    context_id: string | null;
+    agent_id: string;
+    profile_id: string;
+    origin: string;
+    target_object_id: string;
+    operation: string;
+    message: string;
+    current_scope: Record<string, string | number | boolean>;
+    requested_scope: Record<string, string | number | boolean>;
+    created_at: string;
+    expires_at: string;
+  };
+  status: "pending" | "approved" | "rejected" | "expired" | "consumed";
+  approved_scope: Record<string, string | number | boolean>;
+  decided_by: string | null;
+  decision_note: string;
+  decided_at: string | null;
+  remaining_uses: number;
+};
+
+export type SafetyReceipt = {
+  receipt_id: string;
+  context_id: string;
+  agent_id: string;
+  profile_id: string;
+  origin: string;
+  target_object_id: string;
+  operation: string;
+  p10_effect: string;
+  safety_dimensions: string[];
+  assertion_refs: string[];
+  hard_boundary_decision: string;
+  final_decision: string;
+  before_revision: number;
+  after_revision: number;
+  result: "executed" | "not_executed" | "takeover" | "denied" | "failed";
+  message: string;
+  authority_source: string | null;
+  step_up_id: string | null;
+  metadata: Record<string, string | number | boolean>;
+  timestamp: string;
+};
+
 export type VisualizerActionEntry = {
   timestamp: string;
   tool: string;
@@ -150,6 +256,13 @@ export type VisualizerState = {
   profile: {
     profile_id: string;
     shared: boolean;
+    owner: AccountOwner;
+    trust_mode: TrustMode;
+    unknown_external_effect_policy: UnknownEffectPolicy;
+    bound_agent_ids: string[];
+    allowed_origins: string[];
+    safety_policy_id: string | null;
+    financial_policy_id: string | null;
   };
   page: {
     url: string;
@@ -177,6 +290,11 @@ export type VisualizerState = {
     target: string | null;
     origin: string;
   };
+  local_resources: LocalResourceGrantState[];
+  financial_policies: FinancialPolicy[];
+  payment_instruments: PaymentInstrumentState[];
+  step_ups: StepUpRequestState[];
+  safety_receipts: SafetyReceipt[];
   recent_actions: VisualizerActionEntry[];
   errors: Array<{ code: string; message: string }>;
 };

@@ -28,11 +28,11 @@ def get_client() -> WebFARuntimeClient:
 CONSOLE_URL = os.getenv("WEBFA_CONSOLE_URL", "http://127.0.0.1:8788")
 
 
-def tool_open_url(url: str) -> dict[str, Any]:
-    """Open a URL directly; prefer constructed URLs for search, filters, pagination, and known resources."""
+def tool_open_url(url: str, safety: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Open a URL directly; optionally establish or reference a SafetyContext."""
     client = get_client()
     try:
-        return success_response(client.open_url(url))
+        return success_response(client.open_url(url, safety=safety))
     except RuntimeUnavailableError as e:
         return map_unavailable_error(e)
     except RuntimeErrorResponse as e:
@@ -72,6 +72,8 @@ def tool_act(
     target: str,
     arguments: dict[str, Any] | None = None,
     expected_object_version: int | None = None,
+    expected_document_revision: int | None = None,
+    safety: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute one capability declared by a current WebObject."""
     client = get_client()
@@ -88,6 +90,10 @@ def tool_act(
     }
     if expected_object_version is not None:
         payload["expected_object_version"] = expected_object_version
+    if expected_document_revision is not None:
+        payload["expected_document_revision"] = expected_document_revision
+    if safety is not None:
+        payload["safety"] = safety
     try:
         return success_response(client.browser_act(payload))
     except RuntimeUnavailableError as e:

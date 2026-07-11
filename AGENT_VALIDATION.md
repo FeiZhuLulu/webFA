@@ -1,9 +1,13 @@
 # WebFA Agent Validation Harness
 
-This harness validates the current P10 public Agent surface:
+This harness validates the current P10 public Agent surface plus the complete P11.1-P11.10 Safety Contract, Runtime evidence, protected takeover, LocalResourceBroker, Profile policy, PaymentInstrumentBroker, exact-scope step-up, and SafetyReceipt audit:
 
 ```text
 WebState + stable WebObjects + queryable observe + declared capabilities + semantic operations
++ SafetyDeclaration + SafetyContract + AgentAssertions + SafetyContext
++ RuntimeEvidence + protected takeover + opaque resource_ref upload
++ Profile ownership/binding + FinancialPolicy + provide_payment_instrument
++ exact-scope StepUpRequest + secret-free SafetyReceipt
 ```
 
 Agents should read `AGENT_MANUAL.md` before validation. WebFA is not a Playwright wrapper, a selector API, a screenshot-coordinate controller, a site API wrapper, or an autonomous agent.
@@ -132,6 +136,140 @@ webfa.observe(query role=dialog)
 webfa.act(dismiss)
 webfa.observe(query)
 ```
+
+## Level 1.5: SafetyContext Handshake
+
+Automated coverage is included in:
+
+```powershell
+pytest tests/integration/test_web_object_api.py::test_public_web_object_rest_safety_handshake -q
+```
+
+Expected flow:
+
+```text
+webfa.open_url(safety.declaration)
+  -> safety_decision=require_assertion
+  -> WebState.safety.status=assertion_required
+
+webfa.act(safety.context_id only)
+  -> ok=false
+  -> executed=false
+
+webfa.act(safety.context_id + assertions)
+  -> safety_decision=allow_with_audit
+  -> semantic operation executes
+  -> configured context use is consumed
+```
+
+Validation must also confirm that `webfa.open_url` and `webfa.act` expose optional `safety` fields while the default tool list remains exactly five tools.
+
+## Level 1.6: Runtime Evidence and External Mutation
+
+Automated coverage:
+
+```powershell
+pytest tests/integration/test_web_object_api.py::test_runtime_evidence_requires_context_for_external_submit_then_allows_agent_owned_unknown_effect -q
+```
+
+Expected flow on an HTTP(S) form:
+
+```text
+submit without safety
+  -> require_assertion
+  -> status=undeclared
+  -> executed=false
+
+submit with Agent-owned trusted unknown_external_effect declaration
+  -> allow_with_audit
+  -> executed=true
+```
+
+The test must use one generic Safety dimension across the site flow; it must not use a site-specific allowlist.
+
+## Level 1.7: Protected Inputs and Local Resource Upload
+
+Use:
+
+```text
+tests/fixtures/p11_safety_page.html
+```
+
+Automated coverage:
+
+```powershell
+pytest tests/integration/test_visualizer_api.py::test_protected_payment_field_requests_payment_verification_takeover -q
+pytest tests/integration/test_visualizer_api.py::test_visualizer_resource_grant_and_real_upload -q
+```
+
+Validate:
+
+```text
+card/payment field -> request_human_takeover -> payment_verification
+password/OTP/card/CVV values absent from Agent-visible state
+file chosen through Visualizer -> opaque resource_ref
+upload requires local_data_egress SafetyContext
+Agent/Profile/Origin/purpose checks pass
+real input[type=file] receives the approved display filename
+resource use count is consumed
+no local path appears in REST, MCP, Visualizer, logs, or evidence
+```
+
+## Level 1.8: Profile Policy and Protected Payment
+
+Automated coverage:
+
+```powershell
+pytest tests/integration/test_web_object_api.py::test_user_owned_identity_switch_requires_profile_step_up -q
+pytest tests/integration/test_web_object_api.py::test_payment_instrument_broker_enforces_runtime_amount_and_completes_saved_method_flow -q
+```
+
+Validate:
+
+```text
+Profile owner/trust mode is visible to the Agent
+Agent/Profile/Origin binding mismatch -> deny
+user-owned switch_account -> require_step_up -> executed=false
+saved payment method -> provide_payment_instrument only
+Runtime observes Order total near a conservative total marker
+amount/currency mismatch -> deny
+within user autonomy limit -> allow_with_audit
+above autonomy limit -> require_step_up
+payment response exposes brand/last4 only
+SafetyReceipt contains no instrument secret
+raw card/3DS/payment password remains Human Takeover
+```
+
+The merchant-saved test uses a generic financial SafetyContext and FinancialPolicy. It must not rely on a site-specific purchase allowlist.
+
+## Level 1.9: Step-up UI and Safety Receipts
+
+Automated coverage:
+
+```powershell
+pytest tests/integration/test_web_object_api.py::test_payment_step_up_ui_approval_is_exact_scope_single_use_and_audited -q
+pytest tests/unit/test_step_up.py tests/unit/test_safety_audit.py -q
+```
+
+Expected flow:
+
+```text
+payment amount > autonomy_limit and <= step_up_limit
+  -> require_step_up
+  -> executed=false
+  -> pending exact-scope step_up_id
+  -> secret-free not_executed receipt
+
+Visualizer approves only this request
+Agent retries the same operation with context_id + step_up_id
+  -> exact binding and scope verified
+  -> allow_with_audit
+  -> operation executes once
+  -> step-up becomes consumed
+  -> secret-free executed receipt
+```
+
+Validate that changing Agent, Profile, Origin, target, operation, amount, currency, or reusing a consumed step-up is rejected. The Visualizer state and receipt endpoints must not expose PAN, CVV, OTP, wallet token, password, cookies, or local absolute paths.
 
 ## Level 2: External Agent Local Page
 

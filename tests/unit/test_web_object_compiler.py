@@ -299,7 +299,7 @@ def test_compiler_builds_web_objects_outline_regions_and_capabilities():
     assert all(set(item.capabilities).isdisjoint(forbidden) for item in state.objects)
 
 
-def test_file_input_is_an_upload_target_but_does_not_claim_unimplemented_upload():
+def test_file_input_is_an_upload_target_with_protected_upload_capability():
     snapshot = _snapshot()
     snapshot.interactive_elements.append(
         {
@@ -324,8 +324,40 @@ def test_file_input_is_an_upload_target_but_does_not_claim_unimplemented_upload(
     compilation = WebObjectCompiler().compile(snapshot)
     upload_target = _object_by_role(compilation, "upload_target")[0]
 
-    assert upload_target.capabilities == ["request_human_takeover"]
-    assert "upload" not in upload_target.capabilities
+    assert upload_target.capabilities == ["upload"]
+
+
+def test_compiler_routes_saved_payment_method_through_payment_broker_capability():
+    snapshot = _snapshot()
+    snapshot.interactive_elements.append(
+        {
+            "id": "el_saved_card",
+            "role": "button",
+            "tag": "button",
+            "name": "Pay with Visa ending in 4821",
+            "text": "Pay with Visa ending in 4821",
+            "value": "",
+            "placeholder": "",
+            "input_type": None,
+            "visible": True,
+            "enabled": True,
+            "checked": None,
+            "selected": None,
+            "href": None,
+            "actions": ["click", "focus", "activate_control"],
+            "frame_id": "frame_1",
+        }
+    )
+
+    compilation = WebObjectCompiler().compile(snapshot)
+    payment_target = next(
+        item
+        for item in compilation.state.objects
+        if item.name == "Pay with Visa ending in 4821"
+    )
+
+    assert payment_target.capabilities == ["provide_payment_instrument"]
+    assert "activate" not in payment_target.capabilities
 
 
 def test_compiler_builds_form_relations_and_content_ownership():
@@ -374,6 +406,84 @@ def test_compiler_converts_auth_state_to_human_takeover():
     assert password.value == ""
     assert password.capabilities == ["request_human_takeover"]
     assert compilation.state.takeover.target == password.id
+
+
+def test_compiler_classifies_protected_inputs_and_upload_capability():
+    snapshot = _snapshot(login=True)
+    snapshot.interactive_elements.extend(
+        [
+            {
+                "id": "el_otp",
+                "role": "textbox",
+                "tag": "input",
+                "name": "One-time code",
+                "text": "",
+                "value": "",
+                "placeholder": "Verification code",
+                "field_name": "verification_code",
+                "autocomplete": "one-time-code",
+                "input_type": "text",
+                "visible": True,
+                "enabled": True,
+                "checked": None,
+                "selected": None,
+                "href": None,
+                "actions": ["click", "type", "clear", "focus"],
+            },
+            {
+                "id": "el_card",
+                "role": "textbox",
+                "tag": "input",
+                "name": "Card number",
+                "text": "",
+                "value": "",
+                "placeholder": "Card number",
+                "field_name": "card_number",
+                "autocomplete": "cc-number",
+                "input_type": "text",
+                "visible": True,
+                "enabled": True,
+                "checked": None,
+                "selected": None,
+                "href": None,
+                "actions": ["click", "type", "clear", "focus"],
+            },
+            {
+                "id": "el_file",
+                "role": "textbox",
+                "tag": "input",
+                "name": "Attachment",
+                "text": "",
+                "value": "",
+                "placeholder": "",
+                "field_name": "attachment",
+                "autocomplete": "",
+                "input_type": "file",
+                "visible": True,
+                "enabled": True,
+                "checked": None,
+                "selected": None,
+                "href": None,
+                "actions": ["click", "focus"],
+            },
+        ]
+    )
+
+    compilation = WebObjectCompiler().compile(snapshot)
+    password = next(item for item in compilation.state.objects if item.name == "Password")
+    otp = next(item for item in compilation.state.objects if item.name == "One-time code")
+    card = next(item for item in compilation.state.objects if item.name == "Card number")
+    upload = next(item for item in compilation.state.objects if item.name == "Attachment")
+
+    assert password.security.protected_kind == "password"
+    assert otp.security.protected_kind == "one_time_code"
+    assert card.security.protected_kind == "payment_card"
+    assert password.capabilities == ["request_human_takeover"]
+    assert otp.capabilities == ["request_human_takeover"]
+    assert card.capabilities == ["request_human_takeover"]
+    assert upload.role == "upload_target"
+    assert upload.capabilities == ["upload"]
+    assert upload.security.protected_input is False
 
 
 def test_compiler_marks_cross_origin_child_frames():

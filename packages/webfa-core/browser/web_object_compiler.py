@@ -13,6 +13,7 @@ from schemas.web import (
     ObjectCapabilityName,
     ObjectCategory,
     ObjectRole,
+    ProtectedInputKind,
     WebObject,
     WebObjectObservable,
     WebObjectRelations,
@@ -494,7 +495,8 @@ class WebObjectCompiler:
                 matched_ax.add(ax_node.node_id)
             dom_node = _best_dom_match(element, dom_nodes, ax_node)
             state = _state_from_element(element, snapshot.focused_element_id, ax_node)
-            capabilities = _capabilities_for_element(element, spec.role, state)
+            protected_kind = _protected_input_kind(element, spec.role, name)
+            capabilities = _capabilities_for_element(element, spec.role, state, protected_kind)
             frame_id = str(element.get("frame_id", "")) or None
             frame_id = frame_id_map.get(frame_id or "", frame_id) or root_frame_id
             parent = frame_object_ids.get(frame_id or "", document_object_id)
@@ -513,7 +515,12 @@ class WebObjectCompiler:
                 origin=_element_origin(element, origin),
                 frame_id=frame_id,
                 lifetime="frame" if frame_id and frame_id != "frame_1" else "document",
-                security=WebObjectSecurity(content_trust="untrusted", cross_origin=False),
+                security=WebObjectSecurity(
+                    content_trust="untrusted",
+                    cross_origin=False,
+                    protected_input=protected_kind is not None,
+                    protected_kind=protected_kind,
+                ),
             )
             sources = ["legacy_probe"]
             rules = [f"legacy_role:{str(element.get('role', ''))}"]
@@ -950,10 +957,48 @@ def _element_name(element: dict) -> str:
     return href
 
 
+def _protected_input_kind(
+    element: dict,
+    role: ObjectRole,
+    name: str,
+) -> ProtectedInputKind | None:
+    input_type = str(element.get("input_type", "")).strip().lower()
+    autocomplete = str(element.get("autocomplete", "")).strip().lower()
+    field_name = str(element.get("field_name", "")).strip().lower()
+    placeholder = str(element.get("placeholder", "")).strip().lower()
+    combined = " ".join((name.lower(), field_name, placeholder, autocomplete, input_type))
+
+    if input_type == "password":
+        if any(marker in combined for marker in ("payment password", "pay password", "支付密码")):
+            return "payment_verification"
+        return "password"
+    if any(marker in combined for marker in ("captcha", "图形验证码", "人机验证")):
+        return "captcha"
+    if autocomplete == "one-time-code" or any(
+        marker in combined
+        for marker in ("one-time code", "verification code", "otp", "2fa", "短信验证码", "动态码")
+    ):
+        return "one_time_code"
+    if autocomplete in {"cc-number", "cc-csc", "cc-exp", "cc-exp-month", "cc-exp-year"} or any(
+        marker in combined
+        for marker in ("card number", "credit card", "debit card", "cvv", "cvc", "银行卡号", "信用卡")
+    ):
+        return "payment_card"
+    if any(marker in combined for marker in ("payment verification", "3d secure", "3-d secure", "支付验证")):
+        return "payment_verification"
+    if role == "button" and any(
+        marker in combined
+        for marker in ("fingerprint", "face id", "touch id", "biometric", "指纹", "面容", "生物识别")
+    ):
+        return "biometric_verification"
+    return None
+
+
 def _capabilities_for_element(
     element: dict,
     role: ObjectRole,
     state: WebObjectState,
+    protected_kind: ProtectedInputKind | None,
 ) -> list[ObjectCapabilityName]:
     capabilities: list[ObjectCapabilityName] = []
     input_type = str(element.get("input_type", "")).lower()
@@ -963,13 +1008,15 @@ def _capabilities_for_element(
     if role == "link" and href:
         capabilities.append("open")
     elif role == "upload_target":
+        capabilities.append("upload")
+    elif protected_kind is not None:
         capabilities.append("request_human_takeover")
+    elif _is_payment_instrument_control(element, role):
+        capabilities.append("provide_payment_instrument")
     elif role == "button":
         capabilities.append("activate")
     elif role in _EDITABLE_ROLES:
-        if input_type == "password":
-            capabilities.append("request_human_takeover")
-        elif state.readonly is not True:
+        if state.readonly is not True:
             capabilities.extend(["set_value", "clear_value"])
     elif role in {"combobox", "option"}:
         capabilities.append("choose")
@@ -985,6 +1032,49 @@ def _capabilities_for_element(
     elif state.expanded is True:
         capabilities.append("collapse")
     return list(dict.fromkeys(capabilities))
+
+
+def _is_payment_instrument_control(element: dict, role: ObjectRole) -> bool:
+    if role not in {"button", "radio", "checkbox", "option", "menuitem"}:
+        return False
+    combined = " ".join(
+        str(element.get(key, "")).strip().lower()
+        for key in ("name", "text", "placeholder", "aria_label")
+        if str(element.get(key, "")).strip()
+    )
+    if not combined:
+        return False
+    last4_pattern = re.search(
+        r"(?:ending\s+in|ends\s+in|尾号|末四位|[•*]{2,})\s*\d{4}\b",
+        combined,
+    )
+    card_marker = any(
+        marker in combined
+        for marker in (
+            "saved card",
+            "payment method",
+            "visa",
+            "mastercard",
+            "master card",
+            "american express",
+            "amex",
+            "discover",
+            "已保存银行卡",
+            "支付方式",
+            "银行卡尾号",
+        )
+    )
+    wallet_marker = any(
+        marker in combined
+        for marker in (
+            "apple pay",
+            "google pay",
+            "paypal",
+            "system wallet",
+            "数字钱包",
+        )
+    )
+    return bool(last4_pattern and card_marker) or wallet_marker
 
 
 def _capabilities_for_ax(role: ObjectRole, state: WebObjectState) -> list[ObjectCapabilityName]:

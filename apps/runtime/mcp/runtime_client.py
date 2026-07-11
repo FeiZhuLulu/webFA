@@ -61,8 +61,11 @@ class WebFARuntimeClient:
     def health(self) -> dict[str, Any]:
         return self._get("/health", tool="health")
 
-    def open_url(self, url: str) -> dict[str, Any]:
-        return self._post("/v1/browser/web/open", tool="webfa.open_url", json={"url": url})
+    def open_url(self, url: str, safety: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {"url": url}
+        if safety is not None:
+            payload["safety"] = safety
+        return self._post("/v1/browser/web/open", tool="webfa.open_url", json=payload)
 
     def observe(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return self._post("/v1/browser/web/observe", tool="webfa.observe", json=payload or {})

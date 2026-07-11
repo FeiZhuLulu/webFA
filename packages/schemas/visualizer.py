@@ -5,6 +5,16 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from schemas.browser import BrowserAuthState, BrowserState
+from schemas.safety import (
+    AccountOwner,
+    FinancialPolicy,
+    LocalResourceGrantState,
+    PaymentInstrumentState,
+    SafetyReceipt,
+    StepUpRequestState,
+    TrustMode,
+    UnknownEffectPolicy,
+)
 from schemas.web import TakeoverReason, WebState
 
 
@@ -30,6 +40,13 @@ class VisualizerProfileInfo(BaseModel):
 
     profile_id: str = "default"
     shared: bool = True
+    owner: AccountOwner = "shared"
+    trust_mode: TrustMode = "trusted_agent"
+    unknown_external_effect_policy: UnknownEffectPolicy = "require_step_up"
+    bound_agent_ids: list[str] = Field(default_factory=list)
+    allowed_origins: list[str] = Field(default_factory=list)
+    safety_policy_id: str | None = None
+    financial_policy_id: str | None = None
 
 
 class VisualizerPageInfo(BaseModel):
@@ -98,5 +115,10 @@ class VisualizerState(BaseModel):
     preview: VisualizerPreview = VisualizerPreview()
     auth_surface: VisualizerAuthSurface = VisualizerAuthSurface()
     takeover_surface: VisualizerTakeoverSurface = VisualizerTakeoverSurface()
+    local_resources: list[LocalResourceGrantState] = Field(default_factory=list)
+    financial_policies: list[FinancialPolicy] = Field(default_factory=list)
+    payment_instruments: list[PaymentInstrumentState] = Field(default_factory=list)
+    step_ups: list[StepUpRequestState] = Field(default_factory=list)
+    safety_receipts: list[SafetyReceipt] = Field(default_factory=list)
     recent_actions: list[VisualizerActionEntry] = Field(default_factory=list)
     errors: list[VisualizerError] = Field(default_factory=list)
