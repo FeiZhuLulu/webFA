@@ -91,6 +91,31 @@ def test_public_web_object_rest_loop(monkeypatch, tmp_path: Path):
         assert any("Hello Fei" in (item.get("text") or item.get("name") or "") for item in query_state["objects"])
 
 
+def test_openapi_exposes_p10_and_explicit_legacy_namespaces_only(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    reset_engine_for_tests()
+
+    with TestClient(create_app()) as client:
+        paths = set(client.get("/openapi.json").json()["paths"])
+
+    assert {
+        "/v1/browser/web/open",
+        "/v1/browser/web/observe",
+        "/v1/browser/web/act",
+        "/v1/browser/web/tabs/switch",
+    }.issubset(paths)
+    assert {
+        "/v1/browser/legacy/open",
+        "/v1/browser/legacy/observe",
+        "/v1/browser/legacy/act",
+        "/v1/browser/legacy/tabs/switch",
+    }.issubset(paths)
+    assert "/v1/browser/open" not in paths
+    assert "/v1/browser/observe" not in paths
+    assert "/v1/browser/act" not in paths
+    assert "/v1/browser/tabs/switch" not in paths
+
+
 def test_public_web_object_api_rejects_browser_primitives_and_selectors(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     reset_engine_for_tests()

@@ -202,13 +202,14 @@ P10
   low-level browser events remain internal execution strategies only.
   Managed Chromium becomes the only formal BrowserHost path and the Playwright
   fallback is removed during P10 migration.
-  Status: P10.0 through P10.8 are complete, and P10.9A has migrated the default
-  five MCP tools plus dedicated REST routes onto WebState, WebObjects, queryable
-  observe, object versions, and semantic operations. Default Agent tools no
-  longer expose BrowserAction, click/type/press, selectors, Playwright, or CDP.
-  Legacy BrowserState/BrowserAction REST endpoints remain temporarily for
-  internal regression compatibility. P10.9B removes Playwright paths, isolates
-  or retires the legacy REST surface, updates final public docs, and closes P10.
+  Status: complete. P10.0-P10.9 deliver WebState, stable WebObjects, queryable
+  observe, object versions, document revisions, ChangeSets, structured reading,
+  capability-driven semantic operations, opaque surfaces, generalized takeover,
+  and the public five-tool MCP migration. Managed Chromium is the only supported
+  BrowserHost path and the Python package has no Playwright dependency.
+  BrowserState/BrowserAction compatibility is isolated under the explicit
+  `/v1/browser/legacy/*` REST namespace; hidden old URL aliases remain for one
+  compatibility cycle, are absent from OpenAPI, and are not used by MCP.
   Full design: docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md.
 
 P11

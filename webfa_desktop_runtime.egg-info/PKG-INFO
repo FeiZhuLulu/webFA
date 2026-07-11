@@ -38,9 +38,9 @@ agent 决定要做什么；WebFA 负责打开真实网页、维护本地用户�
 
 当前状态：**Developer Preview**。API 和行为仍可能变化。
 
-## P10 架构方向
+## P10 WebFA Object Model
 
-WebFA 下一阶段不是增加更多 `click/type` 类浏览器自动化动作，而是建立正式的 **WebFA Object Model**：
+WebFA 当前默认 Agent 接口已经迁移到正式的 **WebFA Object Model**，不再以 `click/type` 类浏览器自动化动作作为公共协议：
 
 ```text
 真实网页
@@ -51,9 +51,7 @@ WebFA 下一阶段不是增加更多 `click/type` 类浏览器自动化动作，
 
 Agent 的正式目标接口是网页对象、对象状态、对象关系和语义操作。DOM、selector、坐标、鼠标键盘事件、CDP 和浏览器引擎协议都属于 Runtime 内部实现。
 
-P10 会逐步引入可查询的 `observe(page/object/query/changes)`、稳定对象身份、对象版本、文档 revision、ChangeSet、结构化集合/表格/表单，并在无法可靠理解页面区域时返回 `opaque_surface` 和 Human Takeover，而不是退回截图坐标操作。
-
-当前 Developer Preview 仍使用 `BrowserState` 和 P7 兼容 action；它们是迁移基础，不是最终协议。完整设计见 `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`。
+默认 MCP 已支持可查询的 `observe(page/object/query/changes)`、稳定对象身份、对象版本、文档 revision、ChangeSet、结构化集合/表格/表单，以及 `opaque_surface` 和 Human Takeover。旧 `BrowserState` / P7 action 只保留在临时 legacy REST 兼容层，不再是默认 Agent 接口。完整设计见 `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`。
 
 ## 当前能力
 
@@ -64,9 +62,9 @@ P10 会逐步引入可查询的 `observe(page/object/query/changes)`、稳定对
   - `webfa.act`
   - `webfa.get_tabs`
   - `webfa.switch_tab`
-- 使用本地 managed Chromium runtime，并持久化默认用户 profile。
-- 返回 agent 可读的 `BrowserState`，包含 URL 结构、表单、元素、内容块、登录状态、active agent lease 等信息。
-- 支持通用网页对象动作，包括表单、链接、控件、列表、内容块，以及 click/type/press 等 fallback primitive。
+- 使用本地 Managed Chromium runtime，并持久化默认用户 profile；不依赖 Playwright。
+- 返回 agent 可读的 `WebState`，包含 WebObjects、对象关系、capabilities、document revision、ChangeSet、登录与 takeover 状态。
+- `webfa.act` 只接受对象声明的 semantic operation；click/type/press 等浏览器原语只存在于 Runtime 内部实现。
 - 默认使用 WebFA-owned Auth Surface，方便用户在 WebFA 接管区完成登录、扫码、验证码、2FA 和授权。
 - 通过 active agent lease 限制同一时间只有一个 agent 修改浏览器状态，避免多个 agent 同时抢同一个页面。
 - 提供 WebFA Visualizer MVP，用于查看 Runtime 状态、当前页面预览、Agent View、内容块和操作日志。
@@ -135,7 +133,7 @@ webfa mcp-config --agent-id codex
 webfa mcp-config --client opencode --agent-id opencode
 ```
 
-每个 agent 应该配置独立的 `WEBFA_AGENT_ID`。WebFA 同一时间只允许一个 active agent 修改浏览器状态。其他 agent 仍然可以 observe，并会在 `BrowserState` 和 `/health` 中看到当前 active lease。
+每个 agent 应该配置独立的 `WEBFA_AGENT_ID`。WebFA 同一时间只允许一个 active agent 修改浏览器状态。其他 agent 仍然可以 observe，并会在 `WebState` 和 `/health` 中看到当前 active lease。
 
 接入文档：
 
@@ -164,7 +162,7 @@ Developer Preview 的主路径是 WebFA-owned Auth Surface。agent 不应该输�
 ```powershell
 $env:WEBFA_RUNTIME_URL="http://127.0.0.1:8787"
 $env:WEBFA_AGENT_ID="opencode"
-$env:WEBFA_BROWSER_DRIVER="managed-chromium"  # P10 后将成为唯一正式路径
+$env:WEBFA_BROWSER_DRIVER="managed-chromium"  # 唯一支持的 BrowserHost 路径
 $env:WEBFA_BROWSER_HEADLESS="0"
 $env:WEBFA_AUTH_TAKEOVER="auto"
 $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
@@ -204,9 +202,10 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 见 `docs/browser-runtime-roadmap.md`。
 
-近期方向：
+当前阶段：P10 WebFA Object Model 已完成。
 
-- P10 WebFA Object Model
+后续方向：
+
 - P11 Real Task Safety Layer
 - P12 Multi Session / Multi Profile
 - P13 Durable Trace / Resume

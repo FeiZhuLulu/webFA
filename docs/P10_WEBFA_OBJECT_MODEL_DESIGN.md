@@ -1,6 +1,6 @@
 # P10 WebFA Object Model
 
-Status: design frozen; P10.0 through P10.8 complete; P10.9 public migration in progress
+Status: complete; P10.0 through P10.9 accepted
 
 Implementation status:
 
@@ -15,8 +15,8 @@ Implementation status:
 - P10.8 Opaque Surface and Human Takeover: complete (Canvas/embed/object detection, generalized takeover state, Visualizer integration)
 - P10.9A Public Agent Surface: complete (default MCP and P10 REST use WebState/WebObjects/SemanticOperations)
 - P10.9B Playwright Removal: complete (dependency, config/factory path, browser discovery, tests, and current docs migrated)
-- P10.9C Legacy REST Isolation and Final Acceptance: next
-- Legacy BrowserState/BrowserAction REST endpoints remain temporarily for internal compatibility tests; default MCP no longer uses them
+- P10.9C Legacy REST Isolation and Final Acceptance: complete
+- BrowserState/BrowserAction compatibility is isolated under `/v1/browser/legacy/*`; hidden old URL aliases remain for one compatibility cycle, are absent from OpenAPI, and are not used by default MCP
 
 P10 is the next core architecture phase for WebFA. It does not add more browser-automation primitives. It upgrades WebFA from a DOM-element-oriented runtime into an agent-native web-object runtime.
 

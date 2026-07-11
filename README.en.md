@@ -179,9 +179,10 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 See `docs/browser-runtime-roadmap.md`.
 
-Near-term work:
+Current milestone: P10 WebFA Object Model is complete.
 
-- P10 WebFA Object Model
+Next work:
+
 - P11 Real Task Safety Layer
 - P12 Multi Session / Multi Profile
 - P13 Durable Trace / Resume

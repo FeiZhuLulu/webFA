@@ -165,7 +165,8 @@ def switch_web_tab(payload: dict, request: Request):
 
 
 # Legacy BrowserState/BrowserAction compatibility endpoints. Default MCP does not use these.
-@router.post("/browser/open")
+@router.post("/browser/open", include_in_schema=False)
+@router.post("/browser/legacy/open")
 def open_url(payload: BrowserOpenRequest, request: Request):
     def action():
         result = get_browser_runtime(request).open(payload.url, agent_id=get_agent_id(request)).model_dump()
@@ -175,7 +176,8 @@ def open_url(payload: BrowserOpenRequest, request: Request):
     return _handle_browser_errors(request, "webfa.open_url", action)
 
 
-@router.get("/browser/observe")
+@router.get("/browser/observe", include_in_schema=False)
+@router.get("/browser/legacy/observe")
 def observe(request: Request):
     def action():
         result = get_browser_runtime(request).observe().model_dump()
@@ -185,7 +187,8 @@ def observe(request: Request):
     return _handle_browser_errors(request, "webfa.observe", action)
 
 
-@router.post("/browser/act")
+@router.post("/browser/act", include_in_schema=False)
+@router.post("/browser/legacy/act")
 def act(payload: BrowserActionRequest, request: Request):
     def action():
         result = get_browser_runtime(request).act(payload, agent_id=get_agent_id(request)).model_dump()
@@ -215,7 +218,8 @@ def tabs(request: Request):
     return _handle_browser_errors(request, "webfa.get_tabs", action)
 
 
-@router.post("/browser/tabs/switch")
+@router.post("/browser/tabs/switch", include_in_schema=False)
+@router.post("/browser/legacy/tabs/switch")
 def switch_tab(payload: dict, request: Request):
     def action():
         tab_id = payload.get("tab_id")
