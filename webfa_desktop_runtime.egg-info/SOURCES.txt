@@ -10,6 +10,7 @@ apps/runtime/process.py
 apps/runtime/api/__init__.py
 apps/runtime/api/action_log.py
 apps/runtime/api/auth_surface_session.py
+apps/runtime/api/monitor_access.py
 apps/runtime/api/preview_cache.py
 apps/runtime/api/visualizer_control.py
 apps/runtime/api/routes/__init__.py
@@ -20,6 +21,7 @@ apps/runtime/api/routes/executions.py
 apps/runtime/api/routes/github.py
 apps/runtime/api/routes/health.py
 apps/runtime/api/routes/mcp_config.py
+apps/runtime/api/routes/monitor.py
 apps/runtime/api/routes/plans.py
 apps/runtime/api/routes/proofs.py
 apps/runtime/api/routes/provider_connections.py
@@ -91,6 +93,7 @@ packages/webfa-core/browser/host.py
 packages/webfa-core/browser/host_driver.py
 packages/webfa-core/browser/local_resource_broker.py
 packages/webfa-core/browser/managed_chromium_host.py
+packages/webfa-core/browser/monitor_gateway.py
 packages/webfa-core/browser/object_registry.py
 packages/webfa-core/browser/observe_probe.py
 packages/webfa-core/browser/payment_broker.py

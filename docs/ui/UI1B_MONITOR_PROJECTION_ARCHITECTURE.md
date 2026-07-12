@@ -1,6 +1,6 @@
 # UI-1B Monitor Projection Architecture
 
-Status: frozen target architecture; implementation phases 1-3 complete
+Status: frozen target architecture; implementation phases 1-5 complete
 
 ## 1. Product boundary
 
@@ -41,7 +41,7 @@ Agent
        -> HumanControlLease (later phase)
 
 Session Monitor
-  -> MonitorGateway (later phase)
+  -> MonitorGateway
        -> subscribe SessionEventBus
        -> subscribe VisualSurface frames
        -> request/release HumanControlLease
@@ -254,9 +254,77 @@ The worker publishes deterministic Runtime events around:
 - Human Takeover transitions;
 - visual stream start/stop and frame availability.
 
-The Runtime exposes internal Python methods for tests and the future MonitorGateway. No REST or MCP endpoint is added in phases 1-3.
+The Runtime exposes internal Python methods for tests and the MonitorGateway. No Agent REST or MCP capability is added.
 
-## 8. State-change model
+## 8. MonitorGateway and local transport
+
+### 8.1 Trust boundary
+
+The Control Center owns the high-privilege Visualizer control token. It may ask the Runtime to issue a short-lived Monitor grant for the active Session.
+
+A Monitor grant is:
+
+```text
+high entropy
+one-time authentication
+session scoped
+permission scoped: events and/or frames
+short lived
+revocable
+not stored in the URL
+not stored in localStorage
+```
+
+The Runtime stores only a SHA-256 digest of the raw token. A token can authenticate exactly one WebSocket connection. Closing the connection releases the grant; revoking the grant terminates an active connection.
+
+The Monitor preload does not expose the Visualizer control token, Runtime start/stop, policy editing, payment tools, resource grants, or Step-up approval.
+
+### 8.2 Local WebSocket protocol
+
+The local Monitor connection uses one WebSocket:
+
+```text
+JSON text frames
+  -> monitor_ready
+  -> session_event
+  -> state_snapshot
+
+binary frames
+  -> 4-byte network-order JSON-header length
+  -> UTF-8 JSON frame metadata
+  -> compressed image bytes
+```
+
+The token is sent in the first authentication message, never in the WebSocket URL. The server validates the local Renderer Origin before accepting Monitor data.
+
+The connection is read-only after authentication. Any application-level client message closes the connection. Human input is not part of phases 4-5.
+
+### 8.3 State projection
+
+The Gateway sends a safe initial Runtime snapshot and refreshes that snapshot after navigation, document changes, tab switches, operation completion, safety transitions, and takeover transitions.
+
+Snapshot URLs remove query strings and fragments before leaving the Runtime. This prevents OAuth codes, tokens, or other URL secrets from entering the Monitor UI.
+
+### 8.4 Electron Monitor window
+
+The Session Monitor is a separate Electron BrowserWindow with a separate preload and a limited IPC surface:
+
+```text
+get short-lived Monitor configuration
+open Control Center
+```
+
+The window loads only the local Monitor UI route. It never loads the target page. Navigation and new windows are locked to the local Console origin. DevTools are disabled for this limited window.
+
+### 8.5 Canvas projection
+
+The center surface decodes binary JPEG/PNG/WebP packets and draws them onto a non-interactive Canvas.
+
+The consumer rejects delayed frames when their Session, Tab, or Document binding no longer matches the selected Runtime snapshot. When the document identity changes, the previous Canvas is cleared before a new matching frame is shown.
+
+The left and right sidebars are independent structured projections. Pixels are not used to infer URL, Agent action, SafetyContext, or task state.
+
+## 9. State-change model
 
 The Monitor updates from both streams:
 
@@ -272,7 +340,7 @@ A `frame_available` event contains frame metadata and sequence only. The actual 
 
 Consumers discard a frame when its session/tab/document binding no longer matches the selected Monitor context.
 
-## 9. Human Takeover boundary
+## 10. Human Takeover boundary
 
 Human input is not part of phases 1-3.
 
@@ -290,7 +358,7 @@ Agent lease paused
 
 The current Electron `AuthSurface` that loads a URL in a separate WebContentsView is transitional and is not the final architecture.
 
-## 10. Phase plan
+## 11. Phase plan
 
 ### Phase 1: SessionEventBus — complete
 
@@ -326,7 +394,44 @@ Implemented:
 - real Managed Chromium integration test;
 - screenshot fallback remains available.
 
-## 11. Acceptance criteria for phases 1-3
+### Phase 4: MonitorGateway and Session-scoped Token — complete
+
+Implemented:
+
+- one-time short-lived Monitor capabilities;
+- token digest storage and bounded grant history;
+- active connection revoke and release lifecycle;
+- local Origin enforcement;
+- ordered event replay and live structured snapshots;
+- read-only WebSocket protocol;
+- separate Electron Monitor preload and IPC boundary.
+
+### Phase 5: Binary frame transport and Monitor Canvas — complete
+
+Implemented:
+
+- JSON and binary multiplexing over one local WebSocket;
+- versioned binary frame packet;
+- bounded event and latest-frame queues;
+- three-column Session Monitor route;
+- independently collapsible sidebars;
+- non-interactive Canvas rendering;
+- delayed-frame Session/Tab/Document rejection;
+- automatic short-lived grant refresh after disconnect;
+- real Managed Chromium end-to-end transport validation.
+
+### Phase 6: HumanControlLease — next
+
+Planned:
+
+- pause Agent lease;
+- acquire time-bounded human control over the same BrowserHost page;
+- forward local mouse, keyboard, wheel, and composition input;
+- exclude sensitive values from Agent state and audit payloads;
+- release the human lease and re-observe before Agent resume;
+- remove the transitional duplicate-page AuthSurface.
+
+## 12. Acceptance criteria for phases 1-5
 
 - The default MCP tool list remains exactly five tools.
 - No target URL is loaded by Electron Monitor code.
@@ -339,9 +444,15 @@ Implemented:
 - Frame metadata includes current session/tab/document binding.
 - Frame data and events contain no credentials, tokens, local paths, raw DOM, or raw HTML.
 - Existing P10/P11 behavior and tests remain green.
+- The Monitor token never appears in the URL or localStorage.
+- The Monitor preload cannot access the Visualizer control token or long-term policy APIs.
+- Revoking a Monitor grant terminates the active connection.
+- Binary frames are bound to Session, Tab, and Document identity.
+- The Canvas is non-interactive and the Monitor never loads the target URL.
+- Closing the Monitor stops the visual stream without closing or mutating the Agent page.
 - Python tests, renderer/electron typechecks, package build, and `git diff --check` pass.
 
-## 12. References
+## 13. References
 
 - Chrome DevTools Protocol Page domain: `Page.startScreencast`, `Page.screencastFrame`, `Page.screencastFrameAck`, and `Page.stopScreencast` are experimental.
 - Electron Offscreen Rendering remains a candidate future BrowserHost backend, not a Monitor-owned page.

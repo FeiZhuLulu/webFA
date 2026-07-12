@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("webfaDesktop", {
     visualizerControlToken: string;
   }> =>
     ipcRenderer.invoke("desktop:getConfig"),
+  openMonitor: (): Promise<{ opened: boolean }> => ipcRenderer.invoke("monitor:open"),
   getAuthSurfaceStatus: (): Promise<AuthSurfaceStatus> => ipcRenderer.invoke("auth-surface:getStatus"),
   showAuthSurface: (payload: { url: string; bounds: AuthSurfaceBounds }): Promise<AuthSurfaceStatus> =>
     ipcRenderer.invoke("auth-surface:show", payload),

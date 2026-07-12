@@ -239,13 +239,16 @@ UI-1B
   Session Monitor Projection Architecture.
   Keep BrowserHost as the only real page instance and make the Monitor a
   read-only projection of structured Runtime events plus visual frames. The
-  Monitor must never load the target URL or expose a Chrome UI. Phases 1-3 are
+  Monitor must never load the target URL or expose a Chrome UI. Phases 1-5 are
   complete: SessionEventBus, the replaceable VisualSurfaceProvider abstraction,
-  and a ManagedChromiumHost CDP screencast experiment using the same page target.
-  No REST or MCP surface was added. Next UI-1B work is a local MonitorGateway,
-  binary frame transport, and HumanControlLease replacing the transitional
-  duplicate-page AuthSurface. Frozen design:
-  docs/ui/UI1B_MONITOR_PROJECTION_ARCHITECTURE.md.
+  same-target ManagedChromium screencast, a short-lived Session-scoped
+  MonitorGateway, local JSON/binary WebSocket multiplexing, a separate limited
+  Electron Monitor window, and a non-interactive Canvas projection with
+  Session/Tab/Document frame rejection. No Agent REST or MCP capability was
+  added. Next UI-1B work is HumanControlLease over the same BrowserHost page,
+  replacing the transitional duplicate-page AuthSurface. Frozen design:
+  docs/ui/UI1B_MONITOR_PROJECTION_ARCHITECTURE.md. Phase 4-5 report:
+  docs/reports/UI1B_MONITOR_PROJECTION_PHASE_4_5_REPORT.md.
 
 P12
   Multi Session / Multi Profile.

@@ -18,6 +18,7 @@ export interface RuntimeProcessManagerOptions {
   port?: number;
   pythonExecutable?: string;
   visualizerControlToken: string;
+  monitorAllowedOrigin: string;
   onStatus?: (status: RuntimeStatus) => void;
 }
 
@@ -29,6 +30,7 @@ export class RuntimeProcessManager {
   private readonly port: number;
   private readonly pythonExecutable: string;
   private readonly visualizerControlToken: string;
+  private readonly monitorAllowedOrigin: string;
   private readonly onStatus?: (status: RuntimeStatus) => void;
 
   constructor(options: RuntimeProcessManagerOptions) {
@@ -37,6 +39,7 @@ export class RuntimeProcessManager {
     this.port = options.port ?? 8787;
     this.pythonExecutable = options.pythonExecutable ?? process.env.WEBFA_PYTHON ?? "python";
     this.visualizerControlToken = options.visualizerControlToken;
+    this.monitorAllowedOrigin = options.monitorAllowedOrigin;
     this.onStatus = options.onStatus;
     this.status = {
       state: "stopped",
@@ -69,7 +72,9 @@ export class RuntimeProcessManager {
       WEBFA_API_PORT: String(this.port),
       WEBFA_BROWSER_HEADLESS: process.env.WEBFA_BROWSER_HEADLESS ?? "1",
       WEBFA_AUTH_SURFACE_MODE: process.env.WEBFA_AUTH_SURFACE_MODE ?? "electron",
-      WEBFA_VISUALIZER_CONTROL_TOKEN: this.visualizerControlToken
+      WEBFA_VISUALIZER_CONTROL_TOKEN: this.visualizerControlToken,
+      WEBFA_MONITOR_ALLOWED_ORIGINS:
+        process.env.WEBFA_MONITOR_ALLOWED_ORIGINS ?? this.monitorAllowedOrigin
     };
 
     const args = [

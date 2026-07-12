@@ -180,6 +180,15 @@ export default function VisualizerPage() {
           <span className="viz-tag-version">P11 Safety</span>
         </div>
         <div className="viz-header-status">
+          {typeof window !== "undefined" && window.webfaDesktop?.openMonitor && (
+            <button
+              type="button"
+              className="viz-btn viz-btn-primary"
+              onClick={() => void window.webfaDesktop?.openMonitor()}
+            >
+              打开会话监控
+            </button>
+          )}
           <span className={`viz-header-pill ${runtimeState}`}>{runtimeState}</span>
           {visualizerState?.agent.active_agent_id && (
             <span className="viz-header-pill agent">agent: {visualizerState.agent.active_agent_id}</span>

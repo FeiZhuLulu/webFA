@@ -40,13 +40,33 @@ def test_electron_visualizer_control_token_is_runtime_only_and_renderer_is_origi
     renderer_api = (ROOT / "apps/desktop/renderer/src/lib/visualizer-api.ts").read_text(encoding="utf-8")
 
     assert "randomBytes(32)" in main
-    assert "requireTrustedRenderer" in main
+    assert "requireTrustedMainRenderer" in main
     assert "event.sender.id !== mainWindow.webContents.id" in main
     assert 'webContents.on("will-navigate"' in main
     assert 'webContents.on("will-redirect"' in main
     assert "setWindowOpenHandler" in main
     assert "WEBFA_VISUALIZER_CONTROL_TOKEN" in runtime_process
     assert "NEXT_PUBLIC_WEBFA_VISUALIZER_CONTROL_TOKEN" not in renderer_api
+
+
+def test_electron_monitor_uses_separate_read_only_preload_and_local_canvas():
+    main = (ROOT / "apps/desktop/electron/main.ts").read_text(encoding="utf-8")
+    preload = (ROOT / "apps/desktop/electron/monitorPreload.ts").read_text(encoding="utf-8")
+    page = (ROOT / "apps/desktop/renderer/src/app/monitor/page.tsx").read_text(encoding="utf-8")
+    styles = (ROOT / "apps/desktop/renderer/src/app/monitor/monitor.module.css").read_text(encoding="utf-8")
+
+    assert 'ipcMain.handle("monitor:getConfig"' in main
+    assert "monitorPreload.js" in main
+    assert "/v1/visualizer/monitor-grants" in main
+    assert "visualizerControlToken" not in preload
+    assert "startRuntime" not in preload
+    assert "approveStepUp" not in preload
+    assert "new WebSocket" in page
+    assert "createImageBitmap" in page
+    assert "<canvas" in page
+    assert "iframe" not in page.lower()
+    assert "loadURL" not in page
+    assert "pointer-events: none" in styles
 
 
 def test_renderer_has_stopped_state_for_runtime_stop():

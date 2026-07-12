@@ -36,6 +36,7 @@ declare global {
         authSurfaceProfilePath: string;
         visualizerControlToken: string;
       }>;
+      openMonitor: () => Promise<{ opened: boolean }>;
       getAuthSurfaceStatus: () => Promise<{ active: boolean; url: string | null; profilePath: string }>;
       showAuthSurface: (payload: {
         url: string;
@@ -46,6 +47,15 @@ declare global {
       onAuthSurfaceRequestBounds: (callback: () => void) => () => void;
       onRuntimeStatus: (callback: (status: RuntimeStatus) => void) => () => void;
       onMcpStatus: (callback: (status: McpStatus) => void) => () => void;
+    };
+    webfaMonitor?: {
+      getConfig: () => Promise<{
+        websocketUrl: string;
+        token: string;
+        sessionId: string;
+        expiresAt: string;
+      }>;
+      openControlCenter: () => Promise<{ opened: boolean }>;
     };
   }
 }

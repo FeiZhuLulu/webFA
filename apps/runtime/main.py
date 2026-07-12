@@ -22,6 +22,8 @@ from apps.runtime.api.routes.executions import router as executions_router
 from apps.runtime.api.routes.github import router as github_router
 from apps.runtime.api.routes.health import router as health_router
 from apps.runtime.api.routes.mcp_config import router as mcp_config_router
+from apps.runtime.api.routes.monitor import control_router as monitor_control_router
+from apps.runtime.api.routes.monitor import monitor_router
 from apps.runtime.api.routes.plans import router as plans_router
 from apps.runtime.api.routes.proofs import router as proofs_router
 from apps.runtime.api.routes.provider_connections import router as provider_connections_router
@@ -67,6 +69,8 @@ def create_app() -> FastAPI:
     app.include_router(github_router, prefix="/v1")
     app.include_router(health_router)
     app.include_router(mcp_config_router, prefix="/v1")
+    app.include_router(monitor_control_router, prefix="/v1")
+    app.include_router(monitor_router, prefix="/v1")
     app.include_router(plans_router, prefix="/v1")
     app.include_router(proofs_router, prefix="/v1")
     app.include_router(provider_connections_router, prefix="/v1")

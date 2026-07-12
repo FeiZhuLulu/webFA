@@ -186,6 +186,17 @@ class BrowserRuntime:
     def visual_stream_status(self, stream_id: str | None = None) -> VisualStreamState | None:
         return self._call("visual_stream_status", stream_id)
 
+    def monitor_snapshot(self) -> dict[str, Any]:
+        snapshot = self._agent_lease.snapshot()
+        worker = self._call("monitor_snapshot") if self._thread is not None else {}
+        return {
+            "session_id": worker.get("session_id", "default"),
+            "profile_id": snapshot.profile_id,
+            "active_agent_id": snapshot.active_agent_id,
+            "agent_lease_expires_at": snapshot.expires_at.isoformat() if snapshot.expires_at else None,
+            **worker,
+        }
+
     def open(self, url: str, agent_id: str | None = None) -> BrowserActionResult:
         self._agent_lease.acquire(agent_id)
         return self._with_agent_result(self._call("open", url))
@@ -1952,6 +1963,7 @@ class _BrowserWorker:
             "start_visual_stream": self.start_visual_stream,
             "stop_visual_stream": self.stop_visual_stream,
             "visual_stream_status": self.visual_stream_status,
+            "monitor_snapshot": self.monitor_snapshot,
             "restart_host": self.restart_host,
             "relaunch_visible_host": self.relaunch_visible_host,
             "open_auth_surface": self.open_auth_surface,
@@ -2287,6 +2299,25 @@ class _BrowserWorker:
         if self._visual_provider is None:
             return None
         return self._visual_provider.status(stream_id)
+
+    def monitor_snapshot(self) -> dict[str, Any]:
+        binding = self._current_visual_binding()
+        state = self._object_registry.current_state()
+        return {
+            "session_id": self._session.session_id,
+            "tab_id": binding.tab_id,
+            "document_id": binding.document_id,
+            "document_revision": state.document_revision if state is not None else 0,
+            "url": _monitor_safe_url(state.url) if state is not None else "about:blank",
+            "title": state.title if state is not None else "",
+            "object_count": state.object_count if state is not None else 0,
+            "takeover_required": bool(state.takeover.required) if state is not None else self._auth_surface_active,
+            "takeover_reason": (
+                state.takeover.reason
+                if state is not None and state.takeover.required
+                else self._takeover_reason
+            ),
+        }
 
     def restart_host(self) -> BrowserState:
         self._clear_takeover()
@@ -3188,6 +3219,16 @@ def _normalize_origin_scope(value: str) -> str:
     if parsed.scheme == "file":
         return "file://"
     return ""
+
+
+def _monitor_safe_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme == "file":
+        name = parsed.path.replace("\\", "/").rstrip("/").split("/")[-1] or "local"
+        return f"file:///{name}"
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path or '/'}"
+    return redact_action_message(url.split("?", 1)[0].split("#", 1)[0])
 
 
 def _origin_from_url(url: str) -> str:
