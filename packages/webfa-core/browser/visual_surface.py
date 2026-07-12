@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Literal, Protocol
@@ -25,12 +26,21 @@ class VisualStreamConfig:
     def __post_init__(self) -> None:
         if self.format not in {"jpeg", "webp", "png"}:
             raise ValueError("unsupported visual frame format")
+        for name, value in (
+            ("quality", self.quality),
+            ("max_width", self.max_width),
+            ("max_height", self.max_height),
+            ("every_nth_frame", self.every_nth_frame),
+            ("delivery_queue_size", self.delivery_queue_size),
+        ):
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"{name} must be an integer")
         if not 0 <= self.quality <= 100:
             raise ValueError("quality must be between 0 and 100")
-        if self.max_width < 1 or self.max_height < 1:
-            raise ValueError("visual stream dimensions must be positive")
-        if self.every_nth_frame < 1:
-            raise ValueError("every_nth_frame must be positive")
+        if not 1 <= self.max_width <= 8192 or not 1 <= self.max_height <= 8192:
+            raise ValueError("visual stream dimensions must be between 1 and 8192")
+        if not 1 <= self.every_nth_frame <= 120:
+            raise ValueError("every_nth_frame must be between 1 and 120")
         if self.delivery_queue_size < 1 or self.delivery_queue_size > 32:
             raise ValueError("delivery_queue_size must be between 1 and 32")
 
@@ -141,7 +151,7 @@ class _StreamDelivery:
         self.binding_provider = binding_provider
         self.frame_sink = frame_sink
         self.event_bus = event_bus
-        self.queue: queue.Queue[HostVisualFrame | None] = queue.Queue(maxsize=queue_size)
+        self.queue: queue.Queue[tuple[HostVisualFrame, VisualSurfaceBinding] | None] = queue.Queue(maxsize=queue_size)
         self.lock = threading.RLock()
         self.lifecycle: VisualStreamLifecycle = "starting"
         self.frames_received = 0
@@ -149,6 +159,8 @@ class _StreamDelivery:
         self.frames_dropped = 0
         self.frame_seq = 0
         self.last_error: str | None = None
+        self.last_frame_event_at = 0.0
+        self.last_frame_event_binding: VisualSurfaceBinding | None = None
         self.thread = threading.Thread(
             target=self._run,
             name=f"webfa-visual-delivery-{stream_id[-8:]}",
@@ -157,10 +169,12 @@ class _StreamDelivery:
         self.thread.start()
 
     def accept(self, frame: HostVisualFrame) -> None:
+        binding = self.binding_provider()
+        queued = (frame, binding)
         with self.lock:
             self.frames_received += 1
         try:
-            self.queue.put_nowait(frame)
+            self.queue.put_nowait(queued)
             return
         except queue.Full:
             pass
@@ -171,7 +185,7 @@ class _StreamDelivery:
         with self.lock:
             self.frames_dropped += 1
         try:
-            self.queue.put_nowait(frame)
+            self.queue.put_nowait(queued)
         except queue.Full:
             with self.lock:
                 self.frames_dropped += 1
@@ -215,8 +229,8 @@ class _StreamDelivery:
             item = self.queue.get()
             if item is None:
                 return
+            host_frame, binding = item
             try:
-                binding = self.binding_provider()
                 with self.lock:
                     self.frame_seq += 1
                     frame_seq = self.frame_seq
@@ -226,21 +240,28 @@ class _StreamDelivery:
                     session_id=binding.session_id,
                     tab_id=binding.tab_id,
                     document_id=binding.document_id,
-                    data=item.data,
-                    format=item.format,
-                    width=item.width,
-                    height=item.height,
-                    device_scale_factor=item.device_scale_factor,
-                    scroll_offset_x=item.scroll_offset_x,
-                    scroll_offset_y=item.scroll_offset_y,
-                    captured_at=item.captured_at,
-                    host_target_id=item.host_target_id,
-                    host_frame_id=item.host_frame_id,
+                    data=host_frame.data,
+                    format=host_frame.format,
+                    width=host_frame.width,
+                    height=host_frame.height,
+                    device_scale_factor=host_frame.device_scale_factor,
+                    scroll_offset_x=host_frame.scroll_offset_x,
+                    scroll_offset_y=host_frame.scroll_offset_y,
+                    captured_at=host_frame.captured_at,
+                    host_target_id=host_frame.host_target_id,
+                    host_frame_id=host_frame.host_frame_id,
                 )
                 self.frame_sink(frame)
                 with self.lock:
                     self.frames_delivered += 1
-                if self.event_bus is not None:
+                now = time.monotonic()
+                if self.event_bus is not None and (
+                    frame_seq == 1
+                    or binding != self.last_frame_event_binding
+                    or now - self.last_frame_event_at >= 1.0
+                ):
+                    self.last_frame_event_at = now
+                    self.last_frame_event_binding = binding
                     self.event_bus.publish(
                         "frame_available",
                         session_id=binding.session_id,
@@ -249,10 +270,10 @@ class _StreamDelivery:
                         data={
                             "stream_id": self.stream_id,
                             "frame_seq": frame_seq,
-                            "format": item.format,
-                            "width": item.width,
-                            "height": item.height,
-                            "device_scale_factor": item.device_scale_factor,
+                            "format": host_frame.format,
+                            "width": host_frame.width,
+                            "height": host_frame.height,
+                            "device_scale_factor": host_frame.device_scale_factor,
                         },
                     )
             except Exception as exc:

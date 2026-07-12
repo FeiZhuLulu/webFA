@@ -63,7 +63,7 @@ class VisualizerAuthSurface(BaseModel):
 
     active: bool = False
     url: str | None = None
-    mode: Literal["electron", "legacy"] = "electron"
+    mode: Literal["monitor", "electron", "legacy"] = "monitor"
 
 
 class VisualizerTakeoverSurface(BaseModel):
@@ -71,7 +71,7 @@ class VisualizerTakeoverSurface(BaseModel):
 
     active: bool = False
     url: str | None = None
-    mode: Literal["electron", "legacy"] = "electron"
+    mode: Literal["monitor", "electron", "legacy"] = "monitor"
     reason: TakeoverReason | None = None
     target: str | None = None
     origin: str = ""

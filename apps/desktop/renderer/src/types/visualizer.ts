@@ -280,12 +280,12 @@ export type VisualizerState = {
   auth_surface: {
     active: boolean;
     url: string | null;
-    mode: "electron" | "legacy";
+    mode: "monitor" | "electron" | "legacy";
   };
   takeover_surface: {
     active: boolean;
     url: string | null;
-    mode: "electron" | "legacy";
+    mode: "monitor" | "electron" | "legacy";
     reason: HumanTakeoverReason | null;
     target: string | null;
     origin: string;

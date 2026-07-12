@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import threading
 import time
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
 from browser.host_driver import HostBrowserDriver
+from browser.human_control import HumanControlLeaseManager, HumanInputEvent
 from browser.managed_chromium_host import ManagedChromiumHost, _find_chromium_executable
 from browser.object_registry import ObjectRegistry
 from browser.runtime import BrowserRuntime
@@ -21,6 +23,7 @@ from storage.db import reset_engine_for_tests
 FIXTURE_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "agent_validation_page.html"
 OPAQUE_FIXTURE_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "opaque_surface_page.html"
 STRUCTURED_READING_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "structured_reading_page.html"
+HUMAN_CONTROL_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "human_control_page.html"
 
 
 def _require_managed_chromium() -> None:
@@ -29,6 +32,108 @@ def _require_managed_chromium() -> None:
         _find_chromium_executable()
     except RuntimeError as exc:
         pytest.skip(str(exc))
+
+
+def test_managed_chromium_human_input_uses_same_page_target(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    host = ManagedChromiumHost(headless=True)
+    try:
+        host.navigate(HUMAN_CONTROL_PAGE.as_uri())
+        page_targets_before = [
+            target
+            for target in host._http_json("/json/list")
+            if target.get("type") == "page"
+        ]
+        rect = host.evaluate(
+            "(() => { const r = document.getElementById('human-input').getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; })()"
+        )
+        assert isinstance(rect, dict)
+        x = float(rect["x"]) + float(rect["width"]) / 2
+        y = float(rect["y"]) + float(rect["height"]) / 2
+        host.dispatch_human_input(HumanInputEvent(type="mouse_move", x=x, y=y))
+        host.dispatch_human_input(
+            HumanInputEvent(type="mouse_down", x=x, y=y, button="left", buttons=1)
+        )
+        host.dispatch_human_input(
+            HumanInputEvent(type="mouse_up", x=x, y=y, button="left", buttons=0)
+        )
+        host.dispatch_human_input(
+            HumanInputEvent(type="insert_text", text="same-target-secret")
+        )
+        host.dispatch_human_input(
+            HumanInputEvent(type="key_down", key="Backspace", code="Backspace")
+        )
+        host.dispatch_human_input(
+            HumanInputEvent(type="key_up", key="Backspace", code="Backspace")
+        )
+        host.dispatch_human_input(HumanInputEvent(type="insert_text", text="t"))
+        host.dispatch_human_input(
+            HumanInputEvent(type="wheel", x=x, y=y, delta_y=12)
+        )
+        value = host.evaluate("document.getElementById('human-input').value")
+        page_targets_after = [
+            target
+            for target in host._http_json("/json/list")
+            if target.get("type") == "page"
+        ]
+
+        assert value == "same-target-secret"
+        assert len(page_targets_before) == 1
+        assert len(page_targets_after) == 1
+        assert page_targets_after[0]["id"] == page_targets_before[0]["id"]
+    finally:
+        host.close()
+
+
+def test_human_control_expiry_clears_worker_takeover_and_restores_agent(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    clock = [datetime.now(timezone.utc)]
+    runtime = BrowserRuntime(
+        headless=True,
+        driver_factory=lambda: HostBrowserDriver(ManagedChromiumHost(headless=True)),
+    )
+    runtime._human_control = HumanControlLeaseManager(
+        clock=lambda: clock[0],
+        default_ttl_seconds=30,
+    )
+    try:
+        opened = runtime.open(HUMAN_CONTROL_PAGE.as_uri(), agent_id="expiry-agent")
+        original_url = opened.state.url
+        lease = runtime.acquire_human_control(
+            connection_id="expiry-connection",
+            reason="authentication",
+            ttl_seconds=30,
+        )
+        assert runtime.monitor_snapshot()["human_control_active"] is True
+        assert runtime.monitor_snapshot()["takeover_required"] is True
+
+        clock[0] += timedelta(seconds=31)
+        snapshot = runtime.monitor_snapshot()
+        assert snapshot["human_control_active"] is False
+        assert runtime.human_control_status() is None
+        assert snapshot["takeover_required"] is True
+
+        observed = runtime.observe_web(WebObserveRequest(mode="page", detail="summary"))
+        assert observed.state.url == original_url
+        assert observed.state.takeover.required is True
+        reopened = runtime.open(FIXTURE_PAGE.as_uri(), agent_id="expiry-agent")
+        assert reopened.ok is True
+        resumed = runtime.observe_web(WebObserveRequest(mode="page", detail="summary"))
+        assert resumed.state.takeover.required is False
+        assert lease.lease_id in {item.lease_id for item in runtime._human_control.history()}
+        finished = [
+            event
+            for event in runtime.replay_session_events(session_id="default", limit=200)
+            if event.type == "takeover_finished"
+        ]
+        assert finished
+        assert finished[-1].data["aborted"] is True
+    finally:
+        runtime.close()
 
 
 def test_managed_chromium_screencast_uses_same_page_target(monkeypatch, tmp_path: Path):

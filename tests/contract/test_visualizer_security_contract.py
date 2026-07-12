@@ -49,17 +49,18 @@ def test_visualizer_state_has_no_sensitive_fields(monkeypatch, tmp_path: Path):
         assert forbidden not in body_str
 
 
-def test_open_host_compat_points_to_auth_surface_not_external_window(monkeypatch, tmp_path: Path):
+def test_open_host_compat_is_disabled_in_favor_of_same_page_human_control(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
-    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "electron")
+    monkeypatch.delenv("WEBFA_ENABLE_LEGACY_AUTH_SURFACE", raising=False)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
-        body = client.post("/v1/visualizer/open-host").json()
+        response = client.post("/v1/visualizer/open-host")
 
-    assert body["auth_surface"]["mode"] == "electron"
-    assert body["runtime"]["visible_window"] is False
-    assert "chromium window" not in str(body).lower()
+    assert response.status_code == 410
+    detail = response.json()["detail"]
+    assert detail["code"] == "legacy_auth_surface_disabled"
+    assert "HumanControlLease" in detail["message"]
 
 
 def test_visualizer_resource_grant_exposes_only_opaque_reference(monkeypatch, tmp_path: Path):

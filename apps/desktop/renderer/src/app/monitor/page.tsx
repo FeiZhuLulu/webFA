@@ -16,6 +16,9 @@ type MonitorSnapshot = {
   object_count: number;
   takeover_required: boolean;
   takeover_reason: string | null;
+  human_control_active: boolean;
+  human_control_reason: string | null;
+  human_control_expires_at: string | null;
 };
 
 type SessionEvent = {
@@ -46,6 +49,13 @@ type VisualFrameHeader = {
 
 type ConnectionState = "connecting" | "live" | "disconnected" | "error";
 
+type HumanControlState = {
+  active: boolean;
+  leaseId: string | null;
+  reason: string | null;
+  expiresAt: string | null;
+};
+
 const MAX_EVENTS = 80;
 
 export default function MonitorPage() {
@@ -55,6 +65,18 @@ export default function MonitorPage() {
   const lastSequenceRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
   const stoppedRef = useRef(false);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const compositionRef = useRef(false);
+  const skipNextBeforeInputRef = useRef(false);
+  const compositionSkipTimerRef = useRef<number | null>(null);
+  const pendingMoveRef = useRef<{ x: number; y: number; buttons: number } | null>(null);
+  const activePointerRef = useRef<{
+    x: number;
+    y: number;
+    button: "none" | "left" | "middle" | "right" | "back" | "forward";
+  } | null>(null);
+  const moveFrameRef = useRef<number | null>(null);
+  const frameDecodeGenerationRef = useRef(0);
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [snapshot, setSnapshot] = useState<MonitorSnapshot | null>(null);
   const [events, setEvents] = useState<SessionEvent[]>([]);
@@ -63,6 +85,12 @@ export default function MonitorPage() {
   const [lastError, setLastError] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [humanControl, setHumanControl] = useState<HumanControlState>({
+    active: false,
+    leaseId: null,
+    reason: null,
+    expiresAt: null,
+  });
 
   const applySnapshot = useCallback((nextSnapshot: MonitorSnapshot) => {
     const previous = snapshotRef.current;
@@ -72,6 +100,7 @@ export default function MonitorPage() {
         previous.tab_id !== nextSnapshot.tab_id ||
         previous.document_id !== nextSnapshot.document_id)
     ) {
+      frameDecodeGenerationRef.current += 1;
       setFrameHeader(null);
       const canvas = canvasRef.current;
       const context = canvas?.getContext("2d");
@@ -104,9 +133,14 @@ export default function MonitorPage() {
       ) {
         return;
       }
+      const decodeGeneration = ++frameDecodeGenerationRef.current;
       const imageBytes = packet.slice(headerEnd);
       const mime = header.format === "jpeg" ? "image/jpeg" : `image/${header.format}`;
       const bitmap = await createImageBitmap(new Blob([imageBytes], { type: mime }));
+      if (decodeGeneration !== frameDecodeGenerationRef.current) {
+        bitmap.close();
+        return;
+      }
       setFrameHeader(header);
       setFrameCount((value) => value + 1);
       const canvas = canvasRef.current;
@@ -127,6 +161,193 @@ export default function MonitorPage() {
       setLastError(error instanceof Error ? error.message : String(error));
     }
   }, []);
+
+  const sendMonitorMessage = useCallback((payload: Record<string, unknown>): boolean => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify(payload));
+    return true;
+  }, []);
+
+  const acquireHumanControl = useCallback(() => {
+    if (!sendMonitorMessage({
+      type: "human_control_acquire",
+      reason: snapshotRef.current?.takeover_reason || "manual_identity_confirmation",
+      ttl_seconds: 300,
+    })) {
+      setLastError("MonitorGateway 尚未连接");
+    }
+  }, [sendMonitorMessage]);
+
+  const releaseHumanControl = useCallback(() => {
+    if (!humanControl.leaseId) return;
+    if (moveFrameRef.current !== null) {
+      window.cancelAnimationFrame(moveFrameRef.current);
+      moveFrameRef.current = null;
+    }
+    pendingMoveRef.current = null;
+    const activePointer = activePointerRef.current;
+    if (activePointer) {
+      sendMonitorMessage({
+        type: "human_input",
+        lease_id: humanControl.leaseId,
+        event: {
+          type: "mouse_up",
+          x: activePointer.x,
+          y: activePointer.y,
+          button: activePointer.button,
+          buttons: 0,
+          click_count: 1,
+        },
+      });
+      activePointerRef.current = null;
+    }
+    sendMonitorMessage({
+      type: "human_control_release",
+      lease_id: humanControl.leaseId,
+    });
+  }, [humanControl.leaseId, sendMonitorMessage]);
+
+  const sendHumanInput = useCallback((event: Record<string, unknown>) => {
+    if (!humanControl.active || !humanControl.leaseId) return;
+    sendMonitorMessage({
+      type: "human_input",
+      lease_id: humanControl.leaseId,
+      event,
+    });
+  }, [humanControl.active, humanControl.leaseId, sendMonitorMessage]);
+
+  const surfacePoint = useCallback((event: { clientX: number; clientY: number }) => {
+    const canvas = canvasRef.current;
+    const header = frameHeader;
+    if (!canvas || !header) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: Math.max(0, Math.min(header.width, ((event.clientX - rect.left) / rect.width) * header.width)),
+      y: Math.max(0, Math.min(header.height, ((event.clientY - rect.top) / rect.height) * header.height)),
+    };
+  }, [frameHeader]);
+
+  const onSurfacePointerMove = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!humanControl.active) return;
+    const point = surfacePoint(event);
+    if (!point) return;
+    pendingMoveRef.current = { ...point, buttons: event.buttons };
+    if (activePointerRef.current) {
+      activePointerRef.current = {
+        ...activePointerRef.current,
+        x: point.x,
+        y: point.y,
+      };
+    }
+    if (moveFrameRef.current !== null) return;
+    moveFrameRef.current = window.requestAnimationFrame(() => {
+      moveFrameRef.current = null;
+      const pending = pendingMoveRef.current;
+      pendingMoveRef.current = null;
+      if (!pending) return;
+      sendHumanInput({
+        type: "mouse_move",
+        x: pending.x,
+        y: pending.y,
+        button: "none",
+        buttons: pending.buttons,
+      });
+    });
+  }, [humanControl.active, sendHumanInput, surfacePoint]);
+
+  const onSurfacePointerButton = useCallback((event: React.PointerEvent<HTMLCanvasElement>, type: "mouse_down" | "mouse_up") => {
+    if (!humanControl.active) return;
+    event.preventDefault();
+    if (type === "mouse_down") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      inputRef.current?.focus({ preventScroll: true });
+    } else if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const point = surfacePoint(event);
+    if (!point) return;
+    const button = mouseButtonName(event.button);
+    if (type === "mouse_down") {
+      activePointerRef.current = { ...point, button };
+    }
+    sendHumanInput({
+      type,
+      x: point.x,
+      y: point.y,
+      button,
+      buttons: event.buttons,
+      click_count: event.detail > 1 ? Math.min(event.detail, 3) : 1,
+      modifiers: eventModifiers(event),
+    });
+    if (type === "mouse_up") activePointerRef.current = null;
+  }, [humanControl.active, sendHumanInput, surfacePoint]);
+
+  const onSurfacePointerCancel = useCallback((event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!humanControl.active) return;
+    const point = surfacePoint(event);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const activePointer = activePointerRef.current;
+    activePointerRef.current = null;
+    if (!point && !activePointer) return;
+    sendHumanInput({
+      type: "mouse_up",
+      x: point?.x ?? activePointer?.x ?? 0,
+      y: point?.y ?? activePointer?.y ?? 0,
+      button: activePointer?.button ?? mouseButtonName(event.button),
+      buttons: 0,
+      click_count: 1,
+      modifiers: eventModifiers(event),
+    });
+  }, [humanControl.active, sendHumanInput, surfacePoint]);
+
+  const onSurfaceWheel = useCallback((event: React.WheelEvent<HTMLCanvasElement>) => {
+    if (!humanControl.active) return;
+    event.preventDefault();
+    const point = surfacePoint(event);
+    if (!point) return;
+    sendHumanInput({
+      type: "wheel",
+      x: point.x,
+      y: point.y,
+      delta_x: event.deltaX,
+      delta_y: event.deltaY,
+      buttons: event.buttons,
+      modifiers: eventModifiers(event),
+    });
+  }, [humanControl.active, sendHumanInput, surfacePoint]);
+
+  const onInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!humanControl.active) return;
+    const pasteShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
+    if (pasteShortcut) return;
+    const composing = event.nativeEvent.isComposing || compositionRef.current;
+    const printable = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+    if (!printable && !composing) event.preventDefault();
+    sendHumanInput({
+      type: "key_down",
+      key: event.key,
+      code: event.code,
+      modifiers: eventModifiers(event),
+      auto_repeat: event.repeat,
+    });
+  }, [humanControl.active, sendHumanInput]);
+
+  const onInputKeyUp = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!humanControl.active) return;
+    const pasteShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
+    if (pasteShortcut) return;
+    if (!event.nativeEvent.isComposing) event.preventDefault();
+    sendHumanInput({
+      type: "key_up",
+      key: event.key,
+      code: event.code,
+      modifiers: eventModifiers(event),
+    });
+  }, [humanControl.active, sendHumanInput]);
 
   const connect = useCallback(async () => {
     if (stoppedRef.current) return;
@@ -179,6 +400,38 @@ export default function MonitorPage() {
           applySnapshot(payload.snapshot as MonitorSnapshot);
           return;
         }
+        if (payload.type === "human_control_state") {
+          const active = payload.active === true;
+          if (!active) {
+            if (moveFrameRef.current !== null) {
+              window.cancelAnimationFrame(moveFrameRef.current);
+              moveFrameRef.current = null;
+            }
+            pendingMoveRef.current = null;
+            activePointerRef.current = null;
+            compositionRef.current = false;
+            skipNextBeforeInputRef.current = false;
+            if (compositionSkipTimerRef.current !== null) {
+              window.clearTimeout(compositionSkipTimerRef.current);
+              compositionSkipTimerRef.current = null;
+            }
+            if (inputRef.current) inputRef.current.value = "";
+          }
+          setHumanControl({
+            active,
+            leaseId: active && typeof payload.lease_id === "string" ? payload.lease_id : null,
+            reason: active && typeof payload.reason === "string" ? payload.reason : null,
+            expiresAt: active && typeof payload.expires_at === "string" ? payload.expires_at : null,
+          });
+          if (active) {
+            window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
+          }
+          return;
+        }
+        if (payload.type === "human_control_error") {
+          setLastError(String(payload.message || "人工接管失败"));
+          return;
+        }
         if (payload.type === "protocol_error") {
           setLastError(String(payload.message || "Monitor 协议错误"));
         }
@@ -189,6 +442,21 @@ export default function MonitorPage() {
       };
       socket.onclose = () => {
         socketRef.current = null;
+        frameDecodeGenerationRef.current += 1;
+        if (moveFrameRef.current !== null) {
+          window.cancelAnimationFrame(moveFrameRef.current);
+          moveFrameRef.current = null;
+        }
+        pendingMoveRef.current = null;
+        activePointerRef.current = null;
+        compositionRef.current = false;
+        skipNextBeforeInputRef.current = false;
+        if (compositionSkipTimerRef.current !== null) {
+          window.clearTimeout(compositionSkipTimerRef.current);
+          compositionSkipTimerRef.current = null;
+        }
+        if (inputRef.current) inputRef.current.value = "";
+        setHumanControl({ active: false, leaseId: null, reason: null, expiresAt: null });
         if (stoppedRef.current) return;
         setConnectionState("disconnected");
         reconnectTimerRef.current = window.setTimeout(() => void connect(), 1500);
@@ -208,6 +476,12 @@ export default function MonitorPage() {
       socketRef.current?.close();
       if (reconnectTimerRef.current !== null) {
         window.clearTimeout(reconnectTimerRef.current);
+      }
+      if (moveFrameRef.current !== null) {
+        window.cancelAnimationFrame(moveFrameRef.current);
+      }
+      if (compositionSkipTimerRef.current !== null) {
+        window.clearTimeout(compositionSkipTimerRef.current);
       }
     };
   }, [connect]);
@@ -229,7 +503,17 @@ export default function MonitorPage() {
         </div>
         <div className={styles.headerActions}>
           <span className={`${styles.pill} ${connectionState === "live" ? styles.pillLive : ""}`}>{statusLabel}</span>
-          <span className={styles.pill}>只读投影</span>
+          <span className={`${styles.pill} ${humanControl.active ? styles.pillHuman : ""}`}>
+            {humanControl.active ? "用户控制中" : "Agent 控制"}
+          </span>
+          <button
+            className={`${styles.button} ${humanControl.active ? styles.buttonRelease : snapshot?.takeover_required ? styles.buttonAttention : ""}`}
+            type="button"
+            disabled={connectionState !== "live" || !frameHeader}
+            onClick={humanControl.active ? releaseHumanControl : acquireHumanControl}
+          >
+            {humanControl.active ? "完成并归还 Agent" : snapshot?.takeover_required ? "开始人工接管" : "临时接管"}
+          </button>
           <button className={styles.button} type="button" onClick={() => void window.webfaMonitor?.openControlCenter()}>控制中心</button>
         </div>
       </header>
@@ -257,6 +541,7 @@ export default function MonitorPage() {
               <InfoRow label="文档修订" value={String(snapshot?.document_revision ?? 0)} />
               <InfoRow label="视觉帧" value={String(frameCount)} />
               <InfoRow label="接管要求" value={snapshot?.takeover_required ? snapshot.takeover_reason || "需要用户" : "无"} />
+              <InfoRow label="控制权" value={humanControl.active ? "当前用户" : "Agent"} />
             </InfoCard>
           </div>
         </aside>
@@ -267,9 +552,71 @@ export default function MonitorPage() {
             <span className={styles.surfaceHeaderMeta}>{safeDisplayUrl(snapshot?.url)}</span>
           </div>
           <div className={styles.surface}>
-            <span className={styles.readonlyBadge}>WebFA BrowserHost 实时投影 · 不可操作</span>
-            <div className={styles.canvasFrame} style={{ visibility: frameHeader ? "visible" : "hidden" }}>
-              <canvas ref={canvasRef} className={styles.canvas} aria-label="WebFA BrowserHost visual surface" />
+            <span className={`${styles.readonlyBadge} ${humanControl.active ? styles.controlBadge : ""}`}>
+              {humanControl.active
+                ? "HumanControlLease · 用户正在控制同一 BrowserHost 页面"
+                : "WebFA BrowserHost 实时投影 · 不可操作"}
+            </span>
+            <div className={`${styles.canvasFrame} ${humanControl.active ? styles.canvasFrameActive : ""}`} style={{ visibility: frameHeader ? "visible" : "hidden" }}>
+              <canvas
+                ref={canvasRef}
+                className={`${styles.canvas} ${humanControl.active ? styles.canvasInteractive : ""}`}
+                aria-label="WebFA BrowserHost visual surface"
+                onPointerMove={onSurfacePointerMove}
+                onPointerDown={(event) => onSurfacePointerButton(event, "mouse_down")}
+                onPointerUp={(event) => onSurfacePointerButton(event, "mouse_up")}
+                onPointerCancel={onSurfacePointerCancel}
+                onWheel={onSurfaceWheel}
+                onContextMenu={(event) => humanControl.active && event.preventDefault()}
+              />
+              {humanControl.active && (
+                <textarea
+                  ref={inputRef}
+                  className={styles.inputCapture}
+                  aria-label="人工接管键盘输入捕获"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  onKeyDown={onInputKeyDown}
+                  onKeyUp={onInputKeyUp}
+                  onCompositionStart={() => { compositionRef.current = true; }}
+                  onCompositionEnd={(event) => {
+                    compositionRef.current = false;
+                    if (event.data) {
+                      skipNextBeforeInputRef.current = true;
+                      if (compositionSkipTimerRef.current !== null) {
+                        window.clearTimeout(compositionSkipTimerRef.current);
+                      }
+                      compositionSkipTimerRef.current = window.setTimeout(() => {
+                        skipNextBeforeInputRef.current = false;
+                        compositionSkipTimerRef.current = null;
+                      }, 0);
+                      sendHumanInput({ type: "insert_text", text: event.data });
+                    }
+                    event.currentTarget.value = "";
+                  }}
+                  onBeforeInput={(event) => {
+                    const native = event.nativeEvent as InputEvent;
+                    if (skipNextBeforeInputRef.current) {
+                      skipNextBeforeInputRef.current = false;
+                      if (compositionSkipTimerRef.current !== null) {
+                        window.clearTimeout(compositionSkipTimerRef.current);
+                        compositionSkipTimerRef.current = null;
+                      }
+                      return;
+                    }
+                    if (!compositionRef.current && native.data) {
+                      sendHumanInput({ type: "insert_text", text: native.data });
+                    }
+                  }}
+                  onInput={(event) => { event.currentTarget.value = ""; }}
+                  onPaste={(event) => {
+                    event.preventDefault();
+                    const text = event.clipboardData.getData("text");
+                    if (text) sendHumanInput({ type: "insert_text", text });
+                  }}
+                />
+              )}
             </div>
             {!frameHeader && (
               <div className={styles.emptySurface}>
@@ -280,7 +627,7 @@ export default function MonitorPage() {
           </div>
           <div className={styles.surfaceFooter}>
             <span>{frameHeader ? `${frameHeader.width} × ${frameHeader.height} · ${frameHeader.format.toUpperCase()}` : "暂无视觉帧"}</span>
-            <span>{frameHeader ? `frame ${frameHeader.frame_seq} · ${shortId(frameHeader.document_id)}` : "只读监控模式"}</span>
+            <span>{humanControl.active ? `用户控制 · ${humanControl.reason || "人工接管"}` : frameHeader ? `frame ${frameHeader.frame_seq} · ${shortId(frameHeader.document_id)}` : "只读监控模式"}</span>
           </div>
         </section>
 
@@ -356,6 +703,8 @@ function eventLabel(event: SessionEvent): string {
     operation_failed: "Agent 操作失败",
     safety_decision_changed: "安全状态已更新",
     takeover_required: "需要用户接管",
+    takeover_started: "用户已接管页面",
+    takeover_finished: "页面已归还 Agent",
     visual_stream_started: "视觉流已启动",
     visual_stream_stopped: "视觉流已停止",
     browser_crashed: "BrowserHost 已退出",
@@ -363,4 +712,27 @@ function eventLabel(event: SessionEvent): string {
   const base = labels[event.event_type] || event.event_type;
   const operation = typeof event.data.operation === "string" ? ` · ${event.data.operation}` : "";
   return `${base}${operation}`;
+}
+
+function mouseButtonName(button: number): "none" | "left" | "middle" | "right" | "back" | "forward" {
+  if (button === 0) return "left";
+  if (button === 1) return "middle";
+  if (button === 2) return "right";
+  if (button === 3) return "back";
+  if (button === 4) return "forward";
+  return "none";
+}
+
+function eventModifiers(event: {
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+}): string[] {
+  const modifiers: string[] = [];
+  if (event.altKey) modifiers.push("alt");
+  if (event.ctrlKey) modifiers.push("control");
+  if (event.metaKey) modifiers.push("meta");
+  if (event.shiftKey) modifiers.push("shift");
+  return modifiers;
 }

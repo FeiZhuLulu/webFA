@@ -24,13 +24,16 @@ def test_action_log_ring_buffer_drops_oldest():
 
 
 def test_action_log_redacts_sensitive_url_query_values():
-    message = redact_action_message("https://example.com/callback?code=abc123&state=ok&access_token=secret")
+    message = redact_action_message(
+        "https://example.com/callback?code=abc123&state=ok&access_token=secret#fragment-secret"
+    )
 
     assert "abc123" not in message
     assert "secret" not in message
     assert "code=[REDACTED]" in message
     assert "access_token=[REDACTED]" in message
     assert "state=ok" in message
+    assert "fragment-secret" not in message
 
 
 def test_action_log_redacts_sensitive_plain_message_values():

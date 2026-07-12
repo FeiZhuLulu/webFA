@@ -12,9 +12,7 @@ import { ResourceGrantPanel } from "../components/Runtime/ResourceGrantPanel";
 import { SafetyCenterPanel } from "../components/Runtime/SafetyCenterPanel";
 import { StatusPanel } from "../components/Runtime/StatusPanel";
 import {
-  closeAuthSurface,
   fetchVisualizerState,
-  openAuthSurface,
   resolveApiUrl,
   restartHost,
   setVisualizerControlToken,
@@ -43,16 +41,6 @@ export default function VisualizerPage() {
   const [lastError, setLastError] = useState<string | null>(null);
 
   const browserState = visualizerState?.browser_state ?? null;
-  const takeoverSurfaceActive = Boolean(
-    visualizerState?.takeover_surface?.active || visualizerState?.auth_surface?.active,
-  );
-  const takeoverSurfaceUrl =
-    visualizerState?.takeover_surface?.url ??
-    visualizerState?.auth_surface?.url ??
-    visualizerState?.page.url ??
-    null;
-  const takeoverReason = visualizerState?.takeover_surface?.reason ?? null;
-  const hasElectronAuthSurface = typeof window !== "undefined" && Boolean(window.webfaDesktop?.showAuthSurface);
 
   useEffect(() => {
     apiUrlRef.current = apiUrl;
@@ -152,26 +140,6 @@ export default function VisualizerPage() {
     return () => window.clearTimeout(id);
   }, [toast]);
 
-  useEffect(() => {
-    if (!hasElectronAuthSurface || !visualizerState) {
-      return;
-    }
-    if (visualizerState.page.auth.user_action_required && !takeoverSurfaceActive) {
-      void runControl(() => openAuthSurface(apiUrlRef.current, visualizerState.page.url || null));
-    }
-  }, [
-    hasElectronAuthSurface,
-    visualizerState?.page.auth.user_action_required,
-    takeoverSurfaceActive,
-    runControl,
-    visualizerState,
-  ]);
-
-  const completeTakeover = useCallback(async () => {
-    const surfaceStatus = await window.webfaDesktop?.destroyAuthSurface();
-    await runControl(() => closeAuthSurface(apiUrlRef.current, surfaceStatus?.url ?? takeoverSurfaceUrl));
-  }, [takeoverSurfaceUrl, runControl]);
-
   const header = useMemo(
     () => (
       <header className="viz-app-header">
@@ -226,7 +194,7 @@ export default function VisualizerPage() {
               hostActionsDisabled={runtimeState !== "running"}
               onRefresh={() => runControl(() => fetchVisualizerState(apiUrlRef.current))}
               onRestartHost={() => runControl(() => restartHost(apiUrlRef.current))}
-              onOpenAuthSurface={() => runControl(() => openAuthSurface(apiUrlRef.current, visualizerState?.page.url || null))}
+              onOpenMonitor={() => void window.webfaDesktop?.openMonitor()}
               onCopyJson={() => void copyJson()}
               onStartRuntime={async () => {
                 const status = await window.webfaDesktop?.startRuntime();
@@ -294,10 +262,7 @@ export default function VisualizerPage() {
         main={
           <PagePreview
             state={visualizerState}
-            takeoverSurfaceActive={takeoverSurfaceActive && hasElectronAuthSurface}
-            takeoverSurfaceUrl={takeoverSurfaceUrl}
-            takeoverReason={takeoverReason}
-            onCompleteTakeover={hasElectronAuthSurface ? () => void completeTakeover() : undefined}
+            onOpenMonitor={() => void window.webfaDesktop?.openMonitor()}
           />
         }
         right={

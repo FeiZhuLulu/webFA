@@ -10,7 +10,6 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import path from "path";
-import { AuthSurfaceBounds, AuthSurfaceManager } from "./authSurface";
 import { McpProcessManager, McpStatus } from "./mcpProcess";
 import { RuntimeProcessManager, RuntimeStatus } from "./runtimeProcess";
 
@@ -35,7 +34,6 @@ let monitorWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let runtimeManager: RuntimeProcessManager;
 let mcpManager: McpProcessManager;
-let authSurfaceManager: AuthSurfaceManager;
 let isQuitting = false;
 
 function isAllowedConsoleLocation(location: URL): boolean {
@@ -115,7 +113,7 @@ function createWindow(): void {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
 
@@ -126,12 +124,6 @@ function createWindow(): void {
     if (!isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
-    }
-  });
-
-  mainWindow.on("resize", () => {
-    if (mainWindow && authSurfaceManager) {
-      mainWindow.webContents.send("auth-surface:request-bounds");
     }
   });
 }
@@ -178,7 +170,7 @@ async function issueMonitorConfig(): Promise<{
     },
     body: JSON.stringify({
       session_id: "default",
-      permissions: ["events", "frames"],
+      permissions: ["events", "frames", "takeover"],
       ttl_seconds: 300
     })
   });
@@ -242,7 +234,6 @@ function createTray(): void {
 }
 
 app.whenReady().then(() => {
-  authSurfaceManager = new AuthSurfaceManager();
   runtimeManager = new RuntimeProcessManager({
     appRoot: APP_ROOT,
     host: API_HOST,
@@ -291,28 +282,8 @@ app.whenReady().then(() => {
     return {
       apiUrl: `http://${API_HOST}:${API_PORT}`,
       consoleUrl: CONSOLE_URL,
-      authSurfaceProfilePath: authSurfaceManager.getProfilePath(),
       visualizerControlToken: VISUALIZER_CONTROL_TOKEN
     };
-  });
-  ipcMain.handle("auth-surface:getStatus", (event) => {
-    requireTrustedMainRenderer(event);
-    return authSurfaceManager.getStatus();
-  });
-  ipcMain.handle("auth-surface:show", (event, payload: { url: string; bounds: AuthSurfaceBounds }) => {
-    requireTrustedMainRenderer(event);
-    if (!mainWindow) {
-      throw new Error("main window is not available");
-    }
-    return authSurfaceManager.show(mainWindow, payload.bounds, payload.url);
-  });
-  ipcMain.handle("auth-surface:hide", (event) => {
-    requireTrustedMainRenderer(event);
-    return authSurfaceManager.hide();
-  });
-  ipcMain.handle("auth-surface:destroy", (event) => {
-    requireTrustedMainRenderer(event);
-    return authSurfaceManager.destroy();
   });
   ipcMain.handle("monitor:open", (event) => {
     requireTrustedMainRenderer(event);
@@ -345,7 +316,6 @@ app.whenReady().then(() => {
 app.on("before-quit", () => {
   isQuitting = true;
   monitorWindow?.destroy();
-  authSurfaceManager?.destroy();
   mcpManager?.stop();
   runtimeManager?.stop();
 });

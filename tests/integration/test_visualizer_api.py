@@ -74,36 +74,20 @@ def test_visualizer_state_after_open_and_action_log(monkeypatch, tmp_path: Path)
         assert "password" not in str(body).lower() or "[redacted]" in str(body).lower() or body["browser_state"]["forms"]
 
 
-def test_visualizer_open_auth_surface_does_not_require_visible_window(monkeypatch, tmp_path: Path):
-    _require_default_browser()
+def test_duplicate_page_auth_surface_is_disabled_by_default(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
-    monkeypatch.setenv("WEBFA_BROWSER_HEADLESS", "1")
-    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "electron")
-    monkeypatch.delenv("WEBFA_BROWSER_DRIVER", raising=False)
+    monkeypatch.delenv("WEBFA_ENABLE_LEGACY_AUTH_SURFACE", raising=False)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
-        client.post("/v1/browser/open", json={"url": FIXTURE_PAGE.as_uri()})
-        response = client.post("/v1/visualizer/open-auth-surface")
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["auth_surface"]["active"] is True
-        assert body["takeover_surface"]["active"] is True
-        assert body["takeover_surface"]["reason"] == "authentication"
-        assert body["web_state"]["takeover"]["reason"] == "authentication"
-        assert body["browser_state"]["auth"]["takeover"] == "auth_surface"
-        assert body["runtime"]["visible_window"] is False
-        assert "devtools" not in str(body).lower()
+        opened = client.post("/v1/visualizer/open-auth-surface")
+        compat = client.post("/v1/visualizer/open-host")
+        closed = client.post("/v1/visualizer/close-auth-surface")
 
-        legacy = client.post("/v1/visualizer/open-host")
-        assert legacy.status_code == 200
-        assert legacy.json()["auth_surface"]["active"] is True
-
-        closed = client.post("/v1/visualizer/close-auth-surface", json={"url": FIXTURE_PAGE.as_uri()})
-        assert closed.status_code == 200
-        assert closed.json()["auth_surface"]["active"] is False
-        assert closed.json()["takeover_surface"]["active"] is False
-        assert closed.json()["runtime"]["host_status"] == "running"
+    for response in (opened, compat, closed):
+        assert response.status_code == 410, response.text
+        assert response.json()["detail"]["code"] == "legacy_auth_surface_disabled"
+        assert "HumanControlLease" in response.json()["detail"]["message"]
 
 
 def test_protected_payment_field_requests_payment_verification_takeover(monkeypatch, tmp_path: Path):

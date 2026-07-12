@@ -70,30 +70,6 @@ export async function restartHost(apiUrl: string): Promise<VisualizerState> {
   return (await response.json()) as VisualizerState;
 }
 
-export async function openAuthSurface(apiUrl: string, url?: string | null): Promise<VisualizerState> {
-  const response = await fetch(`${apiUrl}/v1/visualizer/open-auth-surface`, {
-    method: "POST",
-    headers: controlHeaders(true),
-    body: JSON.stringify(url ? { url } : {})
-  });
-  if (!response.ok) {
-    throw new Error(await readApiError(response, "Open auth surface failed"));
-  }
-  return (await response.json()) as VisualizerState;
-}
-
-export async function closeAuthSurface(apiUrl: string, url?: string | null): Promise<VisualizerState> {
-  const response = await fetch(`${apiUrl}/v1/visualizer/close-auth-surface`, {
-    method: "POST",
-    headers: controlHeaders(true),
-    body: JSON.stringify(url ? { url } : {})
-  });
-  if (!response.ok) {
-    throw new Error(await readApiError(response, "Close auth surface failed"));
-  }
-  return (await response.json()) as VisualizerState;
-}
-
 export type CreateLocalResourcePayload = {
   display_name: string;
   content_base64: string;
@@ -254,9 +230,4 @@ export async function rejectStepUp(
   }
   const body = (await response.json()) as { step_up: StepUpRequestState };
   return body.step_up;
-}
-
-/** @deprecated Use openAuthSurface */
-export async function openVisibleHost(apiUrl: string): Promise<VisualizerState> {
-  return openAuthSurface(apiUrl);
 }

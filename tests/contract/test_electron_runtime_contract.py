@@ -11,19 +11,24 @@ def test_electron_runtime_manager_starts_uvicorn_runtime():
     assert "WEBFA_PYTHON" in source
 
 
-def test_electron_auth_surface_ipc_exists():
+def test_electron_duplicate_page_auth_surface_is_not_exposed():
     main = (ROOT / "apps/desktop/electron/main.ts").read_text(encoding="utf-8")
     preload = (ROOT / "apps/desktop/electron/preload.ts").read_text(encoding="utf-8")
-    auth_surface = (ROOT / "apps/desktop/electron/authSurface.ts").read_text(encoding="utf-8")
-    assert "auth-surface:show" in main
-    assert "WebContentsView" in auth_surface
-    assert "showAuthSurface" in preload
-    assert "devTools: false" in auth_surface
-    assert "contextIsolation: true" in auth_surface
-    assert 'action: "deny"' in auth_surface
-    assert "WEBFA_HOME" in auth_surface
-    assert "managed-chromium-profile-default" in auth_surface
-    assert "authSurfaceManager.destroy()" in main
+    page_preview = (ROOT / "apps/desktop/renderer/src/components/Preview/PagePreview.tsx").read_text(encoding="utf-8")
+    deprecated_viewport = (ROOT / "apps/desktop/renderer/src/components/Preview/AuthSurfaceViewport.tsx").read_text(encoding="utf-8")
+    retired_surface = (ROOT / "apps/desktop/electron/authSurface.ts").read_text(encoding="utf-8")
+
+    assert "AuthSurfaceManager" not in main
+    assert "auth-surface:show" not in main
+    assert "showAuthSurface" not in preload
+    assert "destroyAuthSurface" not in preload
+    assert "WebContentsView" not in page_preview
+    assert "loadURL" not in page_preview
+    assert 'from "electron"' not in retired_surface
+    assert "new WebContentsView" not in retired_surface
+    assert ".loadURL(" not in retired_surface
+    assert "HumanControlLease" in retired_surface
+    assert "HumanControlLease" in deprecated_viewport
 
 
 def test_electron_exposes_runtime_start_stop_ipc():
@@ -45,11 +50,13 @@ def test_electron_visualizer_control_token_is_runtime_only_and_renderer_is_origi
     assert 'webContents.on("will-navigate"' in main
     assert 'webContents.on("will-redirect"' in main
     assert "setWindowOpenHandler" in main
+    assert main.count("sandbox: true") >= 2
+    assert "sandbox: false" not in main
     assert "WEBFA_VISUALIZER_CONTROL_TOKEN" in runtime_process
     assert "NEXT_PUBLIC_WEBFA_VISUALIZER_CONTROL_TOKEN" not in renderer_api
 
 
-def test_electron_monitor_uses_separate_read_only_preload_and_local_canvas():
+def test_electron_monitor_uses_separate_scoped_preload_and_same_page_canvas():
     main = (ROOT / "apps/desktop/electron/main.ts").read_text(encoding="utf-8")
     preload = (ROOT / "apps/desktop/electron/monitorPreload.ts").read_text(encoding="utf-8")
     page = (ROOT / "apps/desktop/renderer/src/app/monitor/page.tsx").read_text(encoding="utf-8")
@@ -67,6 +74,10 @@ def test_electron_monitor_uses_separate_read_only_preload_and_local_canvas():
     assert "iframe" not in page.lower()
     assert "loadURL" not in page
     assert "pointer-events: none" in styles
+    assert "human_control_acquire" in page
+    assert "human_input" in page
+    assert "HumanControlLease" in page
+    assert 'permissions: ["events", "frames", "takeover"]' in main
 
 
 def test_renderer_has_stopped_state_for_runtime_stop():
@@ -76,7 +87,7 @@ def test_renderer_has_stopped_state_for_runtime_stop():
     assert "stopRuntime" in page
     assert "fetchVisualizerState" in page
     assert "/v1/visualizer/state" in api
-    assert "open-auth-surface" in api
+    assert "openMonitor" in page
 
 
 def test_electron_mcp_process_manager_exists():

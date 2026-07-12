@@ -7,7 +7,7 @@ from hashlib import sha256
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
 from browser.agent_lease import AgentLease, AgentLeaseSnapshot
@@ -17,6 +17,12 @@ from browser.config import resolve_browser_runtime_config
 from browser.driver import BrowserDriver, RawPageSnapshot
 from browser.driver_factory import create_default_driver_factory
 from browser.exceptions import BrowserHostClosedError
+from browser.human_control import (
+    HumanControlError,
+    HumanControlLeaseManager,
+    HumanControlLeaseState,
+    HumanInputEvent,
+)
 from browser.local_resource_broker import (
     LocalResourceBroker,
     LocalResourceError,
@@ -38,6 +44,8 @@ from browser.safety_evidence import RuntimeEvidenceResolver
 from browser.step_up import StepUpError, StepUpManager
 from browser.runtime_errors import BrowserRuntimeError
 from browser.runtime_errors import auth_surface_active as auth_surface_active_error
+from browser.runtime_errors import auth_surface_retired as auth_surface_retired_error
+from browser.runtime_errors import human_control_active as human_control_active_error
 from browser.runtime_errors import dialog_not_found
 from browser.runtime_errors import dialog_required as dialog_required_error
 from browser.runtime_errors import stale_element as stale_element_error
@@ -141,6 +149,9 @@ class BrowserRuntime:
         self._step_ups = StepUpManager()
         self._safety_receipts = SafetyReceiptStore()
         self._session_events = SessionEventBus()
+        self._human_control = HumanControlLeaseManager()
+        self._human_pointer_down: HumanInputEvent | None = None
+        self._human_pressed_keys: dict[tuple[str, str], HumanInputEvent] = {}
 
     def replay_session_events(
         self,
@@ -187,19 +198,154 @@ class BrowserRuntime:
         return self._call("visual_stream_status", stream_id)
 
     def monitor_snapshot(self) -> dict[str, Any]:
+        self._reconcile_human_control_expiry()
         snapshot = self._agent_lease.snapshot()
         worker = self._call("monitor_snapshot") if self._thread is not None else {}
+        human = self._human_control.active()
         return {
             "session_id": worker.get("session_id", "default"),
             "profile_id": snapshot.profile_id,
             "active_agent_id": snapshot.active_agent_id,
             "agent_lease_expires_at": snapshot.expires_at.isoformat() if snapshot.expires_at else None,
+            "human_control_active": human is not None,
+            "human_control_reason": human.reason if human is not None else None,
+            "human_control_expires_at": human.expires_at.isoformat() if human is not None else None,
             **worker,
         }
 
+    def acquire_human_control(
+        self,
+        *,
+        connection_id: str,
+        reason: str | None = None,
+        ttl_seconds: int = 300,
+    ) -> HumanControlLeaseState:
+        with self._web_operation_lock:
+            self._reconcile_human_control_expiry()
+            existing = self._human_control.active()
+            snapshot = self._agent_lease.snapshot()
+            worker = self._call("monitor_snapshot")
+            session_id = str(worker.get("session_id") or "default")
+            tab_id = str(worker.get("tab_id") or "tab_1")
+            effective_reason = _normalize_takeover_reason(
+                (reason or "").strip()
+                or str(worker.get("takeover_reason") or "manual_identity_confirmation")
+            )
+            lease = self._human_control.acquire(
+                connection_id=connection_id,
+                session_id=session_id,
+                profile_id=snapshot.profile_id,
+                tab_id=tab_id,
+                reason=effective_reason,
+                active_agent_id=snapshot.active_agent_id,
+                ttl_seconds=ttl_seconds,
+            )
+            if existing is not None and existing.lease_id == lease.lease_id:
+                return lease
+            try:
+                self._call("begin_human_control", effective_reason)
+            except Exception:
+                self._human_control.release(
+                    lease_id=lease.lease_id,
+                    connection_id=connection_id,
+                    status="aborted",
+                )
+                raise
+            return lease
+
+    def send_human_input(
+        self,
+        *,
+        connection_id: str,
+        lease_id: str,
+        event: HumanInputEvent,
+    ) -> None:
+        with self._web_operation_lock:
+            self._reconcile_human_control_expiry()
+            worker = self._call("monitor_snapshot")
+            lease = self._human_control.require_active(
+                lease_id=lease_id,
+                connection_id=connection_id,
+                session_id=str(worker.get("session_id") or "default"),
+            )
+            current_tab_id = str(worker.get("tab_id") or "tab_1")
+            if lease.tab_id != current_tab_id:
+                raise HumanControlError(
+                    "human_control_tab_mismatch",
+                    "HumanControlLease is bound to another tab",
+                )
+            self._call("dispatch_human_input", event)
+            self._record_human_input_state(event)
+
+    def sync_human_control_state(
+        self,
+        *,
+        connection_id: str,
+        lease_id: str,
+    ) -> dict[str, Any]:
+        with self._web_operation_lock:
+            self._reconcile_human_control_expiry()
+            worker = self._call("monitor_snapshot")
+            lease = self._human_control.require_active(
+                lease_id=lease_id,
+                connection_id=connection_id,
+                session_id=str(worker.get("session_id") or "default"),
+            )
+            current_tab_id = str(worker.get("tab_id") or "tab_1")
+            if lease.tab_id != current_tab_id:
+                raise HumanControlError(
+                    "human_control_tab_mismatch",
+                    "HumanControlLease is bound to another tab",
+                )
+            self._call("sync_human_control_state")
+            return self.monitor_snapshot()
+
+    def release_human_control(
+        self,
+        *,
+        connection_id: str,
+        lease_id: str,
+        aborted: bool = False,
+    ) -> HumanControlLeaseState:
+        with self._web_operation_lock:
+            self._reconcile_human_control_expiry()
+            lease = self._human_control.release(
+                lease_id=lease_id,
+                connection_id=connection_id,
+                status="aborted" if aborted else "released",
+            )
+            try:
+                self._release_stuck_human_inputs()
+                self._call("end_human_control", aborted)
+            finally:
+                if lease.active_agent_id is not None:
+                    self._agent_lease.acquire(lease.active_agent_id)
+            return lease
+
+    def release_human_control_connection(self, connection_id: str) -> HumanControlLeaseState | None:
+        with self._web_operation_lock:
+            self._reconcile_human_control_expiry()
+            lease = self._human_control.release_connection(connection_id)
+            if lease is None:
+                return None
+            try:
+                self._release_stuck_human_inputs()
+                self._call("end_human_control", True)
+            finally:
+                if lease.active_agent_id is not None:
+                    self._agent_lease.acquire(lease.active_agent_id)
+            return lease
+
+    def human_control_status(self) -> HumanControlLeaseState | None:
+        with self._web_operation_lock:
+            self._reconcile_human_control_expiry()
+            return self._human_control.active()
+
     def open(self, url: str, agent_id: str | None = None) -> BrowserActionResult:
-        self._agent_lease.acquire(agent_id)
-        return self._with_agent_result(self._call("open", url))
+        with self._web_operation_lock:
+            self._require_agent_control_available()
+            self._agent_lease.acquire(agent_id)
+            return self._with_agent_result(self._call("open", url))
 
     def observe(self) -> BrowserState:
         return self._with_agent_state(self._call("observe"))
@@ -219,6 +365,7 @@ class BrowserRuntime:
             return result
 
     def _open_web_inner(self, request: WebOpenRequest, agent_id: str | None = None) -> WebOpenResult:
+        self._require_agent_control_available()
         snapshot = self._agent_lease.acquire(agent_id)
         active_agent_id = snapshot.active_agent_id or "anonymous-mcp"
         requested_origin = _origin_from_url(request.url)
@@ -538,8 +685,10 @@ class BrowserRuntime:
         return self._safety_receipts.get(receipt_id)
 
     def act(self, request: BrowserActionRequest, agent_id: str | None = None) -> BrowserActionResult:
-        self._agent_lease.acquire(agent_id)
-        return self._with_agent_result(self._call("act", request))
+        with self._web_operation_lock:
+            self._require_agent_control_available()
+            self._agent_lease.acquire(agent_id)
+            return self._with_agent_result(self._call("act", request))
 
     def act_web(self, request: WebOperationRequest, agent_id: str | None = None) -> WebOperationResult:
         with self._web_operation_lock:
@@ -556,6 +705,7 @@ class BrowserRuntime:
             return result
 
     def _act_web_inner(self, request: WebOperationRequest, agent_id: str | None = None) -> WebOperationResult:
+        self._require_agent_control_available()
         snapshot = self._agent_lease.acquire(agent_id)
         active_agent_id = snapshot.active_agent_id or "anonymous-mcp"
         current = self._call("observe_web", WebObserveRequest(), False).state
@@ -1740,6 +1890,7 @@ class BrowserRuntime:
 
     def switch_tab(self, tab_id: str, agent_id: str | None = None) -> BrowserState:
         with self._web_operation_lock:
+            self._require_agent_control_available()
             self._agent_lease.acquire(agent_id)
             self._selected_payment = None
             return self._with_agent_state(self._call("switch_tab", tab_id))
@@ -1756,19 +1907,107 @@ class BrowserRuntime:
 
     def restart_host(self) -> BrowserState:
         with self._web_operation_lock:
+            self._require_agent_control_available()
             self._selected_payment = None
             return self._with_agent_state(self._call("restart_host"))
 
     def relaunch_visible_host(self) -> BrowserState:
-        return self._with_agent_state(self._call("relaunch_visible_host"))
+        raise auth_surface_retired_error()
 
     def open_auth_surface(self, url: str | None = None) -> BrowserState:
-        return self._with_agent_state(self._call("open_auth_surface", url))
+        _ = url
+        raise auth_surface_retired_error()
 
     def close_auth_surface(self, url: str | None = None) -> BrowserState:
-        return self._with_agent_state(self._call("close_auth_surface", url))
+        _ = url
+        raise auth_surface_retired_error()
+
+    def _record_human_input_state(self, event: HumanInputEvent) -> None:
+        if event.type == "mouse_down":
+            self._human_pointer_down = event
+            return
+        if event.type == "mouse_move" and self._human_pointer_down is not None:
+            self._human_pointer_down = replace(
+                self._human_pointer_down,
+                x=event.x,
+                y=event.y,
+                buttons=event.buttons,
+            )
+            return
+        if event.type == "mouse_up":
+            self._human_pointer_down = None
+            return
+        if event.type == "key_down":
+            key = (event.key or "", event.code or "")
+            self._human_pressed_keys[key] = HumanInputEvent(
+                type="key_down",
+                key=event.key,
+                code=event.code,
+                modifiers=event.modifiers,
+                auto_repeat=False,
+            )
+            return
+        if event.type == "key_up":
+            self._human_pressed_keys.pop((event.key or "", event.code or ""), None)
+
+    def _release_stuck_human_inputs(self) -> None:
+        pointer = self._human_pointer_down
+        pressed_keys = tuple(self._human_pressed_keys.values())
+        self._human_pointer_down = None
+        self._human_pressed_keys.clear()
+        if self._thread is None or self._closed:
+            return
+        if pointer is not None and pointer.x is not None and pointer.y is not None:
+            try:
+                self._call(
+                    "dispatch_human_input",
+                    HumanInputEvent(
+                        type="mouse_up",
+                        x=pointer.x,
+                        y=pointer.y,
+                        button=pointer.button,
+                        buttons=0,
+                        click_count=1,
+                        modifiers=pointer.modifiers,
+                    ),
+                )
+            except Exception:
+                pass
+        for key_event in pressed_keys:
+            try:
+                self._call(
+                    "dispatch_human_input",
+                    HumanInputEvent(
+                        type="key_up",
+                        key=key_event.key,
+                        code=key_event.code,
+                        modifiers=key_event.modifiers,
+                    ),
+                )
+            except Exception:
+                continue
+
+    def _reconcile_human_control_expiry(self) -> None:
+        with self._web_operation_lock:
+            expired = self._human_control.pop_expired_cleanup()
+            if expired is None:
+                return
+            if self._thread is not None and not self._closed:
+                try:
+                    self._release_stuck_human_inputs()
+                    self._call("end_human_control", True)
+                except Exception:
+                    pass
+            if expired.active_agent_id is not None:
+                self._agent_lease.acquire(expired.active_agent_id)
+
+    def _require_agent_control_available(self) -> None:
+        self._reconcile_human_control_expiry()
+        if self._human_control.active() is not None:
+            raise human_control_active_error()
 
     def status(self) -> dict[str, Any]:
+        self._reconcile_human_control_expiry()
         snapshot = self._agent_lease.snapshot()
         lease = snapshot.as_dict()
         metadata = self._profile_policies.get(snapshot.profile_id)
@@ -1836,6 +2075,24 @@ class BrowserRuntime:
             if self._closed:
                 return
             try:
+                self._reconcile_human_control_expiry()
+                active_human = self._human_control.active()
+                if active_human is not None:
+                    try:
+                        if self._thread is not None:
+                            self._release_stuck_human_inputs()
+                            self._call("end_human_control", True)
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            self._human_control.release(
+                                lease_id=active_human.lease_id,
+                                connection_id=active_human.connection_id,
+                                status="aborted",
+                            )
+                        except HumanControlError:
+                            pass
                 if self._thread is None:
                     return
                 result: queue.Queue = queue.Queue(maxsize=1)
@@ -1964,6 +2221,10 @@ class _BrowserWorker:
             "stop_visual_stream": self.stop_visual_stream,
             "visual_stream_status": self.visual_stream_status,
             "monitor_snapshot": self.monitor_snapshot,
+            "begin_human_control": self.begin_human_control,
+            "dispatch_human_input": self.dispatch_human_input,
+            "sync_human_control_state": self.sync_human_control_state,
+            "end_human_control": self.end_human_control,
             "restart_host": self.restart_host,
             "relaunch_visible_host": self.relaunch_visible_host,
             "open_auth_surface": self.open_auth_surface,
@@ -2072,7 +2333,6 @@ class _BrowserWorker:
         current = self._object_registry.current_state() or WebState(session_id=self._session.session_id)
         target = self._object_registry.require(target_id)
         target_url = current.url or "about:blank"
-        self._session.reset()
         self._set_takeover(
             reason=reason,
             url=target_url,
@@ -2270,8 +2530,6 @@ class _BrowserWorker:
         config: VisualStreamConfig,
         frame_sink: VisualFrameSink,
     ) -> str:
-        if self._auth_surface_active:
-            raise auth_surface_active_error()
         self._raise_if_host_exited()
         driver = self._session.ensure_driver()
         self._refresh_web_state(driver)
@@ -2300,6 +2558,72 @@ class _BrowserWorker:
             return None
         return self._visual_provider.status(stream_id)
 
+    def begin_human_control(self, reason: str) -> dict[str, Any]:
+        self._raise_if_host_exited()
+        driver = self._session.ensure_driver()
+        registered = self._refresh_web_state(driver)
+        effective_reason = _normalize_takeover_reason(reason)
+        if not self._auth_surface_active:
+            self._set_takeover(
+                reason=effective_reason,
+                url=registered.state.url or "about:blank",
+                target=None,
+                origin=_origin_from_url(registered.state.url),
+            )
+        self._event_bus.publish(
+            "takeover_started",
+            session_id=self._session.session_id,
+            tab_id=self._current_visual_binding().tab_id,
+            document_id=registered.state.document_id or None,
+            data={
+                "reason": self._takeover_reason or effective_reason,
+                "origin": self._takeover_origin or _origin_from_url(registered.state.url),
+            },
+        )
+        return self.monitor_snapshot()
+
+    def dispatch_human_input(self, event: HumanInputEvent) -> None:
+        if not self._auth_surface_active:
+            raise auth_surface_active_error()
+        self._raise_if_host_exited()
+        driver = self._session.ensure_driver()
+        dispatcher = getattr(driver, "dispatch_human_input", None)
+        if not callable(dispatcher):
+            raise RuntimeError("selected BrowserHost does not support human input")
+        dispatcher(event)
+
+    def sync_human_control_state(self) -> dict[str, Any]:
+        if not self._auth_surface_active:
+            raise auth_surface_active_error()
+        self._raise_if_host_exited()
+        driver = self._session.ensure_driver()
+        self._refresh_web_state(driver)
+        return self.monitor_snapshot()
+
+    def end_human_control(self, aborted: bool = False) -> WebState:
+        reason = self._takeover_reason or "manual_identity_confirmation"
+        state = self._object_registry.current_state() or WebState(session_id=self._session.session_id)
+        if self._session.driver is not None and not self._host_is_exited():
+            try:
+                state = self._refresh_web_state(self._session.driver).state
+            except Exception:
+                state = self._object_registry.current_state() or state
+        self._clear_takeover()
+        state = state.model_copy(deep=True)
+        state.takeover = HumanTakeoverState(required=False)
+        try:
+            self._event_bus.publish(
+                "takeover_finished",
+                session_id=self._session.session_id,
+                tab_id=self._current_visual_binding().tab_id,
+                document_id=state.document_id or None,
+                data={"reason": reason, "aborted": aborted},
+            )
+        except RuntimeError:
+            # Runtime shutdown may close the journal before final lease cleanup.
+            pass
+        return state
+
     def monitor_snapshot(self) -> dict[str, Any]:
         binding = self._current_visual_binding()
         state = self._object_registry.current_state()
@@ -2311,11 +2635,13 @@ class _BrowserWorker:
             "url": _monitor_safe_url(state.url) if state is not None else "about:blank",
             "title": state.title if state is not None else "",
             "object_count": state.object_count if state is not None else 0,
-            "takeover_required": bool(state.takeover.required) if state is not None else self._auth_surface_active,
-            "takeover_reason": (
+            "takeover_required": self._auth_surface_active
+            or (bool(state.takeover.required) if state is not None else False),
+            "takeover_reason": self._takeover_reason
+            or (
                 state.takeover.reason
                 if state is not None and state.takeover.required
-                else self._takeover_reason
+                else None
             ),
         }
 
@@ -2328,28 +2654,15 @@ class _BrowserWorker:
         return self._state_after_navigation(driver)
 
     def relaunch_visible_host(self) -> BrowserState:
-        return self.open_auth_surface()
+        raise auth_surface_retired_error()
 
     def open_auth_surface(self, url: str | None = None) -> BrowserState:
-        target_url = (url or "").strip() or self._current_url_or_blank()
-        self._session.reset()
-        self._set_takeover(
-            reason="authentication",
-            url=target_url,
-            target=None,
-            origin="",
-        )
-        return self._auth_surface_state(target_url)
+        _ = url
+        raise auth_surface_retired_error()
 
     def close_auth_surface(self, url: str | None = None) -> BrowserState:
-        target_url = (url or "").strip() or self._auth_surface_url or "about:blank"
-        self._clear_takeover()
-        self._session.reset()
-        if not target_url or target_url == "about:blank":
-            return BrowserState()
-        driver = self._ensure_driver()
-        driver.open(target_url)
-        return self._state_after_navigation(driver)
+        _ = url
+        raise auth_surface_retired_error()
 
     def _auth_surface_state(self, url: str | None = None) -> BrowserState:
         reason = self._takeover_reason or "authentication"
@@ -2357,11 +2670,11 @@ class _BrowserWorker:
         return BrowserState(
             session_id=self._session.session_id,
             url=url or self._auth_surface_url or "about:blank",
-            title="WebFA Auth Surface" if is_auth else "WebFA Human Takeover",
+            title="WebFA Human Takeover",
             auth=BrowserAuthState(
                 surface_detected=is_auth,
                 takeover="auth_surface" if is_auth else "none",
-                reason=["auth_surface_requested"] if is_auth else [],
+                reason=["human_control_active"],
                 user_action_required=True,
             ),
         )
@@ -2545,7 +2858,6 @@ class _BrowserWorker:
     def _request_web_takeover(self, plan: WebOperationPlan) -> WebOperationResult:
         current = self._object_registry.current_state() or WebState(session_id=self._session.session_id)
         target_url = current.url or "about:blank"
-        self._session.reset()
         self._set_takeover(
             reason=plan.takeover_reason,
             url=target_url,
@@ -3221,14 +3533,82 @@ def _normalize_origin_scope(value: str) -> str:
     return ""
 
 
+def _normalize_takeover_reason(value: str) -> TakeoverReason:
+    supported = {
+        "authentication",
+        "captcha",
+        "payment_verification",
+        "biometric_verification",
+        "opaque_surface",
+        "high_risk_confirmation",
+        "permission_request",
+        "file_selection",
+        "ambiguous_state",
+        "manual_identity_confirmation",
+    }
+    normalized = value.strip().lower()
+    return normalized if normalized in supported else "manual_identity_confirmation"  # type: ignore[return-value]
+
+
 def _monitor_safe_url(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme == "file":
         name = parsed.path.replace("\\", "/").rstrip("/").split("/")[-1] or "local"
-        return f"file:///{name}"
+        return f"file:///{_monitor_safe_path_segment(name)}"
     if parsed.scheme in {"http", "https"} and parsed.netloc:
-        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path or '/'}"
+        return (
+            f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+            f"{_monitor_safe_path(parsed.path or '/')}"
+        )
     return redact_action_message(url.split("?", 1)[0].split("#", 1)[0])
+
+
+def _monitor_safe_path(path: str) -> str:
+    sensitive_markers = {
+        "auth",
+        "callback",
+        "code",
+        "invite",
+        "magic",
+        "reset",
+        "secret",
+        "session",
+        "token",
+        "verify",
+        "verification",
+    }
+    segments = path.split("/")
+    result: list[str] = []
+    redact_next = False
+    for segment in segments:
+        if not segment:
+            result.append(segment)
+            continue
+        decoded = unquote(segment)
+        lowered = decoded.lower()
+        marker_tokens = {
+            token
+            for token in lowered.replace("-", " ").replace("_", " ").replace(".", " ").replace("~", " ").split()
+            if token
+        }
+        if redact_next:
+            result.append("[REDACTED]")
+            redact_next = False
+            continue
+        result.append(_monitor_safe_path_segment(segment))
+        if lowered in sensitive_markers or marker_tokens.intersection(sensitive_markers):
+            redact_next = True
+    return "/".join(result) or "/"
+
+
+def _monitor_safe_path_segment(segment: str) -> str:
+    decoded = unquote(segment)
+    if "@" in decoded:
+        return "[REDACTED]"
+    compact = decoded.replace("-", "").replace("_", "").replace(".", "").replace("~", "")
+    if len(segment) >= 24 and compact.isalnum():
+        return "[REDACTED]"
+    return segment
 
 
 def _origin_from_url(url: str) -> str:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 import time
+
+import pytest
 from datetime import datetime, timezone
 
 from browser.session_events import SessionEventBus
@@ -12,6 +14,17 @@ from browser.visual_surface import (
     VisualStreamConfig,
     VisualSurfaceBinding,
 )
+
+
+def test_visual_stream_config_rejects_unsafe_values() -> None:
+    with pytest.raises(ValueError):
+        VisualStreamConfig(max_width=100_000)
+    with pytest.raises(ValueError):
+        VisualStreamConfig(max_height=0)
+    with pytest.raises(ValueError):
+        VisualStreamConfig(every_nth_frame=121)
+    with pytest.raises(ValueError):
+        VisualStreamConfig(quality=True)  # type: ignore[arg-type]
 
 
 class FakeVisualBackend:
@@ -83,6 +96,94 @@ def test_visual_surface_provider_stamps_current_binding_and_emits_metadata_event
     assert state.frames_received == 1
     assert state.frames_delivered == 1
     assert backend.stopped is True
+    provider.close()
+    bus.close()
+
+
+def test_visual_surface_provider_preserves_binding_captured_with_delayed_frame() -> None:
+    backend = FakeVisualBackend()
+    binding = [VisualSurfaceBinding("session-1", "tab-1", "doc-old")]
+    received = []
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_delivered = threading.Event()
+
+    def slow_first_sink(frame) -> None:
+        received.append(frame)
+        if len(received) == 1:
+            first_entered.set()
+            release_first.wait(timeout=2)
+        else:
+            second_delivered.set()
+
+    provider = BoundVisualSurfaceProvider(backend)
+    stream_id = provider.start_stream(
+        lambda: binding[0],
+        VisualStreamConfig(delivery_queue_size=3),
+        slow_first_sink,
+    )
+
+    backend.emit(b"frame-1")
+    assert first_entered.wait(timeout=1)
+    backend.emit(b"frame-2")
+    binding[0] = VisualSurfaceBinding("session-1", "tab-1", "doc-new")
+    release_first.set()
+
+    assert second_delivered.wait(timeout=2)
+    assert received[1].data == b"frame-2"
+    assert received[1].document_id == "doc-old"
+
+    provider.stop_stream(stream_id)
+    provider.close()
+
+
+def test_visual_surface_provider_throttles_frame_journal_events(monkeypatch) -> None:
+    now = [100.0]
+    monkeypatch.setattr("browser.visual_surface.time.monotonic", lambda: now[0])
+    backend = FakeVisualBackend()
+    bus = SessionEventBus()
+    delivered = threading.Event()
+    second_document_delivered = threading.Event()
+    count = [0]
+    binding = [VisualSurfaceBinding("session-1", "tab-1", "doc-1")]
+
+    def sink(_frame) -> None:
+        count[0] += 1
+        if count[0] == 5:
+            delivered.set()
+        if count[0] == 6:
+            second_document_delivered.set()
+
+    provider = BoundVisualSurfaceProvider(backend, event_bus=bus)
+    stream_id = provider.start_stream(
+        lambda: binding[0],
+        VisualStreamConfig(delivery_queue_size=8),
+        sink,
+    )
+    for index in range(5):
+        backend.emit(f"frame-{index}".encode())
+
+    assert delivered.wait(timeout=2)
+    frame_events = [
+        event
+        for event in bus.replay(session_id="session-1", limit=100)
+        if event.type == "frame_available"
+    ]
+    assert len(frame_events) == 1
+    assert frame_events[0].data["frame_seq"] == 1
+
+    binding[0] = VisualSurfaceBinding("session-1", "tab-1", "doc-2")
+    backend.emit(b"frame-new-document")
+    assert second_document_delivered.wait(timeout=2)
+    frame_events = [
+        event
+        for event in bus.replay(session_id="session-1", limit=100)
+        if event.type == "frame_available"
+    ]
+    assert len(frame_events) == 2
+    assert frame_events[-1].document_id == "doc-2"
+
+    provider.stop_stream(stream_id)
     provider.close()
     bus.close()
 

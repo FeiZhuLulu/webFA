@@ -6,13 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from apps.runtime.api.action_log import get_action_log
-from apps.runtime.api.auth_surface_session import get_auth_surface_session, set_auth_surface_session
 from apps.runtime.api.preview_cache import get_cached_preview, store_preview_cache
 from apps.runtime.api.visualizer_control import require_visualizer_control
 from apps.runtime.api.routes.browser import get_browser_runtime
-from browser.config import resolve_browser_runtime_config
 from browser.local_resource_broker import LocalResourceError
 from browser.payment_broker import PaymentInstrumentError
+from browser.runtime_errors import BrowserRuntimeError
 from browser.step_up import StepUpError
 from browser.exceptions import BrowserHostClosedError
 from schemas.safety import (
@@ -29,10 +28,17 @@ _CONTROL_DEPENDENCIES = [Depends(require_visualizer_control)]
 router = APIRouter(tags=["visualizer"], dependencies=_CONTROL_DEPENDENCIES)
 
 
-class AuthSurfaceRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    url: str | None = None
+def _require_legacy_auth_surface() -> None:
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "legacy_auth_surface_disabled",
+            "message": (
+                "The duplicate-page AuthSurface is retired. Use the Session Monitor "
+                "HumanControlLease to control the existing BrowserHost page."
+            ),
+        },
+    )
 
 
 class StepUpDecisionRequest(BaseModel):
@@ -76,16 +82,11 @@ def _record_action(
 
 
 def _auth_surface_payload(request: Request, browser_state_url: str | None = None) -> dict[str, object]:
-    session = get_auth_surface_session(request)
-    config = resolve_browser_runtime_config()
-    active = bool(session.get("active"))
-    url = session.get("url") if active else None
-    if active and not url and browser_state_url:
-        url = browser_state_url
+    _ = request, browser_state_url
     return {
-        "active": active,
-        "url": url,
-        "mode": "legacy" if config.auth_surface_mode == "legacy" else "electron",
+        "active": False,
+        "url": None,
+        "mode": "monitor",
     }
 
 
@@ -96,21 +97,17 @@ def _takeover_surface_payload(
     browser_status: dict,
     browser_state_url: str | None = None,
 ) -> dict[str, object]:
-    config = resolve_browser_runtime_config()
-    session = get_auth_surface_session(request)
+    _ = request
     web_takeover = web_state.takeover if web_state is not None else None
     active = bool(
         (web_takeover is not None and web_takeover.required)
         or browser_status.get("takeover_active")
-        or session.get("active")
     )
     reason = web_takeover.reason if web_takeover is not None and web_takeover.required else browser_status.get("takeover_reason")
-    if active and reason is None and session.get("active"):
-        reason = "authentication"
     return {
         "active": active,
-        "url": browser_status.get("takeover_url") or session.get("url") or browser_state_url,
-        "mode": "legacy" if config.auth_surface_mode == "legacy" else "electron",
+        "url": browser_status.get("takeover_url") or browser_state_url,
+        "mode": "monitor",
         "reason": reason,
         "target": (web_takeover.target if web_takeover is not None else None) or browser_status.get("takeover_target"),
         "origin": (web_takeover.origin if web_takeover is not None else "") or browser_status.get("takeover_origin", ""),
@@ -144,11 +141,6 @@ def build_visualizer_state(request: Request) -> VisualizerState:
             web_state = observe_web(WebObserveRequest(mode="page", detail="summary", limit=50)).state
         except Exception as exc:
             errors.append({"code": "web_observe_failed", "message": str(exc)})
-
-    auth_session = get_auth_surface_session(request)
-    if auth_session.get("active") and browser_state is not None and browser_state.auth.takeover != "auth_surface":
-        browser_state.auth.takeover = "auth_surface"
-        browser_state.auth.user_action_required = True
 
     takeover_surface = _takeover_surface_payload(
         request,
@@ -269,61 +261,21 @@ def visualizer_state(request: Request) -> dict:
 
 
 @router.post("/visualizer/open-auth-surface", dependencies=_CONTROL_DEPENDENCIES)
-def open_auth_surface(request: Request, payload: AuthSurfaceRequest | None = None) -> dict:
-    runtime = get_browser_runtime(request)
-    body = payload or AuthSurfaceRequest()
-    try:
-        state = runtime.open_auth_surface(body.url)
-        target_url = state.url or body.url
-        set_auth_surface_session(request, active=True, url=target_url)
-        _record_action(
-            request,
-            tool="visualizer.open_auth_surface",
-            message=target_url or "auth surface opened in WebFA UI",
-        )
-        result = _payload_with_state(request, state)
-        result["auth_surface"] = {"active": True, "url": target_url, "mode": "electron"}
-        return result
-    except BrowserHostClosedError as exc:
-        _record_action(
-            request,
-            tool="visualizer.open_auth_surface",
-            status="error",
-            code="browser_host_closed",
-            message=str(exc),
-        )
-        raise HTTPException(status_code=503, detail={"code": "browser_host_closed", "message": str(exc)}) from exc
-    except Exception as exc:
-        _record_action(request, tool="visualizer.open_auth_surface", status="error", message=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+def open_auth_surface(request: Request) -> dict:
+    _ = request
+    _require_legacy_auth_surface()
 
 
 @router.post("/visualizer/open-host", dependencies=_CONTROL_DEPENDENCIES)
-def open_host(request: Request, payload: AuthSurfaceRequest | None = None) -> dict:
-    """Compatibility wrapper: open-host now means open-auth-surface, not external Chromium."""
-    return open_auth_surface(request, payload)
+def open_host(request: Request) -> dict:
+    _ = request
+    _require_legacy_auth_surface()
 
 
 @router.post("/visualizer/close-auth-surface", dependencies=_CONTROL_DEPENDENCIES)
-def close_auth_surface(request: Request, payload: AuthSurfaceRequest | None = None) -> dict:
-    runtime = get_browser_runtime(request)
-    body = payload or AuthSurfaceRequest()
-    try:
-        state = runtime.close_auth_surface(body.url)
-        set_auth_surface_session(request, active=False, url=None)
-        store_preview_cache(request, None, None)
-        _record_action(
-            request,
-            tool="visualizer.close_auth_surface",
-            message=state.url or body.url or "auth surface closed",
-        )
-        return _payload_with_state(request, state)
-    except BrowserHostClosedError as exc:
-        _record_action(request, tool="visualizer.close_auth_surface", status="error", code="browser_host_closed", message=str(exc))
-        raise HTTPException(status_code=503, detail={"code": "browser_host_closed", "message": str(exc)}) from exc
-    except Exception as exc:
-        _record_action(request, tool="visualizer.close_auth_surface", status="error", message=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+def close_auth_surface(request: Request) -> dict:
+    _ = request
+    _require_legacy_auth_surface()
 
 
 @router.get("/visualizer/profile-policy/{profile_id}")
@@ -600,10 +552,18 @@ def restart_host(request: Request) -> dict:
     runtime = get_browser_runtime(request)
     try:
         state = runtime.restart_host()
-        set_auth_surface_session(request, active=False, url=None)
         store_preview_cache(request, None, None)
         _record_action(request, tool="visualizer.restart_host", message="host restarted with current url")
         return _payload_with_state(request, state)
+    except BrowserRuntimeError as exc:
+        _record_action(
+            request,
+            tool="visualizer.restart_host",
+            status="error",
+            code=exc.code,
+            message=exc.message,
+        )
+        raise HTTPException(status_code=exc.http_status, detail=exc.to_detail()) from exc
     except BrowserHostClosedError as exc:
         _record_action(request, tool="visualizer.restart_host", status="error", code="browser_host_closed", message=str(exc))
         raise HTTPException(status_code=503, detail={"code": "browser_host_closed", "message": str(exc)}) from exc

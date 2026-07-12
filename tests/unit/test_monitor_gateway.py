@@ -32,6 +32,13 @@ def test_monitor_token_is_one_time_and_session_scoped() -> None:
     assert exc_info.value.code == "monitor_token_invalid"
 
 
+def test_takeover_permission_requires_visual_frames() -> None:
+    manager = MonitorAccessManager()
+
+    with pytest.raises(ValueError, match="requires frames"):
+        manager.issue(session_id="default", permissions=("takeover",), ttl_seconds=60)
+
+
 def test_monitor_token_expires_and_raw_token_is_not_listed() -> None:
     now = [datetime(2026, 7, 12, 3, 0, tzinfo=timezone.utc)]
     manager = MonitorAccessManager(clock=lambda: now[0])

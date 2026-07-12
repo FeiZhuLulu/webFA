@@ -6,6 +6,7 @@ import time
 
 from browser.driver import ACTION_TIMEOUT_MS, RawPageSnapshot
 from browser.host import BrowserHost
+from browser.human_control import HumanInputEvent
 from browser.raw_snapshot import RawWebSnapshot
 from browser.raw_snapshot_collector import RawSnapshotCollector
 from browser.runtime_errors import BrowserRuntimeError, dialog_not_found, dialog_required, frame_unsupported
@@ -111,6 +112,12 @@ class HostBrowserDriver:
 
     def switch_tab(self, tab_id: str) -> None:
         raise ValueError("switch_tab is not supported by managed chromium driver yet")
+
+    def dispatch_human_input(self, event: HumanInputEvent) -> None:
+        dispatcher = getattr(self._host, "dispatch_human_input", None)
+        if not callable(dispatcher):
+            raise RuntimeError("selected BrowserHost does not support human input")
+        dispatcher(event)
 
     def close(self) -> None:
         self._host.close()

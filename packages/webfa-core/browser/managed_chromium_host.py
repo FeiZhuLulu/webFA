@@ -15,6 +15,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from browser.exceptions import BrowserHostClosedError
+from browser.human_control import HumanInputEvent
 from browser.visual_surface import HostVisualFrame, HostVisualStreamState, VisualStreamConfig
 from schemas.browser import BrowserTab
 from storage.file_store import ensure_webfa_data_dir
@@ -250,6 +251,66 @@ class ManagedChromiumHost:
                 client.call("Runtime.releaseObject", {"objectId": object_id})
             except Exception:
                 pass
+
+    def dispatch_human_input(self, event: HumanInputEvent) -> None:
+        client = self._ensure_page_client()
+        modifiers = _human_modifier_mask(event.modifiers)
+        if event.type == "insert_text":
+            client.call("Input.insertText", {"text": event.text or ""})
+            return
+        if event.type in {"key_down", "key_up"}:
+            params: dict[str, Any] = {
+                "type": "keyDown" if event.type == "key_down" else "keyUp",
+                "key": event.key or "",
+                "code": event.code or "",
+                "modifiers": modifiers,
+                "autoRepeat": event.auto_repeat,
+            }
+            virtual_key_code = _human_virtual_key_code(event.key, event.code)
+            if virtual_key_code is not None:
+                params["windowsVirtualKeyCode"] = virtual_key_code
+                params["nativeVirtualKeyCode"] = virtual_key_code
+            if event.type == "key_down" and event.text:
+                params["text"] = event.text
+                params["unmodifiedText"] = event.text
+            elif event.type == "key_down" and (event.key == "Enter" or event.code in {"Enter", "NumpadEnter"}):
+                params["text"] = "\r"
+                params["unmodifiedText"] = "\r"
+            client.call("Input.dispatchKeyEvent", params)
+            return
+        if event.x is None or event.y is None:
+            raise ValueError("human mouse input requires coordinates")
+        if event.type == "wheel":
+            client.call(
+                "Input.dispatchMouseEvent",
+                {
+                    "type": "mouseWheel",
+                    "x": event.x,
+                    "y": event.y,
+                    "deltaX": event.delta_x,
+                    "deltaY": event.delta_y,
+                    "modifiers": modifiers,
+                    "buttons": event.buttons,
+                },
+            )
+            return
+        event_type = {
+            "mouse_move": "mouseMoved",
+            "mouse_down": "mousePressed",
+            "mouse_up": "mouseReleased",
+        }[event.type]
+        client.call(
+            "Input.dispatchMouseEvent",
+            {
+                "type": event_type,
+                "x": event.x,
+                "y": event.y,
+                "button": event.button,
+                "buttons": event.buttons,
+                "clickCount": event.click_count,
+                "modifiers": modifiers,
+            },
+        )
 
     def tabs(self) -> list[BrowserTab]:
         if self._port is None or not self._process_is_running():
@@ -783,6 +844,47 @@ class _CDPClient:
                 raise RuntimeError(message["error"].get("message", "CDP call failed"))
             return message.get("result", {})
         raise RuntimeError(f"CDP call timed out: {method}")
+
+
+def _human_virtual_key_code(key: str | None, code: str | None) -> int | None:
+    normalized = key or code or ""
+    special = {
+        "Backspace": 8,
+        "Tab": 9,
+        "Enter": 13,
+        "NumpadEnter": 13,
+        "Escape": 27,
+        " ": 32,
+        "Space": 32,
+        "PageUp": 33,
+        "PageDown": 34,
+        "End": 35,
+        "Home": 36,
+        "ArrowLeft": 37,
+        "ArrowUp": 38,
+        "ArrowRight": 39,
+        "ArrowDown": 40,
+        "Delete": 46,
+    }
+    if normalized in special:
+        return special[normalized]
+    if len(normalized) == 1:
+        return ord(normalized.upper())
+    return None
+
+
+def _human_modifier_mask(modifiers: tuple[str, ...]) -> int:
+    mask = 0
+    for modifier in modifiers:
+        if modifier == "alt":
+            mask |= 1
+        elif modifier == "control":
+            mask |= 2
+        elif modifier == "meta":
+            mask |= 4
+        elif modifier == "shift":
+            mask |= 8
+    return mask
 
 
 def datetime_from_cdp_timestamp(value: object) -> datetime:

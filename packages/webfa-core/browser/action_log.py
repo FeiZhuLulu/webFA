@@ -95,7 +95,7 @@ def redact_action_message(message: str) -> str:
                 query.append((key, "[REDACTED]"))
             else:
                 query.append((key, value))
-        redacted_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query, safe="[]"), parts.fragment))
+        redacted_url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query, safe="[]"), ""))
         return _redact_sensitive_words(redacted_url)
     return _redact_sensitive_words(message)
 

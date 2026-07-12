@@ -1,16 +1,16 @@
 # UI-1B Monitor Projection Architecture
 
-Status: frozen target architecture; implementation phases 1-5 complete
+Status: frozen target architecture; implementation phases 1-6 complete
 
 ## 1. Product boundary
 
-The Session Monitor is not a browser and never owns a second copy of the target page.
+The Session Monitor is not a browser and never owns a second copy of the target page. It is read-only by default; an explicit time-bounded HumanControlLease may temporarily forward local user input to the existing BrowserHost page.
 
 The invariant is:
 
 ```text
 WebFA BrowserHost is the only real page instance.
-The Monitor is a read-only projection of Runtime state and BrowserHost visual output.
+The Monitor is a projection of Runtime state and BrowserHost visual output. Human input exists only inside an explicit HumanControlLease over that same page.
 ```
 
 The Monitor must not:
@@ -38,7 +38,7 @@ Agent
        -> SafetyContext
        -> SessionEventBus
        -> VisualSurfaceProvider
-       -> HumanControlLease (later phase)
+       -> HumanControlLease
 
 Session Monitor
   -> MonitorGateway
@@ -268,7 +268,7 @@ A Monitor grant is:
 high entropy
 one-time authentication
 session scoped
-permission scoped: events and/or frames
+permission scoped: events, frames, and bounded takeover
 short lived
 revocable
 not stored in the URL
@@ -297,13 +297,13 @@ binary frames
 
 The token is sent in the first authentication message, never in the WebSocket URL. The server validates the local Renderer Origin before accepting Monitor data.
 
-The connection is read-only after authentication. Any application-level client message closes the connection. Human input is not part of phases 4-5.
+The connection is read-only by default. A grant carrying `takeover` may use only the bounded HumanControlLease messages defined by Phase 6. `takeover` requires `frames`, so local input cannot be enabled without the same-page visual surface. Other application messages are rejected.
 
 ### 8.3 State projection
 
 The Gateway sends a safe initial Runtime snapshot and refreshes that snapshot after navigation, document changes, tab switches, operation completion, safety transitions, and takeover transitions.
 
-Snapshot URLs remove query strings and fragments before leaving the Runtime. This prevents OAuth codes, tokens, or other URL secrets from entering the Monitor UI.
+Snapshot URLs remove query strings and fragments before leaving the Runtime. Email-like, high-entropy, URL-encoded, and sensitive-marker path values are also redacted. This prevents OAuth codes, reset tokens, magic-link values, and similar URL secrets from entering the Monitor UI.
 
 ### 8.4 Electron Monitor window
 
@@ -318,9 +318,9 @@ The window loads only the local Monitor UI route. It never loads the target page
 
 ### 8.5 Canvas projection
 
-The center surface decodes binary JPEG/PNG/WebP packets and draws them onto a non-interactive Canvas.
+The center surface decodes binary JPEG/PNG/WebP packets and draws them onto a Canvas that is non-interactive by default and accepts local input only while the current Monitor connection holds HumanControlLease.
 
-The consumer rejects delayed frames when their Session, Tab, or Document binding no longer matches the selected Runtime snapshot. When the document identity changes, the previous Canvas is cleared before a new matching frame is shown.
+The provider captures Session/Tab/Document binding when each Host frame enters the queue. The consumer rejects delayed frames when that captured identity no longer matches the selected Runtime snapshot. When the document identity changes, the previous Canvas and in-flight old image decodes are invalidated before a new matching frame is shown.
 
 The left and right sidebars are independent structured projections. Pixels are not used to infer URL, Agent action, SafetyContext, or task state.
 
@@ -336,27 +336,31 @@ VisualSurfaceProvider
   -> center visual surface only
 ```
 
-A `frame_available` event contains frame metadata and sequence only. The actual frame bytes are delivered through the frame sink.
+A `frame_available` event contains frame metadata and sequence only. The actual frame bytes are delivered through the frame sink. Metadata journaling is emitted for the first frame, on Session/Tab/Document binding changes, and at most once per second otherwise so visual traffic cannot evict semantic Runtime events from bounded replay.
 
 Consumers discard a frame when its session/tab/document binding no longer matches the selected Monitor context.
 
 ## 10. Human Takeover boundary
 
-Human input is not part of phases 1-3.
-
-The final model will add `HumanControlLease`:
+Human input is implemented through `HumanControlLease`:
 
 ```text
-Agent lease paused
--> human lease acquired for same BrowserHost page
--> Monitor forwards local input to same host
--> sensitive input excluded from Agent state
--> human lease released
--> Runtime observes updated page
--> Agent lease resumes
+Agent mutating operations paused
+-> authenticated Monitor connection acquires an exclusive bounded lease
+-> Runtime marks takeover_started for the current Session and tab
+-> Monitor forwards mouse, wheel, keyboard, paste, and composition input
+-> BrowserHost dispatches the input to the existing page target
+-> input values are excluded from events, snapshots, logs, and receipts
+-> user releases, disconnects, is revoked, or the lease expires
+-> Runtime refreshes WebState and marks takeover_finished
+-> Agent mutating operations resume after a fresh observe
 ```
 
-The current Electron `AuthSurface` that loads a URL in a separate WebContentsView is transitional and is not the final architecture.
+The lease is bound to the authenticated Monitor connection, Session, Profile, and active tab. It does not expose input as an Agent capability. Agent `observe` remains available during takeover but returns a protected `human_takeover` state rather than page objects or field values.
+
+The Monitor Canvas remains non-interactive outside an active lease. During a lease, only local input forwarding is enabled; no address bar, navigation model, browser history, DOM bridge, or Agent coordinate action is introduced.
+
+The former Electron `AuthSurface` implementation is retired. Its main-process IPC and preload bridge were removed, its duplicate-page source was replaced with a non-functional compatibility stub, and the old REST routes permanently return `410 Gone`.
 
 ## 11. Phase plan
 
@@ -403,7 +407,7 @@ Implemented:
 - active connection revoke and release lifecycle;
 - local Origin enforcement;
 - ordered event replay and live structured snapshots;
-- read-only WebSocket protocol;
+- read-only event/frame protocol with no Agent or policy mutation capability;
 - separate Electron Monitor preload and IPC boundary.
 
 ### Phase 5: Binary frame transport and Monitor Canvas — complete
@@ -415,23 +419,29 @@ Implemented:
 - bounded event and latest-frame queues;
 - three-column Session Monitor route;
 - independently collapsible sidebars;
-- non-interactive Canvas rendering;
+- default non-interactive Canvas rendering with phase-6 lease-gated input;
 - delayed-frame Session/Tab/Document rejection;
 - automatic short-lived grant refresh after disconnect;
 - real Managed Chromium end-to-end transport validation.
 
-### Phase 6: HumanControlLease — next
+### Phase 6: HumanControlLease — complete
 
-Planned:
+Implemented:
 
-- pause Agent lease;
-- acquire time-bounded human control over the same BrowserHost page;
-- forward local mouse, keyboard, wheel, and composition input;
-- exclude sensitive values from Agent state and audit payloads;
-- release the human lease and re-observe before Agent resume;
-- remove the transitional duplicate-page AuthSurface.
+- exclusive connection- and Session-scoped human lease;
+- bounded lease TTL, revoke, disconnect, abort, and expiry recovery;
+- Agent mutating-operation pause while the lease is active;
+- Agent protected observe during takeover;
+- same-target mouse, wheel, keyboard, paste, and IME composition forwarding;
+- CDP virtual-key handling for non-text keys;
+- periodic Runtime state synchronization during human-controlled navigation;
+- automatic re-observe and Agent lease restoration on release;
+- sensitive input exclusion from SessionEventBus, Monitor snapshots, Visualizer state, and audit payloads;
+- conditional Monitor Canvas interactivity only during the lease;
+- permanent retirement of the duplicate-page Electron AuthSurface;
+- real Managed Chromium same-target and end-to-end takeover validation.
 
-## 12. Acceptance criteria for phases 1-5
+## 12. Acceptance criteria for phases 1-6
 
 - The default MCP tool list remains exactly five tools.
 - No target URL is loaded by Electron Monitor code.
@@ -448,8 +458,14 @@ Planned:
 - The Monitor preload cannot access the Visualizer control token or long-term policy APIs.
 - Revoking a Monitor grant terminates the active connection.
 - Binary frames are bound to Session, Tab, and Document identity.
-- The Canvas is non-interactive and the Monitor never loads the target URL.
-- Closing the Monitor stops the visual stream without closing or mutating the Agent page.
+- The Canvas is non-interactive unless the local user holds the active HumanControlLease, and the Monitor never loads the target URL.
+- Closing the Monitor stops the visual stream and aborts its HumanControlLease without closing the Agent page.
+- Agent mutating operations and host restart are rejected while human control is active.
+- Agent observe during takeover exposes only protected takeover state.
+- Mouse, keyboard, wheel, paste, and composition input reach the same BrowserHost page target.
+- Passwords, OTPs, pasted text, and printable key values do not enter events, snapshots, logs, receipts, or Monitor responses.
+- Lease release, disconnect, revoke, and expiry restore Runtime control deterministically.
+- The retired AuthSurface cannot create a WebContentsView or load a target URL.
 - Python tests, renderer/electron typechecks, package build, and `git diff --check` pass.
 
 ## 13. References

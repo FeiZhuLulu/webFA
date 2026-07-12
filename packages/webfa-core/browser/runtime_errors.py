@@ -59,9 +59,27 @@ def stale_element() -> BrowserRuntimeError:
 def auth_surface_active() -> BrowserRuntimeError:
     return BrowserRuntimeError(
         code="auth_surface_active",
-        message="Auth surface is active; complete WebFA auth takeover before agent actions",
-        recover_hint="Finish or close the WebFA auth takeover area, then call webfa.observe",
+        message="Human takeover is active; complete the takeover before agent actions",
+        recover_hint="Finish or release the WebFA HumanControlLease, then call webfa.observe",
         http_status=409,
+    )
+
+
+def human_control_active() -> BrowserRuntimeError:
+    return BrowserRuntimeError(
+        code="human_control_active",
+        message="A local user currently holds the HumanControlLease for this Session",
+        recover_hint="Wait for the user to release control, then call webfa.observe before acting",
+        http_status=409,
+    )
+
+
+def auth_surface_retired() -> BrowserRuntimeError:
+    return BrowserRuntimeError(
+        code="legacy_auth_surface_disabled",
+        message="The duplicate-page AuthSurface is retired",
+        recover_hint="Open the Session Monitor and use HumanControlLease on the existing BrowserHost page",
+        http_status=410,
     )
 
 

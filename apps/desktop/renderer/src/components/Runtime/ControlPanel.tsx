@@ -3,7 +3,7 @@ type ControlPanelProps = {
   hostActionsDisabled: boolean;
   onRefresh: () => void;
   onRestartHost: () => void;
-  onOpenAuthSurface: () => void;
+  onOpenMonitor: () => void;
   onCopyJson: () => void;
   onStartRuntime?: () => void;
   onStopRuntime?: () => void;
@@ -14,7 +14,7 @@ export function ControlPanel({
   hostActionsDisabled,
   onRefresh,
   onRestartHost,
-  onOpenAuthSurface,
+  onOpenMonitor,
   onCopyJson,
   onStartRuntime,
   onStopRuntime,
@@ -25,8 +25,8 @@ export function ControlPanel({
         <button type="button" className="viz-btn" onClick={onRefresh} disabled={busy}>
           {busy ? "刷新中…" : "刷新状态 Refresh State"}
         </button>
-        <button type="button" className="viz-btn" onClick={onOpenAuthSurface} disabled={busy || hostActionsDisabled}>
-          打开接管区 Open Takeover Surface
+        <button type="button" className="viz-btn" onClick={onOpenMonitor} disabled={busy || hostActionsDisabled}>
+          打开会话监控 Session Monitor
         </button>
         <button type="button" className="viz-btn viz-btn-warning" onClick={onRestartHost} disabled={busy || hostActionsDisabled}>
           重启宿主 Restart Host

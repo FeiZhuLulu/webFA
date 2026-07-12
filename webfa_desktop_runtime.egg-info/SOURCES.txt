@@ -91,6 +91,7 @@ packages/webfa-core/browser/element_registry.py
 packages/webfa-core/browser/exceptions.py
 packages/webfa-core/browser/host.py
 packages/webfa-core/browser/host_driver.py
+packages/webfa-core/browser/human_control.py
 packages/webfa-core/browser/local_resource_broker.py
 packages/webfa-core/browser/managed_chromium_host.py
 packages/webfa-core/browser/monitor_gateway.py

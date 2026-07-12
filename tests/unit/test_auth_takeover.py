@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from browser.driver import RawPageSnapshot
 from browser.runtime import BrowserRuntime
+from browser.runtime_errors import BrowserRuntimeError
 from schemas.browser import BrowserActionRequest, BrowserTab, BrowserViewport
 
 
@@ -157,52 +158,40 @@ def test_auth_takeover_electron_mode_does_not_relaunch(monkeypatch):
     assert result.state.auth.takeover == "none"
 
 
-def test_open_auth_surface_marks_takeover(monkeypatch):
+def test_open_auth_surface_is_retired(monkeypatch):
     monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "electron")
     driver = FakeAuthDriver()
     runtime = BrowserRuntime(headless=True, driver_factory=lambda: driver)
     runtime.open("https://example.com/login")
 
-    state = runtime.open_auth_surface()
+    try:
+        runtime.open_auth_surface()
+    except BrowserRuntimeError as exc:
+        assert exc.code == "legacy_auth_surface_disabled"
+        assert exc.http_status == 410
+    else:
+        raise AssertionError("duplicate-page AuthSurface must remain retired")
 
-    assert state.auth.takeover == "auth_surface"
-    assert state.auth.user_action_required is True
+    assert driver.close_count == 0
     assert driver.relaunches == []
-    assert driver.close_count == 1
 
-    observed = runtime.observe()
-    assert observed.auth.takeover == "auth_surface"
 
-    from browser.runtime_errors import BrowserRuntimeError
+def test_close_auth_surface_is_retired(monkeypatch):
+    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "electron")
+    driver = FakeAuthDriver()
+    runtime = BrowserRuntime(headless=True, driver_factory=lambda: driver)
+    runtime.open("https://example.com/login")
 
     try:
-        runtime.act(BrowserActionRequest(action="click", target="el_1"))
+        runtime.close_auth_surface("https://example.com/dashboard")
     except BrowserRuntimeError as exc:
-        assert exc.code == "auth_surface_active"
+        assert exc.code == "legacy_auth_surface_disabled"
+        assert exc.http_status == 410
     else:
-        raise AssertionError("agent actions must be rejected during auth surface takeover")
+        raise AssertionError("duplicate-page AuthSurface must remain retired")
 
-
-def test_close_auth_surface_restarts_hidden_host_with_final_url(monkeypatch):
-    monkeypatch.setenv("WEBFA_AUTH_SURFACE_MODE", "electron")
-    drivers: list[FakeAuthDriver] = []
-
-    def factory() -> FakeAuthDriver:
-        driver = FakeAuthDriver()
-        drivers.append(driver)
-        return driver
-
-    runtime = BrowserRuntime(headless=True, driver_factory=factory)
-    runtime.open("https://example.com/login")
-    runtime.open_auth_surface()
-
-    state = runtime.close_auth_surface("https://example.com/dashboard")
-
-    assert state.url == "https://example.com/dashboard"
-    assert state.auth.takeover == "none"
-    assert len(drivers) == 2
-    assert drivers[0].close_count == 1
-    assert drivers[1].url == "https://example.com/dashboard"
+    assert driver.close_count == 0
+    assert driver.url == "https://example.com/login"
 
 
 def test_auth_takeover_does_not_relaunch_in_visible_mode(monkeypatch):

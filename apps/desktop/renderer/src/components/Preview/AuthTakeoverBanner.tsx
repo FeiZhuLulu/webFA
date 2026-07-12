@@ -3,39 +3,34 @@ import type { BrowserAuthState, HumanTakeoverReason } from "../../types/visualiz
 type AuthTakeoverBannerProps = {
   auth: BrowserAuthState;
   hostClosed: boolean;
-  takeoverSurfaceActive: boolean;
   takeoverReason: HumanTakeoverReason | null;
+  onOpenMonitor?: () => void;
 };
 
 export function AuthTakeoverBanner({
   auth,
   hostClosed,
-  takeoverSurfaceActive,
   takeoverReason,
+  onOpenMonitor,
 }: AuthTakeoverBannerProps) {
-  if (!auth.user_action_required && !auth.surface_detected && !hostClosed && !takeoverSurfaceActive) {
-    return null;
-  }
+  const takeoverRequired = auth.user_action_required || Boolean(takeoverReason);
+  if (!auth.surface_detected && !takeoverRequired && !hostClosed) return null;
 
   const title = hostClosed
-    ? "浏览器宿主已关闭"
-    : takeoverSurfaceActive
-      ? "WebFA 接管区已打开"
-      : auth.user_action_required
-        ? "需要人工接管"
-        : "检测到认证页面";
+    ? "BrowserHost 已关闭"
+    : takeoverRequired
+      ? "需要人工接管"
+      : "检测到认证页面";
 
   const detail = hostClosed
-    ? "请使用「重启宿主」或「打开接管区」恢复当前 URL，然后在 WebFA 窗口内完成认证。"
-    : takeoverSurfaceActive
-      ? takeoverReason === "authentication" || takeoverReason === "captcha"
-        ? "请在 WebFA 接管区完成登录、扫码、验证码、2FA 或人机验证。完成后点击「完成接管」，再让 agent 继续 observe。"
-        : takeoverReason === "payment_verification"
-          ? "请在 WebFA 接管区完成支付密码、3-D Secure、银行 App 确认或其他支付验证。支付秘密不会返回给 Agent。"
-          : takeoverReason === "biometric_verification"
-            ? "请在 WebFA 接管区完成指纹、面容或安全密钥验证。生物识别数据不会进入 WebFA Agent State。"
-            : "当前区域无法由 WebFA 可靠结构化。请在接管区完成必要步骤，完成后点击「完成接管」，再让 agent 继续 observe。"
-      : "请点击「打开接管区」，在 WebFA 窗口内完成人工步骤。Agent 不会读取密码、cookie 或 token。";
+    ? "请先重启 BrowserHost。网页不会在控制中心内重新加载。"
+    : takeoverReason === "payment_verification"
+      ? "请在会话监控窗口中完成支付密码、3-D Secure、银行 App 确认或其他支付验证。支付秘密不会返回给 Agent。"
+      : takeoverReason === "biometric_verification"
+        ? "请在会话监控窗口中完成指纹、面容或安全密钥验证。生物识别数据不会进入 Agent State。"
+        : takeoverReason === "opaque_surface"
+          ? "当前区域无法可靠结构化。请在会话监控窗口临时控制同一个 BrowserHost 页面。"
+          : "请在会话监控窗口完成登录、验证码、2FA、扫码或其他人工步骤。控制中心不会创建第二份网页。";
 
   return (
     <div className="viz-auth-banner">
@@ -46,6 +41,11 @@ export function AuthTakeoverBanner({
           <div className="viz-auth-reasons">
             原因: {takeoverReason ?? auth.reason.join(", ")}
           </div>
+        )}
+        {!hostClosed && onOpenMonitor && (
+          <button type="button" className="viz-complete-auth-btn" onClick={onOpenMonitor}>
+            打开会话监控
+          </button>
         )}
       </div>
     </div>

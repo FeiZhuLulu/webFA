@@ -33,18 +33,9 @@ declare global {
       getDesktopConfig: () => Promise<{
         apiUrl: string;
         consoleUrl: string;
-        authSurfaceProfilePath: string;
         visualizerControlToken: string;
       }>;
       openMonitor: () => Promise<{ opened: boolean }>;
-      getAuthSurfaceStatus: () => Promise<{ active: boolean; url: string | null; profilePath: string }>;
-      showAuthSurface: (payload: {
-        url: string;
-        bounds: { x: number; y: number; width: number; height: number };
-      }) => Promise<{ active: boolean; url: string | null; profilePath: string }>;
-      hideAuthSurface: () => Promise<{ active: boolean; url: string | null; profilePath: string }>;
-      destroyAuthSurface: () => Promise<{ active: boolean; url: string | null; profilePath: string }>;
-      onAuthSurfaceRequestBounds: (callback: () => void) => () => void;
       onRuntimeStatus: (callback: (status: RuntimeStatus) => void) => () => void;
       onMcpStatus: (callback: (status: McpStatus) => void) => () => void;
     };

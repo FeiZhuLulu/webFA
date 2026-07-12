@@ -1,6 +1,3 @@
-"use client";
-
-import { useCallback, useEffect, useRef } from "react";
 import type { HumanTakeoverReason } from "../../types/visualizer";
 
 type AuthSurfaceViewportProps = {
@@ -9,79 +6,19 @@ type AuthSurfaceViewportProps = {
   reason: HumanTakeoverReason | null;
 };
 
-export function AuthSurfaceViewport({ active, url, reason }: AuthSurfaceViewportProps) {
-  const hostRef = useRef<HTMLDivElement>(null);
-
-  const syncBounds = useCallback(async () => {
-    if (!active || !url || !hostRef.current || !window.webfaDesktop?.showAuthSurface) {
-      return;
-    }
-    const rect = hostRef.current.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
-      return;
-    }
-    await window.webfaDesktop.showAuthSurface({
-      url,
-      bounds: {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height
-      }
-    });
-  }, [active, url]);
-
-  useEffect(() => {
-    if (!active || !url) {
-      void window.webfaDesktop?.destroyAuthSurface();
-      return;
-    }
-
-    void syncBounds();
-    const node = hostRef.current;
-    if (!node) {
-      return;
-    }
-
-    const observer = new ResizeObserver(() => {
-      void syncBounds();
-    });
-    observer.observe(node);
-    window.addEventListener("resize", syncBounds);
-    const unsubscribe = window.webfaDesktop?.onAuthSurfaceRequestBounds?.(() => {
-      void syncBounds();
-    });
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", syncBounds);
-      unsubscribe?.();
-      void window.webfaDesktop?.destroyAuthSurface();
-    };
-  }, [active, url, syncBounds]);
-
+/**
+ * Deprecated compatibility placeholder.
+ *
+ * The former implementation embedded a separate Electron WebContentsView and
+ * loaded the target URL again. UI-1B phase 6 replaces that architecture with
+ * Session Monitor + HumanControlLease over the existing BrowserHost page.
+ */
+export function AuthSurfaceViewport({ active, reason }: AuthSurfaceViewportProps) {
+  if (!active) return null;
   return (
-    <div ref={hostRef} className={`viz-auth-surface-host${active ? " active" : ""}`}>
-      {active ? (
-        <div className="viz-auth-surface-label">
-          WebFA 接管区 · {takeoverLabel(reason)}
-        </div>
-      ) : (
-        <div className="viz-auth-surface-placeholder" />
-      )}
+    <div className="viz-preview-empty">
+      旧接管区已停用。请打开会话监控，通过 HumanControlLease 控制同一个 BrowserHost 页面。
+      {reason ? ` 当前原因：${reason}` : ""}
     </div>
   );
-}
-
-function takeoverLabel(reason: HumanTakeoverReason | null): string {
-  if (reason === "authentication" || reason === "captcha") {
-    return "登录、2FA、扫码或人机验证请在此完成";
-  }
-  if (reason === "payment_verification") {
-    return "支付密码、银行确认或 3-D Secure 请在此完成";
-  }
-  if (reason === "biometric_verification") {
-    return "指纹、面容或安全密钥验证请在此完成";
-  }
-  return "请在此完成需要人工处理的页面步骤";
 }

@@ -13,7 +13,7 @@ from uuid import uuid4
 from browser.session_events import SessionEvent
 from browser.visual_surface import VisualFrame, VisualStreamConfig
 
-MonitorPermission = Literal["events", "frames"]
+MonitorPermission = Literal["events", "frames", "takeover"]
 MonitorGrantStatus = Literal["issued", "consumed", "closed", "revoked", "expired"]
 
 
@@ -87,8 +87,10 @@ class MonitorAccessManager:
         if not normalized_session:
             raise ValueError("session_id is required")
         normalized_permissions = tuple(dict.fromkeys(permissions))
-        if not normalized_permissions or any(item not in {"events", "frames"} for item in normalized_permissions):
+        if not normalized_permissions or any(item not in {"events", "frames", "takeover"} for item in normalized_permissions):
             raise ValueError("unsupported Monitor permission")
+        if "takeover" in normalized_permissions and "frames" not in normalized_permissions:
+            raise ValueError("takeover permission requires frames permission")
         if ttl_seconds < 30 or ttl_seconds > 3600:
             raise ValueError("ttl_seconds must be between 30 and 3600")
 

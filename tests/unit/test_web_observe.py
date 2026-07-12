@@ -314,18 +314,15 @@ def test_changes_mode_returns_compact_changes_and_current_affected_objects():
     assert result.state.objects[0].role == "searchbox"
 
 
-def test_runtime_auth_surface_preserves_debug_permission_boundary():
+def test_runtime_auth_surface_is_retired():
+    from browser.runtime_errors import BrowserRuntimeError
+
     runtime = BrowserRuntime(driver_factory=lambda: (_ for _ in ()).throw(RuntimeError("unused")))
     try:
-        runtime.open_auth_surface("https://example.com/login")
-        request = WebObserveRequest(mode="page", detail="debug")
-
-        with pytest.raises(WebObserveDebugForbiddenError):
-            runtime.observe_web(request)
-
-        auth_view = runtime.observe_web(WebObserveRequest(mode="page"))
-        assert auth_view.state.takeover.required is True
-        assert auth_view.state.takeover.reason == "authentication"
+        with pytest.raises(BrowserRuntimeError) as error:
+            runtime.open_auth_surface("https://example.com/login")
+        assert error.value.code == "legacy_auth_surface_disabled"
+        assert error.value.http_status == 410
     finally:
         runtime.close()
 

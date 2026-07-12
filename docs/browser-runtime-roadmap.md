@@ -238,17 +238,22 @@ P11
 UI-1B
   Session Monitor Projection Architecture.
   Keep BrowserHost as the only real page instance and make the Monitor a
-  read-only projection of structured Runtime events plus visual frames. The
-  Monitor must never load the target URL or expose a Chrome UI. Phases 1-5 are
-  complete: SessionEventBus, the replaceable VisualSurfaceProvider abstraction,
-  same-target ManagedChromium screencast, a short-lived Session-scoped
-  MonitorGateway, local JSON/binary WebSocket multiplexing, a separate limited
-  Electron Monitor window, and a non-interactive Canvas projection with
-  Session/Tab/Document frame rejection. No Agent REST or MCP capability was
-  added. Next UI-1B work is HumanControlLease over the same BrowserHost page,
-  replacing the transitional duplicate-page AuthSurface. Frozen design:
-  docs/ui/UI1B_MONITOR_PROJECTION_ARCHITECTURE.md. Phase 4-5 report:
-  docs/reports/UI1B_MONITOR_PROJECTION_PHASE_4_5_REPORT.md.
+  structured Runtime and visual-surface projection. The Monitor never loads the
+  target URL or exposes Chrome UI. Phases 1-6 are complete: SessionEventBus,
+  replaceable VisualSurfaceProvider, same-target ManagedChromium screencast,
+  short-lived Session-scoped MonitorGateway, local JSON/binary WebSocket
+  multiplexing, a separate limited Electron Monitor window, bound Canvas frame
+  rendering, and an exclusive time-bounded HumanControlLease. The Canvas remains
+  read-only except while the local user holds that lease; mouse, keyboard, wheel,
+  paste, and composition events are then forwarded to the same BrowserHost page.
+  Agent writes pause, protected observe remains available, and release,
+  disconnect, revoke, or expiry restores Runtime control. The duplicate-page
+  Electron AuthSurface is permanently retired. No Agent REST or MCP capability
+  was added. Frozen design: docs/ui/UI1B_MONITOR_PROJECTION_ARCHITECTURE.md.
+  Phase 4-5 report: docs/reports/UI1B_MONITOR_PROJECTION_PHASE_4_5_REPORT.md.
+  Phase 6 report: docs/reports/UI1B_HUMAN_CONTROL_PHASE_6_REPORT.md.
+  Post-implementation maintenance review:
+  docs/reports/UI1B_PHASE_6_MAINTENANCE_REVIEW.md.
 
 P12
   Multi Session / Multi Profile.

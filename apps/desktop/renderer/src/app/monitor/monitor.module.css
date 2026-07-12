@@ -71,6 +71,12 @@
   background: #edf9f5;
 }
 
+.pillHuman {
+  color: #7c2d12;
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
 .button {
   border: 1px solid var(--line);
   background: #fff;
@@ -83,6 +89,27 @@
 
 .button:hover {
   background: #f7f8fa;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.buttonAttention {
+  color: #9a3412;
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
+.buttonRelease {
+  color: #ffffff;
+  border-color: #dc2626;
+  background: #dc2626;
+}
+
+.buttonRelease:hover {
+  background: #b91c1c;
 }
 
 .workspace {
@@ -213,6 +240,7 @@
 }
 
 .canvasFrame {
+  position: relative;
   width: min(100%, 1280px);
   max-height: 100%;
   display: grid;
@@ -223,6 +251,10 @@
   background: #fff;
 }
 
+.canvasFrameActive {
+  box-shadow: 0 0 0 2px #f59e0b, 0 18px 55px rgba(0, 0, 0, 0.32);
+}
+
 .canvas {
   display: block;
   width: 100%;
@@ -231,6 +263,24 @@
   object-fit: contain;
   pointer-events: none;
   user-select: none;
+}
+
+.canvasInteractive {
+  pointer-events: auto;
+  cursor: default;
+}
+
+.inputCapture {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  resize: none;
 }
 
 .emptySurface {
@@ -251,6 +301,11 @@
   padding: 6px 10px;
   font-size: 10px;
   backdrop-filter: blur(8px);
+}
+
+.controlBadge {
+  background: rgba(146, 64, 14, 0.92);
+  color: #fff7ed;
 }
 
 .surfaceFooter {
