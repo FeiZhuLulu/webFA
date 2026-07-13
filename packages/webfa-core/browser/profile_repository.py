@@ -249,6 +249,33 @@ class ProfileRepository:
         )
         return self.get_policy(updated.profile_id)
 
+    def mark_bootstrap_source(
+        self,
+        profile_ref: str,
+        *,
+        expected_version: int | None = None,
+        bootstrap_source: str,
+    ) -> BrowserProfile:
+        if bootstrap_source not in {"blank", "human_login", "imported", "cloned", "restored"}:
+            raise ProfileStateError("unsupported profile bootstrap source")
+        with session_scope() as session:
+            record = _require_profile_record(session, profile_ref)
+            if expected_version is not None and record.version != expected_version:
+                raise ProfileVersionConflictError(
+                    f"profile version is {record.version}, expected {expected_version}"
+                )
+            if record.catalog_state != "ready":
+                raise ProfileStateError(
+                    f"profile in state '{record.catalog_state}' cannot be bootstrapped"
+                )
+            record.bootstrap_source = bootstrap_source
+            record.version += 1
+            record.last_used_at = _utc_now()
+            session.flush()
+            session.refresh(record)
+            _load_bindings(record)
+            return _profile_from_record(record)
+
     def mark_profile_used(self, profile_id: str) -> None:
         with session_scope() as session:
             record = session.get(BrowserProfileRecord, profile_id)

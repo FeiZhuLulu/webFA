@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from browser.exceptions import BrowserHostClosedError
@@ -79,6 +80,27 @@ class ManagedChromiumHost:
         self._pending_dialog = None
         client.call("Page.navigate", {"url": url})
         self._wait_for_document_ready()
+
+    def import_cookies(self, cookies: list[dict[str, Any]]) -> int:
+        """Set cookies through the browser-level Storage domain.
+
+        Raw Cookie values remain inside the protected maintenance process. The
+        only returned value is the number of imported entries verified against
+        browser storage after the protocol call succeeds.
+        """
+
+        if not cookies:
+            return 0
+        self._browser_protocol_call("Storage.setCookies", {"cookies": cookies})
+        response = self._browser_protocol_call("Storage.getCookies")
+        stored = response.get("cookies", []) if isinstance(response, dict) else []
+        expected = {_cookie_verification_key(cookie) for cookie in cookies}
+        actual = {
+            _cookie_verification_key(cookie)
+            for cookie in stored
+            if isinstance(cookie, dict)
+        }
+        return len(expected & actual)
 
     def get_pending_dialog(self) -> PendingJavaScriptDialog | None:
         self._ensure_page_client()
@@ -370,6 +392,22 @@ class ManagedChromiumHost:
                         self._process.wait(timeout=5)
         self._process = None
         self._port = None
+
+    def _browser_protocol_call(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self._ensure_started()
+        version = self._http_json("/json/version")
+        websocket_url = version.get("webSocketDebuggerUrl") if isinstance(version, dict) else None
+        if not websocket_url:
+            raise RuntimeError("managed chromium browser endpoint is unavailable")
+        client = _CDPClient(websocket_url)
+        try:
+            return client.call(method, params)
+        finally:
+            client.close()
 
     def _request_graceful_browser_close(self) -> None:
         if self._port is None or not self._process_is_running():
@@ -959,6 +997,28 @@ def _file_input_expression(element_id: str, frame_id: str | None) -> str:
       return element;
     }})()
     """
+
+
+def _cookie_verification_key(cookie: dict[str, Any]) -> tuple[object, ...]:
+    domain = str(cookie.get("domain") or "").strip().lower()
+    if not domain:
+        url = str(cookie.get("url") or "")
+        domain = (urlparse(url).hostname or "").lower()
+    partition = cookie.get("partitionKey")
+    if isinstance(partition, dict):
+        partition_site = str(partition.get("topLevelSite") or "")
+        cross_site = bool(partition.get("hasCrossSiteAncestor", False))
+    else:
+        partition_site = ""
+        cross_site = False
+    return (
+        str(cookie.get("name") or ""),
+        str(cookie.get("value") or ""),
+        domain,
+        str(cookie.get("path") or "/"),
+        partition_site,
+        cross_site,
+    )
 
 
 def _is_timeout_error(exc: BaseException) -> bool:

@@ -109,6 +109,34 @@ class ProfileProcessLock:
         self.release()
 
 
+@dataclass
+class ProfileMutationLease:
+    """Exclusive maintenance lease sharing the Profile's process lock.
+
+    A mutation lease cannot coexist with a normal BrowserSession host or another
+    maintenance operation. It contains only safe identifiers and never carries
+    imported browser data.
+    """
+
+    profile_id: str
+    mutation_id: str
+    operation: str
+    process_lock: ProfileProcessLock
+
+    @property
+    def acquired(self) -> bool:
+        return self.process_lock.acquired
+
+    def release(self) -> None:
+        self.process_lock.release()
+
+    def __enter__(self) -> "ProfileMutationLease":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        self.release()
+
+
 class ProfileStorageManager:
     def __init__(self, data_dir: Path | None = None) -> None:
         self.data_dir = (data_dir or ensure_webfa_data_dir()["data_dir"]).resolve()
@@ -176,6 +204,31 @@ class ProfileStorageManager:
                 "pid": os.getpid(),
             },
         ).acquire()
+
+    def acquire_mutation_lease(
+        self,
+        profile: BrowserProfile | str,
+        *,
+        mutation_id: str,
+        operation: str,
+    ) -> ProfileMutationLease:
+        profile_id = profile.profile_id if isinstance(profile, BrowserProfile) else profile
+        if not mutation_id.strip():
+            raise ProfileStorageError("mutation_id is required")
+        if not operation.strip():
+            raise ProfileStorageError("mutation operation is required")
+        process_lock = self.acquire_process_lock(
+            profile_id,
+            runtime_instance_id=f"maintenance:{mutation_id}",
+            runtime_generation=f"maintenance:{mutation_id}",
+            session_id=f"maintenance:{operation}",
+        )
+        return ProfileMutationLease(
+            profile_id=profile_id,
+            mutation_id=mutation_id,
+            operation=operation,
+            process_lock=process_lock,
+        )
 
     def migrate_legacy_default_profile(self) -> DefaultProfileMigrationResult:
         source = self.data_dir / "browser" / "managed-chromium-profile-default"

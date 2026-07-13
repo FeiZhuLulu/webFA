@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
 from browser.managed_chromium_host import _find_chromium_executable
+from browser.profile_storage import ProfileStorageManager
 from storage.db import reset_engine_for_tests
 
 FIXTURE_PAGE = Path(__file__).resolve().parents[1] / "fixtures" / "agent_validation_page.html"
@@ -39,16 +40,27 @@ def test_visualizer_state_before_browser_start(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     reset_engine_for_tests()
 
-    with TestClient(create_app()) as client:
+    app = create_app()
+    with TestClient(app) as client:
         response = client.get("/v1/visualizer/state")
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["runtime"]["host_status"] == "not_started"
-        assert body["browser_state"] is not None
+        assert body["browser_state"] is None
         assert body["web_state"] is None
         assert body["takeover_surface"]["active"] is False
         assert body["recent_actions"] == []
         assert "cookie" not in str(body).lower()
+
+        supervisor = app.state.browser_runtime_supervisor
+        assert supervisor.status()["active_session_count"] == 0
+        profile = app.state.profile_repository.get_profile("default")
+        mutation = ProfileStorageManager(tmp_path / "WebFA").acquire_mutation_lease(
+            profile,
+            mutation_id="visualizer-read-check",
+            operation="cookie_import",
+        )
+        mutation.release()
 
 
 def test_visualizer_state_after_open_and_action_log(monkeypatch, tmp_path: Path):

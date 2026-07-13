@@ -8,6 +8,7 @@ import { ContentBlocksList } from "../components/Inspector/ContentBlocksList";
 import { ElementTable } from "../components/Inspector/ElementTable";
 import { PagePreview } from "../components/Preview/PagePreview";
 import { ControlPanel } from "../components/Runtime/ControlPanel";
+import { ProfileBootstrapPanel } from "../components/Runtime/ProfileBootstrapPanel";
 import { ResourceGrantPanel } from "../components/Runtime/ResourceGrantPanel";
 import { SafetyCenterPanel } from "../components/Runtime/SafetyCenterPanel";
 import { StatusPanel } from "../components/Runtime/StatusPanel";
@@ -215,6 +216,17 @@ export default function VisualizerPage() {
                   setRuntimeState(mapDesktopRuntimeState(status.state));
                 }
               }}
+            />
+            <div className="viz-column-header">
+              <span className="viz-column-title">Profile Bootstrap</span>
+            </div>
+            <ProfileBootstrapPanel
+              apiUrl={apiUrl}
+              currentProfileId={visualizerState?.profile.profile_id ?? "default"}
+              disabled={runtimeState !== "running"}
+              onChanged={() => refresh(apiUrlRef.current)}
+              onMessage={setToast}
+              onError={setLastError}
             />
             <div className="viz-column-header">
               <span className="viz-column-title">Local Resource Grants</span>

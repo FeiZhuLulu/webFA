@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
+from browser.profile_bootstrap import ProfileBootstrapService
 from browser.profile_storage import ProfileStorageManager
 from browser.raw_snapshot import RawWebSnapshot
 from browser.runtime_supervisor import BrowserRuntimeSupervisor
@@ -148,3 +151,93 @@ def test_multi_profile_five_tool_routing_and_monitor_session_binding(monkeypatch
         assert grant_payload["session_id"] == work_session
         assert grant_payload["profile_id"] == work_profile_id
         assert grant_payload["runtime_generation"].startswith("generation_")
+
+
+def test_close_poll_and_cookie_import_does_not_recreate_profile_session(monkeypatch, tmp_path: Path) -> None:
+    home = tmp_path / "WebFA"
+    monkeypatch.setenv("WEBFA_HOME", str(home))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", CONTROL_TOKEN)
+    reset_engine_for_tests()
+    app = create_app()
+
+    class FakeMaintenanceHost:
+        def __init__(self, profile, storage, mutation_id):
+            _ = profile, storage, mutation_id
+
+        def import_cookies(self, cookies):
+            return len(cookies)
+
+        def close(self):
+            return None
+
+    with TestClient(app) as client:
+        storage = ProfileStorageManager(home)
+        supervisor = BrowserRuntimeSupervisor(
+            driver_factory=FakeDriver,
+            profile_repository=app.state.profile_repository,
+            storage_manager=storage,
+            initialize_storage=False,
+        )
+        app.state.browser_runtime_supervisor = supervisor
+        app.state.browser_runtime = supervisor
+        app.state.profile_storage_manager = storage
+        app.state.profile_bootstrap_service = ProfileBootstrapService(
+            repository=app.state.profile_repository,
+            storage=storage,
+            host_factory=FakeMaintenanceHost,
+        )
+
+        opened = client.post(
+            "/v1/browser/web/open",
+            headers={
+                "X-WebFA-Agent-Id": "agent-a",
+                "X-WebFA-Connection-Id": "connection-a",
+            },
+            json={"url": "https://example.com"},
+        )
+        assert opened.status_code == 200, opened.text
+        assert supervisor.status()["active_session_count"] == 1
+
+        profile = app.state.profile_repository.get_profile("default")
+        closed = client.post(
+            "/v1/profiles/default/session/close",
+            headers=CONTROL_HEADERS,
+        )
+        assert closed.status_code == 200, closed.text
+        assert closed.json()["status"] == "session_closed"
+        assert supervisor.status()["active_session_count"] == 0
+
+        polled = client.get("/v1/visualizer/state", headers=CONTROL_HEADERS)
+        assert polled.status_code == 200, polled.text
+        assert polled.json()["browser_state"] is None
+        assert supervisor.status()["active_session_count"] == 0
+
+        content = json.dumps(
+            [
+                {
+                    "name": "sid",
+                    "value": "control-flow-secret",
+                    "url": "https://example.com/",
+                    "path": "/",
+                    "secure": True,
+                    "expirationDate": time.time() + 3600,
+                }
+            ]
+        ).encode("utf-8")
+        previewed = client.post(
+            f"/v1/profiles/default/bootstrap/cookies/preview?expected_version={profile.version}",
+            headers={**CONTROL_HEADERS, "Content-Type": "application/octet-stream"},
+            content=content,
+        )
+        assert previewed.status_code == 200, previewed.text
+        imported = client.post(
+            "/v1/profiles/default/bootstrap/cookies/import",
+            headers=CONTROL_HEADERS,
+            json={
+                "preview_token": previewed.json()["preview_token"],
+                "expected_version": profile.version,
+            },
+        )
+        assert imported.status_code == 200, imported.text
+        assert imported.json()["status"] == "cookies_imported"
+        assert supervisor.status()["active_session_count"] == 0

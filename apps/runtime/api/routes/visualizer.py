@@ -12,6 +12,7 @@ from apps.runtime.api.routes.browser import get_browser_runtime
 from browser.local_resource_broker import LocalResourceError
 from browser.payment_broker import PaymentInstrumentError
 from browser.runtime_errors import BrowserRuntimeError
+from browser.runtime_supervisor import BrowserRuntimeSupervisor
 from browser.step_up import StepUpError
 from browser.exceptions import BrowserHostClosedError
 from schemas.safety import (
@@ -122,17 +123,26 @@ def build_visualizer_state(request: Request) -> VisualizerState:
     preview_data_url: str | None = None
     preview_captured_at: str | None = None
 
-    try:
-        browser_state = runtime.observe()
-    except BrowserHostClosedError as exc:
-        errors.append({"code": "browser_host_closed", "message": str(exc)})
-    except Exception as exc:
-        errors.append({"code": "observe_failed", "message": str(exc)})
-
     browser_status = runtime.status()
-    profile_id = browser_status.get("profile_id", "default")
-    profile_metadata = runtime.get_profile_policy(profile_id)
-    observe_web = getattr(runtime, "observe_web", None)
+    supervisor_inactive = (
+        isinstance(runtime, BrowserRuntimeSupervisor)
+        and browser_status.get("supervisor_lifecycle") == "inactive"
+    )
+    if not supervisor_inactive:
+        try:
+            browser_state = runtime.observe()
+        except BrowserHostClosedError as exc:
+            errors.append({"code": "browser_host_closed", "message": str(exc)})
+        except Exception as exc:
+            errors.append({"code": "observe_failed", "message": str(exc)})
+
+    raw_profile_id = browser_status.get("profile_id")
+    profile_id = raw_profile_id if isinstance(raw_profile_id, str) and raw_profile_id else "default"
+    if isinstance(runtime, BrowserRuntimeSupervisor):
+        profile_metadata = runtime.profile_repository.get_policy(profile_id)
+    else:
+        profile_metadata = runtime.get_profile_policy(profile_id)
+    observe_web = None if supervisor_inactive else getattr(runtime, "observe_web", None)
     if callable(observe_web) and (
         browser_status.get("takeover_active")
         or (browser_state is not None and bool(browser_state.url))
@@ -187,6 +197,27 @@ def build_visualizer_state(request: Request) -> VisualizerState:
             "auth": browser_state.auth.model_dump(),
         }
 
+    local_resources = [] if supervisor_inactive else [
+        item.model_dump()
+        for item in runtime.list_local_resources()
+    ]
+    financial_policies = [] if supervisor_inactive else [
+        item.model_dump()
+        for item in runtime.list_financial_policies()
+    ]
+    payment_instruments = [] if supervisor_inactive else [
+        item.model_dump()
+        for item in runtime.list_payment_instruments()
+    ]
+    step_ups = [] if supervisor_inactive else [
+        item.model_dump()
+        for item in runtime.list_step_ups(include_terminal=True)
+    ]
+    safety_receipts = [] if supervisor_inactive else [
+        item.model_dump()
+        for item in runtime.list_safety_receipts(limit=100)
+    ]
+
     return VisualizerState.model_validate(
         {
             "runtime": {
@@ -221,26 +252,11 @@ def build_visualizer_state(request: Request) -> VisualizerState:
             },
             "auth_surface": _auth_surface_payload(request, browser_state.url if browser_state else None),
             "takeover_surface": takeover_surface,
-            "local_resources": [
-                item.model_dump()
-                for item in runtime.list_local_resources()
-            ],
-            "financial_policies": [
-                item.model_dump()
-                for item in runtime.list_financial_policies()
-            ],
-            "payment_instruments": [
-                item.model_dump()
-                for item in runtime.list_payment_instruments()
-            ],
-            "step_ups": [
-                item.model_dump()
-                for item in runtime.list_step_ups(include_terminal=True)
-            ],
-            "safety_receipts": [
-                item.model_dump()
-                for item in runtime.list_safety_receipts(limit=100)
-            ],
+            "local_resources": local_resources,
+            "financial_policies": financial_policies,
+            "payment_instruments": payment_instruments,
+            "step_ups": step_ups,
+            "safety_receipts": safety_receipts,
             "recent_actions": get_action_log(request).recent(),
             "errors": errors,
         }

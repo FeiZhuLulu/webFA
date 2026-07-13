@@ -210,11 +210,11 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 见 `docs/browser-runtime-roadmap.md`。
 
-当前阶段：P10 WebFA Object Model、P11 Agent Safety Contract 与 P12 Multi Session / Multi Profile Core 均已完成。P12 已建立持久 Profile Catalog、独立 Chromium Host 与跨进程锁、BrowserSessionRuntime、并发多 Profile SessionManager/Supervisor、连接级 Profile Grant、Session 独占 Lease、全局 Tab/WebObject 路由、保持五工具的 `profile_ref` 集成、指定 Session Monitor、VisualStreamHub、独立 HumanControl，以及 SafetyContext、Step-up、本地资源、支付授权和 SafetyReceipt 的连接/Session/generation 权限定域。真实 Chromium 已验证 Cookie、localStorage、IndexedDB 与 Service Worker registration 的多 Profile 持久隔离，旧人工登录流程也已迁移到标准 Profile 路径与锁。P12 Core 已验收，Cookie 导入属于后续受保护的 Profile Bootstrap。设计见 `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`，最终报告见 `docs/reports/P12_8_CORE_FINAL_ACCEPTANCE_MAINTENANCE_REVIEW.md`。
+当前阶段：P10 WebFA Object Model、P11 Agent Safety Contract 与 P12 Multi Session / Multi Profile Core 均已完成。P12 已建立持久 Profile Catalog、独立 Chromium Host 与跨进程锁、BrowserSessionRuntime、并发多 Profile SessionManager/Supervisor、连接级 Profile Grant、Session 独占 Lease、全局 Tab/WebObject 路由、保持五工具的 `profile_ref` 集成、指定 Session Monitor、VisualStreamHub、独立 HumanControl，以及 SafetyContext、Step-up、本地资源、支付授权和 SafetyReceipt 的连接/Session/generation 权限定域。真实 Chromium 已验证 Cookie、localStorage、IndexedDB 与 Service Worker registration 的多 Profile 持久隔离。Post-Core Profile Bootstrap 的 Cookie import 也已完成：支持 JSON/Netscape 文件、脱敏两阶段预览、ProfileMutationLease、受限 Maintenance Host、CDP 写入与真实 Chromium 持久化验证，Cookie 数据不会进入 MCP、WebState、Monitor 或审计回执。设计见 `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`，Cookie import 报告见 `docs/reports/PROFILE_BOOTSTRAP_COOKIE_IMPORT_REPORT.md`。
 
 后续方向：
 
-- Profile Bootstrap：Cookie import / Profile clone / bundle restore
+- Profile Bootstrap：Profile clone / bundle export & restore
 - P13 Durable Trace / Resume
 
 ## License

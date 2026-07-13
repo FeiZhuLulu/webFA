@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
+from browser.profile_bootstrap import ProfileBootstrapService
+from browser.profile_storage import ProfileStorageManager
 from storage.db import reset_engine_for_tests
 
 
@@ -73,3 +77,87 @@ def test_profile_catalog_control_api_is_protected_and_versioned(monkeypatch, tmp
         )
         assert archived.status_code == 200, archived.text
         assert archived.json()["catalog_state"] == "archived"
+
+
+def test_cookie_import_control_api_is_two_phase_and_secret_free(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
+    reset_engine_for_tests()
+    app = create_app()
+
+    class FakeMaintenanceHost:
+        def __init__(self, profile, storage, mutation_id):
+            _ = profile, storage, mutation_id
+
+        def import_cookies(self, cookies):
+            return len(cookies)
+
+        def close(self):
+            return None
+
+    secret = "api-cookie-secret-never-returned"
+    content = json.dumps(
+        [
+            {
+                "name": "sid",
+                "value": secret,
+                "url": "https://example.com/",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "expirationDate": time.time() + 3600,
+            }
+        ]
+    ).encode("utf-8")
+
+    with TestClient(app) as client:
+        repository = app.state.profile_repository
+        profile = repository.get_profile("default")
+        app.state.profile_bootstrap_service = ProfileBootstrapService(
+            repository=repository,
+            storage=ProfileStorageManager(tmp_path / "WebFA"),
+            host_factory=FakeMaintenanceHost,
+        )
+
+        denied = client.post(
+            f"/v1/profiles/default/bootstrap/cookies/preview?expected_version={profile.version}",
+            content=content,
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert denied.status_code == 403
+
+        previewed = client.post(
+            f"/v1/profiles/default/bootstrap/cookies/preview?expected_version={profile.version}",
+            content=content,
+            headers={**HEADERS, "Content-Type": "application/octet-stream"},
+        )
+        assert previewed.status_code == 200, previewed.text
+        preview = previewed.json()
+        assert preview["accepted_count"] == 1
+        assert preview["domains"] == ["example.com"]
+        assert secret not in previewed.text
+        assert "sid" not in previewed.text
+
+        wrong_control = client.post(
+            "/v1/profiles/default/bootstrap/cookies/import",
+            headers={"X-WebFA-Visualizer-Token": "wrong-token"},
+            json={
+                "preview_token": preview["preview_token"],
+                "expected_version": profile.version,
+            },
+        )
+        assert wrong_control.status_code == 403
+
+        imported = client.post(
+            "/v1/profiles/default/bootstrap/cookies/import",
+            headers=HEADERS,
+            json={
+                "preview_token": preview["preview_token"],
+                "expected_version": profile.version,
+            },
+        )
+        assert imported.status_code == 200, imported.text
+        assert imported.json()["status"] == "cookies_imported"
+        assert imported.json()["imported_count"] == 1
+        assert secret not in imported.text
+        assert "sid" not in imported.text

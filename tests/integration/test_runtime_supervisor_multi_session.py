@@ -248,3 +248,47 @@ def test_human_control_is_scoped_to_one_session(monkeypatch, tmp_path: Path) -> 
         lease_id=lease.lease_id,
     )
     supervisor.close()
+
+
+def test_control_plane_can_close_one_profile_session_for_maintenance(monkeypatch, tmp_path: Path) -> None:
+    profiles, sessions, storage = _setup(monkeypatch, tmp_path)
+    supervisor = BrowserRuntimeSupervisor(
+        driver_factory=FakeDriver,
+        profile_repository=profiles,
+        session_repository=sessions,
+        storage_manager=storage,
+        initialize_storage=False,
+    )
+    personal = supervisor.open_web(
+        WebOpenRequest(url="https://personal.example"),
+        agent_id="agent-a",
+        connection_id="conn-a",
+    )
+    work = supervisor.open_web(
+        WebOpenRequest(url="https://work.example", profile_ref="work"),
+        agent_id="agent-b",
+        connection_id="conn-b",
+    )
+
+    closed_session_id = supervisor.close_profile_session(
+        "work",
+        reason="profile_bootstrap",
+    )
+
+    assert closed_session_id == work.state.session_id
+    assert sessions.get_session(work.state.session_id).lifecycle == "closed"
+    assert supervisor.status()["active_session_count"] == 1
+    observed = supervisor.observe_web(
+        WebObserveRequest(mode="page"),
+        agent_id="agent-a",
+        connection_id="conn-a",
+    )
+    assert observed.state.session_id == personal.state.session_id
+
+    mutation = storage.acquire_mutation_lease(
+        profiles.get_profile("work"),
+        mutation_id="cookie-import-check",
+        operation="cookie_import",
+    )
+    mutation.release()
+    supervisor.close()

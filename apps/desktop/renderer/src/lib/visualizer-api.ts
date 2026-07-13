@@ -1,4 +1,10 @@
 import type {
+  BrowserProfileCatalogItem,
+  CookieImportPreview,
+  CookieImportResult,
+  ProfileSessionCloseResult,
+} from "../types/profile-bootstrap";
+import type {
   AccountOwner,
   FinancialPolicy,
   LocalResourceGrantState,
@@ -57,6 +63,98 @@ export async function fetchVisualizerState(apiUrl: string): Promise<VisualizerSt
     throw new Error(await readApiError(response, "Visualizer state failed"));
   }
   return (await response.json()) as VisualizerState;
+}
+
+export async function fetchProfiles(apiUrl: string): Promise<BrowserProfileCatalogItem[]> {
+  const response = await fetch(`${apiUrl}/v1/profiles`, {
+    cache: "no-store",
+    headers: controlHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Load profiles failed"));
+  }
+  const body = (await response.json()) as { profiles: BrowserProfileCatalogItem[] };
+  return body.profiles;
+}
+
+export async function closeProfileSession(
+  apiUrl: string,
+  profileId: string,
+): Promise<ProfileSessionCloseResult> {
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(profileId)}/session/close`,
+    { method: "POST", headers: controlHeaders() },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Close profile session failed"));
+  }
+  return (await response.json()) as ProfileSessionCloseResult;
+}
+
+export async function previewCookieImport(
+  apiUrl: string,
+  profileId: string,
+  profileVersion: number,
+  file: File,
+): Promise<CookieImportPreview> {
+  const query = new URLSearchParams({
+    expected_version: String(profileVersion),
+    format: "auto",
+  });
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(profileId)}/bootstrap/cookies/preview?${query}`,
+    {
+      method: "POST",
+      headers: {
+        ...controlHeaders(),
+        "Content-Type": "application/octet-stream",
+      },
+      body: await file.arrayBuffer(),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Preview cookie import failed"));
+  }
+  return (await response.json()) as CookieImportPreview;
+}
+
+export async function cancelCookieImport(
+  apiUrl: string,
+  profileId: string,
+  previewToken: string,
+): Promise<void> {
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(profileId)}/bootstrap/cookies/cancel`,
+    {
+      method: "POST",
+      headers: controlHeaders(true),
+      body: JSON.stringify({ preview_token: previewToken }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Cancel cookie import failed"));
+  }
+}
+
+export async function commitCookieImport(
+  apiUrl: string,
+  preview: CookieImportPreview,
+): Promise<CookieImportResult> {
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(preview.profile_id)}/bootstrap/cookies/import`,
+    {
+      method: "POST",
+      headers: controlHeaders(true),
+      body: JSON.stringify({
+        preview_token: preview.preview_token,
+        expected_version: preview.profile_version,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Import cookies failed"));
+  }
+  return (await response.json()) as CookieImportResult;
 }
 
 export async function restartHost(apiUrl: string): Promise<VisualizerState> {

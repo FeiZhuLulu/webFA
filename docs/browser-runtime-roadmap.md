@@ -283,12 +283,22 @@ P12
   complete. Real Chromium verifies concurrent persistent Profile isolation for
   Cookie, localStorage, IndexedDB, and Service Worker registration, and the
   legacy manual-login helper now uses the canonical Profile path and process
-  lock. P12 Core is accepted; protected Profile Bootstrap is post-Core work.
+  lock. P12 Core is accepted.
   Frozen design: docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md. Reports:
   docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md,
   docs/reports/P12_4_6_MULTI_SESSION_ROUTING_MONITOR_REPORT.md,
   docs/reports/P12_7_P11_AUTHORITY_RESCOPING_SECURITY_REVIEW.md, and
   docs/reports/P12_8_CORE_FINAL_ACCEPTANCE_MAINTENANCE_REVIEW.md.
+
+Profile Bootstrap
+  Post-Core protected Profile maintenance. Cookie import is complete: local
+  JSON/Netscape input, redacted two-phase preview, control-session binding,
+  ProfileMutationLease, bounded ProfileMaintenanceHost, CDP Storage.setCookies,
+  internal verification, explicit Session close, non-creating Visualizer state,
+  and real Chromium persistence validation. Cookie data never enters MCP,
+  WebState, Monitor, receipts, or control responses. Remaining work: Profile
+  clone and WebFA Profile Bundle export/restore. Report:
+  docs/reports/PROFILE_BOOTSTRAP_COOKIE_IMPORT_REPORT.md.
 
 P13
   Durable Trace / Resume.

@@ -425,6 +425,20 @@ class BrowserRuntimeSupervisor:
         finally:
             self._finalize_session(entry, lifecycle="closed", reason=reason)
 
+    def close_profile_session(
+        self,
+        profile_ref: str,
+        *,
+        reason: str = "profile_control_close",
+    ) -> str | None:
+        profile = self._profile_repository.get_profile(profile_ref)
+        entry = self._session_manager.get_by_profile(profile.profile_id)
+        if entry is None:
+            return None
+        session_id = entry.session_id
+        self.close_session(session_id, reason=reason)
+        return session_id
+
     def close(self) -> None:
         with self._lock:
             if self._closed:

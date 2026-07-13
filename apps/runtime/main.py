@@ -53,6 +53,9 @@ async def lifespan(app: FastAPI):
     profile_repository.ensure_default_profile()
     app.state.profile_repository = profile_repository
     yield
+    profile_bootstrap_service = getattr(app.state, "profile_bootstrap_service", None)
+    if profile_bootstrap_service is not None:
+        profile_bootstrap_service.close()
     browser_runtime = getattr(app.state, "browser_runtime", None)
     if browser_runtime is not None:
         browser_runtime.close()

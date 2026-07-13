@@ -66,6 +66,7 @@ packages/schemas/execution.py
 packages/schemas/github.py
 packages/schemas/plan.py
 packages/schemas/profile.py
+packages/schemas/profile_bootstrap.py
 packages/schemas/proof.py
 packages/schemas/resource_snapshot.py
 packages/schemas/safety.py
@@ -102,6 +103,7 @@ packages/webfa-core/browser/object_registry.py
 packages/webfa-core/browser/observe_probe.py
 packages/webfa-core/browser/payment_broker.py
 packages/webfa-core/browser/playwright_driver.py
+packages/webfa-core/browser/profile_bootstrap.py
 packages/webfa-core/browser/profile_policy.py
 packages/webfa-core/browser/profile_repository.py
 packages/webfa-core/browser/profile_storage.py
