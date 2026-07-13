@@ -29,7 +29,7 @@ def test_browser_open_observe_act_loop(monkeypatch, tmp_path: Path):
         opened = client.post("/v1/browser/open", json={"url": FIXTURE_PAGE.as_uri()})
         assert opened.status_code == 200, opened.text
         state = opened.json()["state"]
-        assert state["session_id"] == "default"
+        assert state["session_id"].startswith("session_")
         assert state["title"] == "WebFA Agent Validation"
         assert state["url_parts"]["scheme"] == "file"
         assert state["url_parts"]["path"].endswith("agent_validation_page.html")

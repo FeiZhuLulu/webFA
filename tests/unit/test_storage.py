@@ -39,4 +39,9 @@ def test_sqlite_initializes_minimum_tables(monkeypatch, tmp_path: Path):
         "execution_steps",
         "proofs",
         "audit_events",
+        "browser_profiles",
+        "browser_profile_agent_bindings",
+        "browser_sessions",
+        "browser_profile_runtime_events",
+        "storage_migrations",
     }.issubset(tables)

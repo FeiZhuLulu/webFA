@@ -664,7 +664,7 @@ def test_real_managed_chromium_monitor_gateway_streams_same_runtime_page(monkeyp
 
         assert frame_packet is not None
         metadata, image = decode_visual_frame_packet(frame_packet)
-        assert metadata["session_id"] == "default"
+        assert metadata["session_id"] == grant["session_id"]
         assert metadata["document_id"] == document_id
         assert image.startswith(b"\xff\xd8")
 

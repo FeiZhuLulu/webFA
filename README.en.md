@@ -187,7 +187,7 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 See `docs/browser-runtime-roadmap.md`.
 
-Current milestone: P10 WebFA Object Model and P11 Agent Safety Contract are complete. P11 now provides the full loop: SafetyContext, Runtime evidence elevation, credential/payment-verification takeover, LocalResourceBroker, Profile ownership and binding policy, user-defined financial limits, protected payment instruments, exact single-use step-up grants, Safety Center policy UI, and secret-free SafetyReceipt audit. P12 Multi Session / Multi Profile is next.
+Current milestone: P10 WebFA Object Model and P11 Agent Safety Contract are complete. The complete P12 Multi Session / Multi Profile target architecture is frozen, and P12.1-P12.3 are implemented: persistent Profile Catalog, isolated Profile storage and Chromium Hosts, cross-process Profile locks, default Profile migration, BrowserSessionRuntime extraction, persistent Session lifecycle metadata, and the Supervisor foundation. P12.4 Supervisor and Global Routing is next. See `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md` and `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md`.
 
 Next work:
 

@@ -8,6 +8,7 @@ from apps.runtime.api.action_log import get_action_log
 from browser.agent_lease import AgentLeaseBusyError
 from browser.exceptions import BrowserHostClosedError
 from browser.runtime import BrowserRuntime
+from browser.runtime_supervisor import BrowserRuntimeSupervisor
 from browser.runtime_errors import BrowserRuntimeError, browser_host_closed, from_value_error
 from browser.semantic_operations import WebOperationError
 from schemas.browser import BrowserActionRequest, BrowserOpenRequest
@@ -31,12 +32,18 @@ def _require_unsafe_legacy_browser_api() -> None:
         )
 
 
-def get_browser_runtime(request: Request) -> BrowserRuntime:
+def get_browser_runtime(request: Request) -> BrowserRuntime | BrowserRuntimeSupervisor:
     runtime = getattr(request.app.state, "browser_runtime", None)
-    if runtime is None:
-        runtime = BrowserRuntime()
-        request.app.state.browser_runtime = runtime
-    return runtime
+    if runtime is not None:
+        return runtime
+    supervisor = getattr(request.app.state, "browser_runtime_supervisor", None)
+    if supervisor is None:
+        supervisor = BrowserRuntimeSupervisor(
+            profile_repository=getattr(request.app.state, "profile_repository", None),
+        )
+        request.app.state.browser_runtime_supervisor = supervisor
+    request.app.state.browser_runtime = supervisor
+    return supervisor
 
 
 def get_agent_id(request: Request) -> str | None:

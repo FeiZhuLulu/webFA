@@ -36,6 +36,8 @@ from browser.payment_broker import (
     parse_amount,
 )
 from browser.profile_policy import ProfilePolicyEvaluation, ProfilePolicyStore
+from browser.profile_repository import BrowserSessionRepository, ProfileRepository
+from browser.profile_storage import ProfileLaunchSpec
 from browser.semantic_operations import SemanticOperationExecutor, WebOperationPlan
 from browser.session_events import SessionEvent, SessionEventBus
 from browser.safety_audit import SafetyReceiptStore
@@ -125,25 +127,49 @@ class _SelectedPaymentInstrument:
     assurance: SafetyAssuranceLevel
 
 
-class BrowserRuntime:
-    """Single-session agent browser runtime backed by one driver thread."""
+class BrowserSessionRuntime:
+    """One Session-scoped agent browser runtime backed by one worker and Host."""
 
-    def __init__(self, headless: bool | None = None, driver_factory: DriverFactory | None = None) -> None:
+    def __init__(
+        self,
+        headless: bool | None = None,
+        driver_factory: DriverFactory | None = None,
+        *,
+        session_id: str = "default",
+        profile_id: str = "default",
+        runtime_generation: str = "default",
+        profile_repository: ProfileRepository | None = None,
+        session_repository: BrowserSessionRepository | None = None,
+        launch_spec: ProfileLaunchSpec | None = None,
+        terminal_callback: Callable[[str, str | None], None] | None = None,
+    ) -> None:
         config = resolve_browser_runtime_config(headless=headless)
         self._driver_name = config.driver_name
         self._headless = config.headless
         self._auth_takeover = config.auth_takeover
         self._auth_surface_mode = config.auth_surface_mode
         self._private_url_policy = config.private_url_policy
-        self._driver_factory = driver_factory or create_default_driver_factory(self._driver_name, self._headless)
+        self._session_id = session_id
+        self._profile_id = profile_id
+        self._runtime_generation = runtime_generation
+        self._profile_repository = profile_repository
+        self._session_repository = session_repository
+        self._terminal_callback = terminal_callback
+        if driver_factory is None and profile_id != "default" and launch_spec is None:
+            raise ValueError("non-default BrowserSessionRuntime requires an explicit ProfileLaunchSpec")
+        self._driver_factory = driver_factory or create_default_driver_factory(
+            self._driver_name,
+            self._headless,
+            launch_spec,
+        )
         self._jobs: queue.Queue[tuple[str, tuple, queue.Queue] | None] = queue.Queue()
         self._web_operation_lock = threading.RLock()
         self._thread: threading.Thread | None = None
         self._closed = False
-        self._agent_lease = AgentLease()
+        self._agent_lease = AgentLease(profile_id=profile_id)
         self._safety_contexts = SafetyContextManager()
         self._local_resources = LocalResourceBroker()
-        self._profile_policies = ProfilePolicyStore()
+        self._profile_policies = ProfilePolicyStore(repository=profile_repository)
         self._payments = PaymentInstrumentBroker()
         self._selected_payment: _SelectedPaymentInstrument | None = None
         self._step_ups = StepUpManager()
@@ -152,6 +178,19 @@ class BrowserRuntime:
         self._human_control = HumanControlLeaseManager()
         self._human_pointer_down: HumanInputEvent | None = None
         self._human_pressed_keys: dict[tuple[str, str], HumanInputEvent] = {}
+        self._session_terminal_recorded = False
+
+    @property
+    def session_id(self) -> str:
+        return self._session_id
+
+    @property
+    def profile_id(self) -> str:
+        return self._profile_id
+
+    @property
+    def runtime_generation(self) -> str:
+        return self._runtime_generation
 
     def replay_session_events(
         self,
@@ -2017,7 +2056,7 @@ class BrowserRuntime:
             "auth_takeover": self._auth_takeover,
             "auth_surface_mode": self._auth_surface_mode,
             "visible_window": False,
-            "session_id": "default",
+            "session_id": self._session_id,
             "profile_id": snapshot.profile_id,
             "profile_shared": metadata.owner == "shared",
             "profile_owner": metadata.owner,
@@ -2074,6 +2113,7 @@ class BrowserRuntime:
         with self._web_operation_lock:
             if self._closed:
                 return
+            self._transition_session(lifecycle="stopping")
             try:
                 self._reconcile_human_control_expiry()
                 active_human = self._human_control.active()
@@ -2105,6 +2145,10 @@ class BrowserRuntime:
                 self._closed = True
                 self._local_resources.close()
                 self._session_events.close()
+                if not self._session_terminal_recorded:
+                    self._transition_session(lifecycle="closed", close_reason="runtime closed")
+                    self._session_terminal_recorded = True
+                    self._notify_terminal("closed", "runtime closed")
 
     def _call(self, name: str, *args: Any) -> Any:
         if self._closed:
@@ -2114,22 +2158,85 @@ class BrowserRuntime:
         self._jobs.put((name, args, result))
         ok, value = result.get(timeout=60)
         if ok:
+            self._touch_session()
             return value
+        if isinstance(value, BrowserHostClosedError):
+            self._mark_session_crashed(str(value))
         raise value
 
     def _ensure_thread(self) -> None:
         if self._thread is not None:
             return
-        worker = _BrowserWorker(
+        self._transition_session(lifecycle="starting")
+        worker = SessionWorker(
             self._driver_factory,
+            session_id=self._session_id,
+            profile_id=self._profile_id,
+            runtime_generation=self._runtime_generation,
             headless=self._headless,
             auth_takeover=self._auth_takeover,
             auth_surface_mode=self._auth_surface_mode,
             private_url_policy=self._private_url_policy,
             event_bus=self._session_events,
+            restart_exited_host=self._session_repository is None,
         )
-        self._thread = threading.Thread(target=worker.run, args=(self._jobs,), name="webfa-browser", daemon=True)
+        self._thread = threading.Thread(
+            target=worker.run,
+            args=(self._jobs,),
+            name=f"webfa-session-{self._session_id}",
+            daemon=True,
+        )
         self._thread.start()
+        self._transition_session(lifecycle="running")
+
+    def _transition_session(
+        self,
+        *,
+        lifecycle: str | None = None,
+        control_state: str | None = None,
+        health: str | None = None,
+        close_reason: str | None = None,
+    ) -> None:
+        if self._session_repository is None:
+            return
+        try:
+            self._session_repository.transition(
+                self._session_id,
+                lifecycle=lifecycle,  # type: ignore[arg-type]
+                control_state=control_state,  # type: ignore[arg-type]
+                health=health,  # type: ignore[arg-type]
+                close_reason=close_reason,
+            )
+        except Exception:
+            pass
+
+    def _touch_session(self) -> None:
+        if self._session_repository is None:
+            return
+        try:
+            self._session_repository.touch(self._session_id)
+        except Exception:
+            pass
+
+    def _mark_session_crashed(self, reason: str) -> None:
+        if self._session_terminal_recorded:
+            return
+        close_reason = reason or "browser host closed unexpectedly"
+        self._transition_session(
+            lifecycle="crashed",
+            health="failed",
+            close_reason=close_reason,
+        )
+        self._session_terminal_recorded = True
+        self._notify_terminal("crashed", close_reason)
+
+    def _notify_terminal(self, lifecycle: str, reason: str | None) -> None:
+        if self._terminal_callback is None:
+            return
+        try:
+            self._terminal_callback(lifecycle, reason)
+        except Exception:
+            pass
 
     def _current_safety_state(self, snapshot: AgentLeaseSnapshot, state: WebState):
         if snapshot.active_agent_id is None:
@@ -2153,6 +2260,10 @@ class BrowserRuntime:
         return _agent_state_from_snapshot(snapshot, metadata)
 
 
+class BrowserRuntime(BrowserSessionRuntime):
+    """Compatibility facade for the default single Session during P12 migration."""
+
+
 def _agent_state_from_snapshot(
     snapshot: AgentLeaseSnapshot,
     metadata: ProfileOwnershipMetadata,
@@ -2168,17 +2279,27 @@ def _agent_state_from_snapshot(
     )
 
 
-class _BrowserWorker:
+class SessionWorker:
     def __init__(
         self,
         driver_factory: DriverFactory,
+        *,
+        session_id: str,
+        profile_id: str,
+        runtime_generation: str,
         headless: bool,
         auth_takeover: str,
         auth_surface_mode: str,
         private_url_policy: str,
         event_bus: SessionEventBus,
+        restart_exited_host: bool,
     ) -> None:
-        self._session = BrowserSession(driver_factory=driver_factory)
+        self._session = BrowserSession(
+            driver_factory=driver_factory,
+            session_id=session_id,
+            profile_id=profile_id,
+            runtime_generation=runtime_generation,
+        )
         self._view_builder = AgentViewBuilder()
         self._web_compiler = WebObjectCompiler()
         self._object_registry = ObjectRegistry()
@@ -2190,6 +2311,7 @@ class _BrowserWorker:
         self._auth_surface_mode = auth_surface_mode
         self._private_url_policy = private_url_policy
         self._event_bus = event_bus
+        self._restart_exited_host = restart_exited_host
         self._visual_provider: BoundVisualSurfaceProvider | None = None
         self._visual_binding_lock = threading.RLock()
         self._visual_binding = VisualSurfaceBinding(
@@ -2256,6 +2378,8 @@ class _BrowserWorker:
         self._clear_takeover()
         enforce_navigation_allowed(url, policy=self._private_url_policy)  # type: ignore[arg-type]
         if self._host_is_exited():
+            if not self._restart_exited_host:
+                raise BrowserHostClosedError()
             self._session.reset()
         driver = self._ensure_driver()
         self._invalidate_visual_document()

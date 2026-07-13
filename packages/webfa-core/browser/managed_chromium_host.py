@@ -16,9 +16,9 @@ from uuid import uuid4
 
 from browser.exceptions import BrowserHostClosedError
 from browser.human_control import HumanInputEvent
+from browser.profile_storage import ProfileLaunchSpec, ProfileStorageManager
 from browser.visual_surface import HostVisualFrame, HostVisualStreamState, VisualStreamConfig
 from schemas.browser import BrowserTab
-from storage.file_store import ensure_webfa_data_dir
 
 
 @dataclass
@@ -51,8 +51,13 @@ class _ScreencastRuntimeState:
 class ManagedChromiumHost:
     """WebFA-managed Chromium host controlled through an internal CDP channel."""
 
-    def __init__(self, headless: bool = True) -> None:
-        self._headless = headless
+    def __init__(
+        self,
+        headless: bool = True,
+        launch_spec: ProfileLaunchSpec | None = None,
+    ) -> None:
+        self._launch_spec = launch_spec
+        self._headless = launch_spec.headless if launch_spec is not None else headless
         self._process: subprocess.Popen | None = None
         self._port: int | None = None
         self._page_target_id: str | None = None
@@ -353,14 +358,42 @@ class ManagedChromiumHost:
         self._handling_dialog = False
         if self._process is not None:
             if self._process.poll() is None:
-                self._process.terminate()
+                self._request_graceful_browser_close()
                 try:
                     self._process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    self._process.kill()
-                    self._process.wait(timeout=5)
+                    self._process.terminate()
+                    try:
+                        self._process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self._process.kill()
+                        self._process.wait(timeout=5)
         self._process = None
         self._port = None
+
+    def _request_graceful_browser_close(self) -> None:
+        if self._port is None or not self._process_is_running():
+            return
+        client: _CDPClient | None = None
+        try:
+            version = self._http_json("/json/version")
+            websocket_url = version.get("webSocketDebuggerUrl") if isinstance(version, dict) else None
+            if not websocket_url:
+                return
+            client = _CDPClient(websocket_url)
+            try:
+                client.call("Browser.close")
+            except (RuntimeError, TimeoutError, OSError):
+                # Chromium may close the transport before acknowledging Browser.close.
+                pass
+        except Exception:
+            pass
+        finally:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
 
     def relaunch_visible(self, url: str) -> None:
         self.close()
@@ -617,10 +650,13 @@ class ManagedChromiumHost:
             return
         if self._process is not None:
             self._reset_dead_process()
-        paths = ensure_webfa_data_dir()
-        data_dir = Path(paths["data_dir"])
-        profile_dir = data_dir / "browser" / "managed-chromium-profile-default"
-        profile_dir.mkdir(parents=True, exist_ok=True)
+        if self._launch_spec is not None:
+            profile_dir = self._launch_spec.user_data_dir
+            profile_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            storage = ProfileStorageManager()
+            storage.migrate_legacy_default_profile()
+            profile_dir = storage.paths_for("default").user_data_dir
         active_port_file = profile_dir / "DevToolsActivePort"
         if active_port_file.exists():
             try:

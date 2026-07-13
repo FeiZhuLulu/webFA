@@ -27,10 +27,12 @@ from apps.runtime.api.routes.monitor import monitor_router
 from apps.runtime.api.routes.plans import router as plans_router
 from apps.runtime.api.routes.proofs import router as proofs_router
 from apps.runtime.api.routes.provider_connections import router as provider_connections_router
+from apps.runtime.api.routes.profiles import router as profiles_router
 from apps.runtime.api.routes.providers import router as providers_router
 from apps.runtime.api.routes.transactions import router as transactions_router
 from apps.runtime.api.routes.visualizer import router as visualizer_router
 from apps.runtime.api.routes.workspaces import router as workspaces_router
+from browser.profile_repository import ProfileRepository
 from registry.transaction_registry import build_default_registry
 from storage.db import init_db, upsert_transactions
 from storage.file_store import ensure_webfa_data_dir
@@ -47,6 +49,9 @@ async def lifespan(app: FastAPI):
     app.state.webfa_paths = paths
     app.state.webfa_db_path = db_path
     app.state.transaction_registry = registry
+    profile_repository = ProfileRepository()
+    profile_repository.ensure_default_profile()
+    app.state.profile_repository = profile_repository
     yield
     browser_runtime = getattr(app.state, "browser_runtime", None)
     if browser_runtime is not None:
@@ -74,6 +79,7 @@ def create_app() -> FastAPI:
     app.include_router(plans_router, prefix="/v1")
     app.include_router(proofs_router, prefix="/v1")
     app.include_router(provider_connections_router, prefix="/v1")
+    app.include_router(profiles_router, prefix="/v1")
     app.include_router(providers_router, prefix="/v1")
     app.include_router(transactions_router, prefix="/v1")
     app.include_router(visualizer_router, prefix="/v1")

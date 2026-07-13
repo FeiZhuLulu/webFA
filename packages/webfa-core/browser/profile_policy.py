@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from browser.profile_repository import ProfileNotFoundError, ProfileRepository
 from schemas.safety import (
     ProfileOwnershipMetadata,
     SafetyDeclaration,
@@ -29,7 +30,8 @@ class ProfilePolicyStore:
     create multiple isolated browser profiles; that remains P12.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, repository: ProfileRepository | None = None) -> None:
+        self._repository = repository
         self._profiles: dict[str, ProfileOwnershipMetadata] = {
             "default": ProfileOwnershipMetadata(
                 profile_id="default",
@@ -39,6 +41,11 @@ class ProfilePolicyStore:
         }
 
     def get(self, profile_id: str = "default") -> ProfileOwnershipMetadata:
+        if self._repository is not None:
+            try:
+                return self._repository.get_policy(profile_id)
+            except ProfileNotFoundError:
+                pass
         metadata = self._profiles.get(profile_id)
         if metadata is None:
             metadata = ProfileOwnershipMetadata(
@@ -50,10 +57,17 @@ class ProfilePolicyStore:
         return metadata.model_copy(deep=True)
 
     def upsert(self, metadata: ProfileOwnershipMetadata) -> ProfileOwnershipMetadata:
+        if self._repository is not None:
+            return self._repository.upsert_policy(metadata)
         self._profiles[metadata.profile_id] = metadata.model_copy(deep=True)
         return self.get(metadata.profile_id)
 
     def list(self) -> list[ProfileOwnershipMetadata]:
+        if self._repository is not None:
+            return [
+                self._repository.get_policy(profile.profile_id)
+                for profile in self._repository.list_profiles(include_archived=True)
+            ]
         return [self.get(profile_id) for profile_id in sorted(self._profiles)]
 
     def evaluate(

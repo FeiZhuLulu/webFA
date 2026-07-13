@@ -187,7 +187,7 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 见 `docs/browser-runtime-roadmap.md`。
 
-当前阶段：P10 WebFA Object Model 与 P11 Agent Safety Contract 已完成。P11 已形成完整闭环：SafetyContext、Runtime 证据提升、凭据/支付验证接管、LocalResourceBroker、Profile 所有权与绑定策略、用户自定义金融限额、受保护支付工具、精确单次 Step-up、安全策略 UI 与 SafetyReceipt 审计。下一步是 P12 Multi Session / Multi Profile。
+当前阶段：P10 WebFA Object Model 与 P11 Agent Safety Contract 已完成。P12 Multi Session / Multi Profile 的完整目标架构已经冻结，P12.1-P12.3 已完成：持久 Profile Catalog、Profile 存储与 Chromium Host 隔离、跨进程锁、默认 Profile 迁移、BrowserSessionRuntime 提取、Session 生命周期持久化及 Supervisor 基础均已落地。下一步是 P12.4 Supervisor 与全局路由。设计见 `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`，阶段报告见 `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md`。
 
 后续方向：
 

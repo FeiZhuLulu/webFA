@@ -41,12 +41,14 @@ class AgentLease:
         self,
         ttl_seconds: int | None = None,
         now: Callable[[], datetime] | None = None,
+        profile_id: str = "default",
     ) -> None:
         if ttl_seconds is None:
             raw = os.getenv("WEBFA_AGENT_LEASE_TTL_SECONDS")
             ttl_seconds = int(raw) if raw else DEFAULT_LEASE_TTL_SECONDS
         self._ttl = timedelta(seconds=max(1, ttl_seconds))
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self._profile_id = profile_id
         self._active_agent_id: str | None = None
         self._expires_at: datetime | None = None
         self._lock = threading.Lock()
@@ -60,12 +62,20 @@ class AgentLease:
                 raise AgentLeaseBusyError(self._active_agent_id, self._expires_at)
             self._active_agent_id = normalized
             self._expires_at = self._now() + self._ttl
-            return AgentLeaseSnapshot(active_agent_id=self._active_agent_id, expires_at=self._expires_at)
+            return AgentLeaseSnapshot(
+                active_agent_id=self._active_agent_id,
+                expires_at=self._expires_at,
+                profile_id=self._profile_id,
+            )
 
     def snapshot(self) -> AgentLeaseSnapshot:
         with self._lock:
             self._clear_if_expired()
-            return AgentLeaseSnapshot(active_agent_id=self._active_agent_id, expires_at=self._expires_at)
+            return AgentLeaseSnapshot(
+                active_agent_id=self._active_agent_id,
+                expires_at=self._expires_at,
+                profile_id=self._profile_id,
+            )
 
     def _clear_if_expired(self) -> None:
         if self._expires_at is not None and self._expires_at <= self._now():

@@ -8,7 +8,7 @@ from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from storage.file_store import ensure_webfa_data_dir
-from storage.models import Base, ProviderConnection, Transaction
+from storage.models import Base, ProviderConnection, StorageMigrationRecord, Transaction
 
 _ENGINE: Engine | None = None
 _SESSION_FACTORY: sessionmaker[Session] | None = None
@@ -42,8 +42,15 @@ def init_db() -> Path:
     paths = ensure_webfa_data_dir()
     engine = get_engine()
     Base.metadata.create_all(engine)
+    record_storage_migration("p12_001_profile_catalog")
     seed_provider_placeholders()
     return paths["db"]
+
+
+def record_storage_migration(migration_id: str) -> None:
+    with session_scope() as session:
+        if session.get(StorageMigrationRecord, migration_id) is None:
+            session.add(StorageMigrationRecord(migration_id=migration_id))
 
 
 def seed_provider_placeholders() -> None:

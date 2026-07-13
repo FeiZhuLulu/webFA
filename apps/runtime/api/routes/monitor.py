@@ -22,6 +22,7 @@ from browser.monitor_gateway import (
     serialize_session_event,
 )
 from browser.runtime import BrowserRuntime
+from browser.runtime_supervisor import BrowserRuntimeSupervisor
 from browser.session_events import SessionEvent
 from browser.visual_surface import VisualFrame
 
@@ -44,7 +45,10 @@ class MonitorGrantRequest(BaseModel):
 def issue_monitor_grant(payload: MonitorGrantRequest, request: Request) -> dict[str, Any]:
     runtime = get_browser_runtime(request)
     snapshot = runtime.monitor_snapshot()
-    if payload.session_id != snapshot["session_id"]:
+    requested_session_id = (
+        snapshot["session_id"] if payload.session_id == "default" else payload.session_id
+    )
+    if requested_session_id != snapshot["session_id"]:
         raise HTTPException(
             status_code=409,
             detail={
@@ -54,7 +58,7 @@ def issue_monitor_grant(payload: MonitorGrantRequest, request: Request) -> dict[
         )
     try:
         grant = get_monitor_access_manager(request).issue(
-            session_id=payload.session_id,
+            session_id=requested_session_id,
             permissions=payload.permissions,
             ttl_seconds=payload.ttl_seconds,
         )
@@ -602,12 +606,18 @@ async def _grant_watch_loop(
         await asyncio.sleep(min(0.5, delay))
 
 
-def _get_runtime(websocket: WebSocket) -> BrowserRuntime:
+def _get_runtime(websocket: WebSocket) -> BrowserRuntime | BrowserRuntimeSupervisor:
     runtime = getattr(websocket.app.state, "browser_runtime", None)
-    if runtime is None:
-        runtime = BrowserRuntime()
-        websocket.app.state.browser_runtime = runtime
-    return runtime
+    if runtime is not None:
+        return runtime
+    supervisor = getattr(websocket.app.state, "browser_runtime_supervisor", None)
+    if supervisor is None:
+        supervisor = BrowserRuntimeSupervisor(
+            profile_repository=getattr(websocket.app.state, "profile_repository", None),
+        )
+        websocket.app.state.browser_runtime_supervisor = supervisor
+    websocket.app.state.browser_runtime = supervisor
+    return supervisor
 
 
 def _monitor_origin_allowed(origin: str | None) -> bool:

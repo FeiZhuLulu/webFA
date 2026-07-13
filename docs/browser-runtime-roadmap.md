@@ -257,11 +257,23 @@ UI-1B
 
 P12
   Multi Session / Multi Profile.
-  Add isolated ObjectRegistries, profile binding, session lifecycle, profile
-  locks, and explicit agent-to-session leases after the single-session Web
-  Object model is stable. Detailed design remains intentionally deferred until
-  the single-session Control Center and Session Monitor interaction model is
-  validated.
+  Frozen target architecture: persistent BrowserProfile identity containers,
+  dedicated per-active-Profile user-data-dir and Managed Chromium Host, at most
+  one active writable BrowserSession per Profile, multiple Tabs per Session,
+  concurrent execution across different Profiles, BrowserRuntimeSupervisor,
+  connection-scoped Profile grants, Session-exclusive Agent leases, globally
+  routed opaque Tab/WebObject identities, per-Session Monitor/HumanControl
+  isolation, and fail-closed generation binding for P11 authority. The default
+  Agent MCP surface remains exactly five tools. Cookie import is a protected
+  Profile Bootstrap consumer after P12 Core, not an Agent tool or a prerequisite
+  for Core acceptance. P12.1-P12.3 are complete: persistent Profile Catalog,
+  Profile-local P11 policy, explicit ProfileLaunchSpec, OS-backed process lock,
+  legacy default storage migration, real Chromium storage isolation,
+  BrowserSessionRuntime extraction, persistent Session lifecycle, and the
+  single-current-Session Supervisor foundation are implemented. P12.4 global
+  Supervisor routing is next. Frozen design:
+  docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md. P12.1-P12.3 report:
+  docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md.
 
 P13
   Durable Trace / Resume.

@@ -15,6 +15,7 @@ class BrowserSession:
     driver_factory: DriverFactory
     session_id: str = "default"
     profile_id: str = "default"
+    runtime_generation: str = "default"
     registry: ElementRegistry = field(default_factory=ElementRegistry)
     driver: BrowserDriver | None = None
 
