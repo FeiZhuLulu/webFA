@@ -275,11 +275,20 @@ P12
   Session-exclusive Agent leases, globally routed opaque Tab and WebObject IDs,
   optional open_url profile_ref integration while preserving exactly five MCP
   tools, Session-bound Monitor grants, multi-consumer VisualStreamHub, and
-  independent HumanControl isolation. P12.7 P11 authority re-scoping and
-  adversarial security review is next. Frozen design:
-  docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md. Reports:
-  docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md and
-  docs/reports/P12_4_6_MULTI_SESSION_ROUTING_MONITOR_REPORT.md.
+  independent HumanControl isolation. P12.7 is complete: SafetyContext,
+  Step-up, LocalResource, payment authorization, selected-payment state, and
+  SafetyReceipt authority are now explicitly bound to trusted Agent connection,
+  Profile, Session, and Runtime generation scopes, with origin/document/object
+  bindings where applicable. P12.8 final acceptance and migration review is
+  complete. Real Chromium verifies concurrent persistent Profile isolation for
+  Cookie, localStorage, IndexedDB, and Service Worker registration, and the
+  legacy manual-login helper now uses the canonical Profile path and process
+  lock. P12 Core is accepted; protected Profile Bootstrap is post-Core work.
+  Frozen design: docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md. Reports:
+  docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md,
+  docs/reports/P12_4_6_MULTI_SESSION_ROUTING_MONITOR_REPORT.md,
+  docs/reports/P12_7_P11_AUTHORITY_RESCOPING_SECURITY_REVIEW.md, and
+  docs/reports/P12_8_CORE_FINAL_ACCEPTANCE_MAINTENANCE_REVIEW.md.
 
 P13
   Durable Trace / Resume.

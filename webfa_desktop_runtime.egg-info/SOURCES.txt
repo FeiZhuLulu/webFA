@@ -86,6 +86,7 @@ packages/webfa-core/browser/__init__.py
 packages/webfa-core/browser/action_log.py
 packages/webfa-core/browser/agent_lease.py
 packages/webfa-core/browser/agent_view.py
+packages/webfa-core/browser/authority_scope.py
 packages/webfa-core/browser/config.py
 packages/webfa-core/browser/driver.py
 packages/webfa-core/browser/driver_factory.py

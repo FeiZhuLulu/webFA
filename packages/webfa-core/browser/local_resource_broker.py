@@ -43,6 +43,7 @@ class _ManagedLocalResource:
     size_bytes: int
     created_at: datetime
     remaining_uses: int
+    bound_connection_id: str | None = None
     revoked: bool = False
 
 
@@ -53,8 +54,19 @@ class LocalResourceBroker:
     bytes into a WebFA-managed directory and receives only a resource_ref.
     """
 
-    def __init__(self, *, clock: Clock | None = None, resource_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        clock: Clock | None = None,
+        resource_dir: Path | None = None,
+        profile_id: str | None = None,
+        session_id: str = "default",
+        runtime_generation: str = "default",
+    ) -> None:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._profile_id = profile_id
+        self._session_id = session_id
+        self._runtime_generation = runtime_generation
         if resource_dir is None:
             data_dir = Path(ensure_webfa_data_dir()["data_dir"])
             resource_dir = data_dir / "resources"
@@ -139,14 +151,21 @@ class LocalResourceBroker:
         backing_dir.mkdir(parents=True, exist_ok=False)
         backing_path.write_bytes(content)
         expires_at = now + timedelta(seconds=expires_in_seconds) if expires_in_seconds is not None else None
+        normalized_profile_ids = _unique_non_empty(bound_profile_ids or [])
+        grant_profile_id = self._profile_id or (
+            normalized_profile_ids[0] if len(normalized_profile_ids) == 1 else "default"
+        )
         grant = LocalResourceGrant(
             resource_ref=resource_ref,
             display_name=safe_name,
             owner=owner,
+            profile_id=grant_profile_id,
+            session_id=self._session_id,
+            runtime_generation=self._runtime_generation,
             purpose=purpose.strip(),
             allowed_origins=normalized_origins,
             bound_agent_ids=_unique_non_empty(bound_agent_ids or []),
-            bound_profile_ids=_unique_non_empty(bound_profile_ids or []),
+            bound_profile_ids=normalized_profile_ids,
             expires_at=expires_at,
             max_uses=max_uses,
         )
@@ -168,6 +187,9 @@ class LocalResourceBroker:
         agent_id: str,
         profile_id: str,
         origin: str,
+        connection_id: str = "default",
+        session_id: str = "default",
+        runtime_generation: str = "default",
         purpose: str | None = None,
     ) -> LocalResourceAuthorization:
         with self._lock:
@@ -194,6 +216,22 @@ class LocalResourceBroker:
                     "resource_profile_mismatch",
                     "active profile is outside the local resource grant scope",
                 )
+            if managed.grant.profile_id != profile_id:
+                raise LocalResourceError(
+                    "resource_profile_mismatch",
+                    "local resource grant is bound to another Browser Profile",
+                )
+            if (
+                (self._profile_id is not None and profile_id != self._profile_id)
+                or managed.grant.session_id != session_id
+                or session_id != self._session_id
+                or managed.grant.runtime_generation != runtime_generation
+                or runtime_generation != self._runtime_generation
+            ):
+                raise LocalResourceError(
+                    "resource_runtime_binding_mismatch",
+                    "local resource grant is bound to another Browser Session generation",
+                )
             if purpose is not None and purpose.strip() != managed.grant.purpose:
                 raise LocalResourceError(
                     "resource_purpose_mismatch",
@@ -201,15 +239,38 @@ class LocalResourceBroker:
                 )
             if not managed.path.is_file():
                 raise LocalResourceError("resource_missing", "local resource backing data is unavailable")
+            if managed.bound_connection_id is None:
+                managed.bound_connection_id = connection_id
+            elif managed.bound_connection_id != connection_id:
+                raise LocalResourceError(
+                    "resource_connection_mismatch",
+                    "local resource grant is bound to another Agent connection",
+                )
             return LocalResourceAuthorization(
                 resource_ref=resource_ref,
                 path=managed.path,
                 grant=managed.grant.model_copy(deep=True),
             )
 
-    def consume(self, resource_ref: str) -> LocalResourceGrantState:
+    def consume(
+        self,
+        resource_ref: str,
+        *,
+        connection_id: str = "default",
+        session_id: str = "default",
+        runtime_generation: str = "default",
+    ) -> LocalResourceGrantState:
         with self._lock:
             managed = self._require(resource_ref)
+            if (
+                managed.bound_connection_id != connection_id
+                or managed.grant.session_id != session_id
+                or managed.grant.runtime_generation != runtime_generation
+            ):
+                raise LocalResourceError(
+                    "resource_runtime_binding_mismatch",
+                    "local resource grant cannot be consumed outside its authorized Runtime scope",
+                )
             if self._status(managed) != "active":
                 return self._state(managed)
             managed.remaining_uses = max(0, managed.remaining_uses - 1)

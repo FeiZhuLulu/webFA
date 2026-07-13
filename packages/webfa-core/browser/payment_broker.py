@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from threading import RLock
@@ -44,6 +44,13 @@ class FinancialAuthorization:
     assurance: SafetyAssuranceLevel
     evidence: tuple[SafetyEvidenceItem, ...] = ()
     mismatches: tuple[SafetyMismatch, ...] = ()
+    authority_fingerprint: tuple[str, str, str, str, str] = (
+        "default",
+        "default",
+        "default",
+        "default",
+        "default",
+    )
 
 
 @dataclass(frozen=True)
@@ -59,6 +66,13 @@ class PaymentAuthorization:
     assurance: SafetyAssuranceLevel
     evidence: tuple[SafetyEvidenceItem, ...] = ()
     mismatches: tuple[SafetyMismatch, ...] = ()
+    authority_fingerprint: tuple[str, str, str, str, str] = (
+        "default",
+        "default",
+        "default",
+        "default",
+        "default",
+    )
 
 
 class PaymentInstrumentBroker:
@@ -70,7 +84,16 @@ class PaymentInstrumentBroker:
     commit operation.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        profile_id: str | None = None,
+        session_id: str = "default",
+        runtime_generation: str = "default",
+    ) -> None:
+        self._profile_id = profile_id
+        self._session_id = session_id
+        self._runtime_generation = runtime_generation
         self._policies: dict[str, FinancialPolicy] = {}
         self._instruments: dict[str, PaymentInstrumentState] = {}
         self._usage: dict[str, list[tuple[datetime, Decimal]]] = {}
@@ -95,6 +118,11 @@ class PaymentInstrumentBroker:
 
     def register_instrument(self, instrument: PaymentInstrumentRef) -> PaymentInstrumentState:
         with self._lock:
+            if self._profile_id is not None and instrument.profile_id != self._profile_id:
+                raise PaymentInstrumentError(
+                    "payment_profile_mismatch",
+                    "payment instrument is bound to another Browser Profile",
+                )
             if instrument.policy_id not in self._policies:
                 raise PaymentInstrumentError(
                     "financial_policy_missing",
@@ -140,8 +168,21 @@ class PaymentInstrumentBroker:
         transaction_kind: str,
         recurring: bool,
         assurance: SafetyAssuranceLevel,
+        connection_id: str = "default",
+        session_id: str = "default",
+        runtime_generation: str = "default",
         enforce_financial_limits: bool = True,
     ) -> PaymentAuthorization:
+        fingerprint = (agent_id, connection_id, profile_id, session_id, runtime_generation)
+        if (
+            (self._profile_id is not None and profile_id != self._profile_id)
+            or session_id != self._session_id
+            or runtime_generation != self._runtime_generation
+        ):
+            raise PaymentInstrumentError(
+                "payment_runtime_binding_mismatch",
+                "payment authorization is bound to another Browser Session generation",
+            )
         with self._lock:
             state = self._require_instrument(instrument_id)
             instrument = state.instrument
@@ -177,7 +218,7 @@ class PaymentInstrumentBroker:
                 evidence=evidence,
             )
             if denied is not None:
-                return denied
+                return replace(denied, authority_fingerprint=fingerprint)
 
             if not enforce_financial_limits:
                 return PaymentAuthorization(
@@ -191,6 +232,7 @@ class PaymentInstrumentBroker:
                     transaction_kind=transaction_kind,
                     assurance=assurance,
                     evidence=evidence,
+                    authority_fingerprint=fingerprint,
                 )
 
             financial = self._evaluate_policy(
@@ -215,6 +257,7 @@ class PaymentInstrumentBroker:
                 assurance=financial.assurance,
                 evidence=financial.evidence,
                 mismatches=financial.mismatches,
+                authority_fingerprint=fingerprint,
             )
 
     def authorize_policy(
@@ -227,10 +270,25 @@ class PaymentInstrumentBroker:
         recurring: bool,
         assurance: SafetyAssuranceLevel,
         origin: str,
+        agent_id: str = "anonymous-mcp",
+        connection_id: str = "default",
+        profile_id: str = "default",
+        session_id: str = "default",
+        runtime_generation: str = "default",
     ) -> FinancialAuthorization:
+        fingerprint = (agent_id, connection_id, profile_id, session_id, runtime_generation)
+        if (
+            (self._profile_id is not None and profile_id != self._profile_id)
+            or session_id != self._session_id
+            or runtime_generation != self._runtime_generation
+        ):
+            raise PaymentInstrumentError(
+                "payment_runtime_binding_mismatch",
+                "financial authorization is bound to another Browser Session generation",
+            )
         with self._lock:
             policy = self.get_policy(policy_id)
-            return self._evaluate_policy(
+            return replace(self._evaluate_policy(
                 policy=policy,
                 amount=amount,
                 currency=currency,
@@ -239,14 +297,51 @@ class PaymentInstrumentBroker:
                 assurance=assurance,
                 origin=origin,
                 evidence=(),
-            )
+            ), authority_fingerprint=fingerprint)
 
     def record_use(
         self,
         authorization: PaymentAuthorization | FinancialAuthorization,
+        *,
+        agent_id: str | None = None,
+        connection_id: str | None = None,
+        profile_id: str | None = None,
+        session_id: str | None = None,
+        runtime_generation: str | None = None,
     ) -> FinancialUsageState:
         if authorization.decision not in {"allow", "allow_with_audit"}:
             raise PaymentInstrumentError("payment_not_authorized", "cannot record a denied financial authorization")
+        (
+            bound_agent_id,
+            bound_connection_id,
+            bound_profile_id,
+            bound_session_id,
+            bound_runtime_generation,
+        ) = authorization.authority_fingerprint
+        supplied = (
+            agent_id or bound_agent_id,
+            connection_id or bound_connection_id,
+            profile_id or bound_profile_id,
+            session_id or bound_session_id,
+            runtime_generation or bound_runtime_generation,
+        )
+        if supplied != authorization.authority_fingerprint:
+            raise PaymentInstrumentError(
+                "payment_authority_binding_mismatch",
+                "financial authorization is bound to another Agent connection",
+            )
+        profile_id = bound_profile_id
+        session_id = bound_session_id
+        runtime_generation = bound_runtime_generation
+        if (
+            (self._profile_id is not None and profile_id != self._profile_id)
+            or session_id != self._session_id
+            or runtime_generation != self._runtime_generation
+        ):
+            raise PaymentInstrumentError(
+                "payment_runtime_binding_mismatch",
+                "financial authorization cannot be recorded outside its Browser Session generation",
+            )
         with self._lock:
             now = datetime.now(timezone.utc)
             self._usage.setdefault(authorization.policy.policy_id, []).append((now, authorization.amount))

@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
 from browser.agent_lease import AgentLease, AgentLeaseSnapshot
+from browser.authority_scope import normalize_connection_id
 from browser.agent_view import AgentViewBuilder
 from browser.action_log import redact_action_message
 from browser.config import resolve_browser_runtime_config
@@ -125,6 +126,9 @@ class _SelectedPaymentInstrument:
     transaction_kind: str
     recurring: bool
     assurance: SafetyAssuranceLevel
+    connection_id: str = "compat:anonymous-mcp"
+    session_id: str = "default"
+    runtime_generation: str = "default"
 
 
 class BrowserSessionRuntime:
@@ -167,13 +171,33 @@ class BrowserSessionRuntime:
         self._thread: threading.Thread | None = None
         self._closed = False
         self._agent_lease = AgentLease(profile_id=profile_id)
-        self._safety_contexts = SafetyContextManager()
-        self._local_resources = LocalResourceBroker()
+        self._safety_contexts = SafetyContextManager(
+            profile_id=profile_id,
+            session_id=session_id,
+            runtime_generation=runtime_generation,
+        )
+        self._local_resources = LocalResourceBroker(
+            profile_id=profile_id,
+            session_id=session_id,
+            runtime_generation=runtime_generation,
+        )
         self._profile_policies = ProfilePolicyStore(repository=profile_repository)
-        self._payments = PaymentInstrumentBroker()
+        self._payments = PaymentInstrumentBroker(
+            profile_id=profile_id,
+            session_id=session_id,
+            runtime_generation=runtime_generation,
+        )
         self._selected_payment: _SelectedPaymentInstrument | None = None
-        self._step_ups = StepUpManager()
-        self._safety_receipts = SafetyReceiptStore()
+        self._step_ups = StepUpManager(
+            profile_id=profile_id,
+            session_id=session_id,
+            runtime_generation=runtime_generation,
+        )
+        self._safety_receipts = SafetyReceiptStore(
+            profile_id=profile_id,
+            session_id=session_id,
+            runtime_generation=runtime_generation,
+        )
         self._session_events = SessionEventBus()
         self._human_control = HumanControlLeaseManager()
         self._human_pointer_down: HumanInputEvent | None = None
@@ -389,13 +413,28 @@ class BrowserSessionRuntime:
     def observe(self) -> BrowserState:
         return self._with_agent_state(self._call("observe"))
 
-    def open_web(self, request: WebOpenRequest, agent_id: str | None = None) -> WebOpenResult:
+    def open_web(
+        self,
+        request: WebOpenRequest,
+        agent_id: str | None = None,
+        connection_id: str | None = None,
+    ) -> WebOpenResult:
         with self._web_operation_lock:
-            result = self._open_web_inner(request, agent_id=agent_id)
+            result = self._open_web_inner(
+                request,
+                agent_id=agent_id,
+                connection_id=connection_id,
+            )
             if result.safety_decision is None:
                 return result
             receipt = self._generic_open_receipt(request, result)
-            result.safety_receipt = self._safety_receipts.append(receipt)
+            result.safety_receipt = self._safety_receipts.append(
+                receipt,
+                connection_id=normalize_connection_id(
+                    connection_id,
+                    agent_id=(agent_id or "anonymous-mcp").strip() or "anonymous-mcp",
+                ),
+            )
             self._publish_safety_event(
                 result.safety_decision,
                 result.state,
@@ -403,10 +442,19 @@ class BrowserSessionRuntime:
             )
             return result
 
-    def _open_web_inner(self, request: WebOpenRequest, agent_id: str | None = None) -> WebOpenResult:
+    def _open_web_inner(
+        self,
+        request: WebOpenRequest,
+        agent_id: str | None = None,
+        connection_id: str | None = None,
+    ) -> WebOpenResult:
         self._require_agent_control_available()
         snapshot = self._agent_lease.acquire(agent_id)
         active_agent_id = snapshot.active_agent_id or "anonymous-mcp"
+        active_connection_id = normalize_connection_id(
+            connection_id,
+            agent_id=active_agent_id,
+        )
         requested_origin = _origin_from_url(request.url)
         declaration = request.safety.declaration if request.safety is not None else None
         supplied_step_up_id = request.safety.step_up_id if request.safety is not None else None
@@ -441,7 +489,9 @@ class BrowserSessionRuntime:
                             context_id=request.safety.context_id if request.safety is not None else None,
                             agent_id=active_agent_id,
                             profile_id=snapshot.profile_id,
+                            connection_id=active_connection_id,
                             origin=requested_origin,
+                            document_id="",
                             target_object_id="navigation",
                             operation="open_url",
                             requested_scope=requested_scope,
@@ -469,7 +519,9 @@ class BrowserSessionRuntime:
                         context_id=request.safety.context_id if request.safety is not None else None,
                         agent_id=active_agent_id,
                         profile_id=snapshot.profile_id,
+                        connection_id=active_connection_id,
                         origin=requested_origin,
+                        document_id="",
                         target_object_id="navigation",
                         operation="open_url",
                         message=profile_evaluation.message,
@@ -497,7 +549,12 @@ class BrowserSessionRuntime:
             context_id = request.safety.context_id
             scoped_declaration = declaration
             if scoped_declaration is None and context_id is not None:
-                scoped_declaration = self._safety_contexts.declaration_for(context_id)
+                scoped_declaration = self._safety_contexts.declaration_for(
+                    context_id,
+                    agent_id=active_agent_id,
+                    profile_id=snapshot.profile_id,
+                    connection_id=active_connection_id,
+                )
             declared_origins = _declaration_origins(scoped_declaration)
             if declared_origins and requested_origin not in declared_origins:
                 current_scope: dict[str, StepUpScopeScalar] = {
@@ -514,7 +571,9 @@ class BrowserSessionRuntime:
                             context_id=context_id,
                             agent_id=active_agent_id,
                             profile_id=snapshot.profile_id,
+                            connection_id=active_connection_id,
                             origin=requested_origin,
+                            document_id="",
                             target_object_id="navigation",
                             operation="open_url",
                             requested_scope=requested_scope,
@@ -541,6 +600,7 @@ class BrowserSessionRuntime:
                             requested_origin,
                             agent_id=active_agent_id,
                             profile_id=snapshot.profile_id,
+                            connection_id=active_connection_id,
                         )
                         if scope_decision.decision not in {"allow", "allow_with_audit"}:
                             state = WebState(url=request.url, agent=self._agent_state(snapshot))
@@ -574,7 +634,9 @@ class BrowserSessionRuntime:
                         context_id=context_id,
                         agent_id=active_agent_id,
                         profile_id=snapshot.profile_id,
+                        connection_id=active_connection_id,
                         origin=requested_origin,
+                        document_id="",
                         target_object_id="navigation",
                         operation="open_url",
                         message="Requested navigation origin is outside the SafetyContext scope",
@@ -607,13 +669,21 @@ class BrowserSessionRuntime:
                 agent_id=active_agent_id,
                 profile_id=snapshot.profile_id,
                 current_origin=_origin_from_url(state.url),
+                connection_id=active_connection_id,
             )
             decision = _merge_profile_evaluation(decision, profile_evaluation)
             state.safety = decision.state
         else:
-            state.safety = self._current_safety_state(snapshot, state)
+            state.safety = self._current_safety_state(
+                snapshot,
+                state,
+                connection_id=active_connection_id,
+            )
         if authorized_step_up_id is not None:
-            self._step_ups.consume(authorized_step_up_id)
+            self._step_ups.consume(
+                authorized_step_up_id,
+                connection_id=active_connection_id,
+            )
         return WebOpenResult(ok=True, url=request.url, state=state, safety_decision=decision)
 
     def observe_web(
@@ -621,11 +691,22 @@ class BrowserSessionRuntime:
         request: WebObserveRequest | None = None,
         *,
         allow_debug: bool = False,
+        agent_id: str | None = None,
+        connection_id: str | None = None,
     ) -> WebObserveResult:
         result = self._call("observe_web", request or WebObserveRequest(), allow_debug)
         snapshot = self._agent_lease.snapshot()
+        active_agent_id = snapshot.active_agent_id or (agent_id or "anonymous-mcp")
+        active_connection_id = normalize_connection_id(
+            connection_id,
+            agent_id=active_agent_id,
+        )
         result.state.agent = self._agent_state(snapshot)
-        result.state.safety = self._current_safety_state(snapshot, result.state)
+        result.state.safety = self._current_safety_state(
+            snapshot,
+            result.state,
+            connection_id=active_connection_id,
+        )
         return result
 
     def register_local_resource(
@@ -729,13 +810,31 @@ class BrowserSessionRuntime:
             self._agent_lease.acquire(agent_id)
             return self._with_agent_result(self._call("act", request))
 
-    def act_web(self, request: WebOperationRequest, agent_id: str | None = None) -> WebOperationResult:
+    def act_web(
+        self,
+        request: WebOperationRequest,
+        agent_id: str | None = None,
+        connection_id: str | None = None,
+    ) -> WebOperationResult:
         with self._web_operation_lock:
-            result = self._act_web_inner(request, agent_id=agent_id)
+            if connection_id is None:
+                result = self._act_web_inner(request, agent_id=agent_id)
+            else:
+                result = self._act_web_inner(
+                    request,
+                    agent_id=agent_id,
+                    connection_id=connection_id,
+                )
             if result.safety_decision is None:
                 return result
             receipt = result.safety_receipt or self._generic_safety_receipt(request, result)
-            result.safety_receipt = self._safety_receipts.append(receipt)
+            result.safety_receipt = self._safety_receipts.append(
+                receipt,
+                connection_id=normalize_connection_id(
+                    connection_id,
+                    agent_id=(agent_id or "anonymous-mcp").strip() or "anonymous-mcp",
+                ),
+            )
             self._publish_safety_event(
                 result.safety_decision,
                 result.state,
@@ -743,10 +842,19 @@ class BrowserSessionRuntime:
             )
             return result
 
-    def _act_web_inner(self, request: WebOperationRequest, agent_id: str | None = None) -> WebOperationResult:
+    def _act_web_inner(
+        self,
+        request: WebOperationRequest,
+        agent_id: str | None = None,
+        connection_id: str | None = None,
+    ) -> WebOperationResult:
         self._require_agent_control_available()
         snapshot = self._agent_lease.acquire(agent_id)
         active_agent_id = snapshot.active_agent_id or "anonymous-mcp"
+        active_connection_id = normalize_connection_id(
+            connection_id,
+            agent_id=active_agent_id,
+        )
         current = self._call("observe_web", WebObserveRequest(), False).state
         current.agent = self._agent_state(snapshot)
         evidence: SafetyEvidenceReport = self._call("operation_evidence", request)
@@ -757,7 +865,12 @@ class BrowserSessionRuntime:
         if request.safety is not None:
             declaration = request.safety.declaration
             if declaration is None and request.safety.context_id is not None:
-                declaration = self._safety_contexts.declaration_for(request.safety.context_id)
+                declaration = self._safety_contexts.declaration_for(
+                    request.safety.context_id,
+                    agent_id=active_agent_id,
+                    profile_id=snapshot.profile_id,
+                    connection_id=active_connection_id,
+                )
         profile_evaluation = self._profile_policies.evaluate(
             agent_id=active_agent_id,
             profile_id=snapshot.profile_id,
@@ -790,7 +903,9 @@ class BrowserSessionRuntime:
                             context_id=request.safety.context_id if request.safety is not None else None,
                             agent_id=active_agent_id,
                             profile_id=snapshot.profile_id,
+                            connection_id=active_connection_id,
                             origin=_origin_from_url(current.url),
+                            document_id=current.document_id,
                             target_object_id=request.target,
                             operation=request.operation,
                             requested_scope=requested_scope,
@@ -822,7 +937,9 @@ class BrowserSessionRuntime:
                         context_id=request.safety.context_id if request.safety is not None else None,
                         agent_id=active_agent_id,
                         profile_id=snapshot.profile_id,
+                        connection_id=active_connection_id,
                         origin=_origin_from_url(current.url),
+                        document_id=current.document_id,
                         target_object_id=request.target,
                         operation=request.operation,
                         message=profile_evaluation.message,
@@ -862,6 +979,7 @@ class BrowserSessionRuntime:
                 agent_id=active_agent_id,
                 profile_id=snapshot.profile_id,
                 current_origin=current_origin,
+                connection_id=active_connection_id,
             )
             declared_origins = _declaration_origins(declaration)
             origin_scope_mismatch = bool(
@@ -883,7 +1001,9 @@ class BrowserSessionRuntime:
                             context_id=decision.context_id,
                             agent_id=active_agent_id,
                             profile_id=snapshot.profile_id,
+                            connection_id=active_connection_id,
                             origin=current_origin,
+                            document_id=current.document_id,
                             target_object_id=request.target,
                             operation=request.operation,
                             requested_scope=requested_scope,
@@ -915,6 +1035,7 @@ class BrowserSessionRuntime:
                         current_origin,
                         agent_id=active_agent_id,
                         profile_id=snapshot.profile_id,
+                        connection_id=active_connection_id,
                     )
                 else:
                     step_up = self._step_ups.request(
@@ -922,7 +1043,9 @@ class BrowserSessionRuntime:
                         context_id=decision.context_id,
                         agent_id=active_agent_id,
                         profile_id=snapshot.profile_id,
+                        connection_id=active_connection_id,
                         origin=current_origin,
+                        document_id=current.document_id,
                         target_object_id=request.target,
                         operation=request.operation,
                         message="Current origin is outside the SafetyContext scope",
@@ -947,6 +1070,7 @@ class BrowserSessionRuntime:
                     agent_id=active_agent_id,
                     profile_id=snapshot.profile_id,
                     current_origin=_origin_from_url(current.url),
+                    connection_id=active_connection_id,
                 )
             else:
                 decision = decision.model_copy(update={"evidence_report": evidence})
@@ -1013,6 +1137,9 @@ class BrowserSessionRuntime:
                 decision.context_id if decision is not None else None,
                 request=request,
                 evidence=evidence,
+                agent_id=active_agent_id,
+                connection_id=active_connection_id,
+                profile_id=snapshot.profile_id,
             )
             if payment_scope_error is not None:
                 denied = _payment_denied_decision(
@@ -1092,6 +1219,9 @@ class BrowserSessionRuntime:
                     instrument_id=str(request.arguments.get("instrument_id") or ""),
                     agent_id=active_agent_id,
                     profile_id=snapshot.profile_id,
+                    connection_id=active_connection_id,
+                    session_id=self._session_id,
+                    runtime_generation=self._runtime_generation,
                     origin=_origin_from_url(current.url),
                     target_label=" ".join(
                         part for part in (target.name, target.description, target.text) if part
@@ -1136,7 +1266,9 @@ class BrowserSessionRuntime:
                                 context_id=decision.context_id if decision is not None else None,
                                 agent_id=active_agent_id,
                                 profile_id=snapshot.profile_id,
+                                connection_id=active_connection_id,
                                 origin=_origin_from_url(current.url),
+                                document_id=current.document_id,
                                 target_object_id=request.target,
                                 operation=request.operation,
                                 requested_scope=requested_scope,
@@ -1176,7 +1308,9 @@ class BrowserSessionRuntime:
                             context_id=decision.context_id if decision is not None else None,
                             agent_id=active_agent_id,
                             profile_id=snapshot.profile_id,
+                            connection_id=active_connection_id,
                             origin=_origin_from_url(current.url),
+                            document_id=current.document_id,
                             target_object_id=request.target,
                             operation=request.operation,
                             message=payment_authorization.message,
@@ -1230,6 +1364,7 @@ class BrowserSessionRuntime:
                     agent_id=active_agent_id,
                     profile_id=snapshot.profile_id,
                     current_origin=_origin_from_url(current.url),
+                    connection_id=active_connection_id,
                 )
                 if decision.decision not in {"allow", "allow_with_audit"}:
                     current.safety = decision.state
@@ -1248,6 +1383,9 @@ class BrowserSessionRuntime:
             financial_scope, financial_scope_error = self._resolve_financial_commit_scope(
                 decision.context_id if decision is not None else None,
                 evidence=evidence,
+                agent_id=active_agent_id,
+                connection_id=active_connection_id,
+                profile_id=snapshot.profile_id,
             )
             if financial_scope_error is not None or financial_scope is None:
                 message = financial_scope_error or "financial commitment scope is unavailable"
@@ -1275,6 +1413,7 @@ class BrowserSessionRuntime:
                     selection_error = self._selected_payment_error(
                         instrument_id=instrument_id,
                         agent_id=active_agent_id,
+                        connection_id=active_connection_id,
                         profile_id=snapshot.profile_id,
                         state=current,
                         amount=financial_scope["amount"],
@@ -1299,6 +1438,9 @@ class BrowserSessionRuntime:
                         instrument_id=instrument_id,
                         agent_id=active_agent_id,
                         profile_id=snapshot.profile_id,
+                        connection_id=active_connection_id,
+                        session_id=self._session_id,
+                        runtime_generation=self._runtime_generation,
                         origin=_origin_from_url(current.url),
                         target_label=None,
                         amount=financial_scope["amount"],
@@ -1311,6 +1453,11 @@ class BrowserSessionRuntime:
                 elif policy_id is not None:
                     financial_commit_authorization = self._payments.authorize_policy(
                         policy_id=policy_id,
+                        agent_id=active_agent_id,
+                        connection_id=active_connection_id,
+                        profile_id=snapshot.profile_id,
+                        session_id=self._session_id,
+                        runtime_generation=self._runtime_generation,
                         amount=financial_scope["amount"],
                         currency=financial_scope["currency"],
                         transaction_kind=financial_scope["transaction_kind"],
@@ -1359,7 +1506,9 @@ class BrowserSessionRuntime:
                                     context_id=decision.context_id if decision is not None else None,
                                     agent_id=active_agent_id,
                                     profile_id=snapshot.profile_id,
+                                    connection_id=active_connection_id,
                                     origin=_origin_from_url(current.url),
+                                    document_id=current.document_id,
                                     target_object_id=request.target,
                                     operation=request.operation,
                                     requested_scope=requested_scope,
@@ -1399,7 +1548,9 @@ class BrowserSessionRuntime:
                                 context_id=decision.context_id if decision is not None else None,
                                 agent_id=active_agent_id,
                                 profile_id=snapshot.profile_id,
+                                connection_id=active_connection_id,
                                 origin=_origin_from_url(current.url),
+                                document_id=current.document_id,
                                 target_object_id=request.target,
                                 operation=request.operation,
                                 message=financial_commit_authorization.message,
@@ -1457,6 +1608,9 @@ class BrowserSessionRuntime:
                 resource_ref=upload_resource_ref,
                 origin=_origin_from_url(current.url),
                 purpose=purpose if isinstance(purpose, str) else None,
+                agent_id=active_agent_id,
+                connection_id=active_connection_id,
+                profile_id=snapshot.profile_id,
             )
             if scope_error is not None:
                 evidence = _with_resource_mismatch(evidence, scope_error)
@@ -1484,6 +1638,9 @@ class BrowserSessionRuntime:
                     upload_resource_ref,
                     agent_id=active_agent_id,
                     profile_id=snapshot.profile_id,
+                    connection_id=active_connection_id,
+                    session_id=self._session_id,
+                    runtime_generation=self._runtime_generation,
                     origin=_origin_from_url(current.url),
                     purpose=purpose if isinstance(purpose, str) else None,
                 )
@@ -1517,6 +1674,7 @@ class BrowserSessionRuntime:
                     agent_id=active_agent_id,
                     profile_id=snapshot.profile_id,
                     current_origin=_origin_from_url(current.url),
+                    connection_id=active_connection_id,
                 )
 
         result = self._call("act_web", request, upload_path)
@@ -1529,9 +1687,17 @@ class BrowserSessionRuntime:
             )
         )
         if upload_resource_ref is not None and operation_executed:
-            self._local_resources.consume(upload_resource_ref)
+            self._local_resources.consume(
+                upload_resource_ref,
+                connection_id=active_connection_id,
+                session_id=self._session_id,
+                runtime_generation=self._runtime_generation,
+            )
         if authorized_step_up_id is not None and operation_executed:
-            self._step_ups.consume(authorized_step_up_id)
+            self._step_ups.consume(
+                authorized_step_up_id,
+                connection_id=active_connection_id,
+            )
         if payment_authorization is not None and operation_executed:
             result.data = {
                 **(result.data or {}),
@@ -1542,7 +1708,14 @@ class BrowserSessionRuntime:
                 },
             }
             if payment_operation_commits:
-                usage = self._payments.record_use(payment_authorization)
+                usage = self._payments.record_use(
+                    payment_authorization,
+                    agent_id=active_agent_id,
+                    connection_id=active_connection_id,
+                    profile_id=snapshot.profile_id,
+                    session_id=self._session_id,
+                    runtime_generation=self._runtime_generation,
+                )
                 self._selected_payment = None
                 result.data["financial_commitment"] = {
                     "amount": str(payment_authorization.amount),
@@ -1555,7 +1728,10 @@ class BrowserSessionRuntime:
             else:
                 self._selected_payment = _SelectedPaymentInstrument(
                     agent_id=active_agent_id,
+                    connection_id=active_connection_id,
                     profile_id=snapshot.profile_id,
+                    session_id=self._session_id,
+                    runtime_generation=self._runtime_generation,
                     document_id=current.document_id,
                     origin=_origin_from_url(current.url),
                     target_object_id=request.target,
@@ -1574,7 +1750,14 @@ class BrowserSessionRuntime:
                     "committed": False,
                 }
         if financial_commit_authorization is not None and operation_executed:
-            usage = self._payments.record_use(financial_commit_authorization)
+            usage = self._payments.record_use(
+                financial_commit_authorization,
+                agent_id=active_agent_id,
+                connection_id=active_connection_id,
+                profile_id=snapshot.profile_id,
+                session_id=self._session_id,
+                runtime_generation=self._runtime_generation,
+            )
             self._selected_payment = None
             result.data = {
                 **(result.data or {}),
@@ -1599,6 +1782,7 @@ class BrowserSessionRuntime:
                 agent_id=active_agent_id,
                 profile_id=snapshot.profile_id,
                 current_origin=_origin_from_url(result.state.url),
+                connection_id=active_connection_id,
             )
             result.state.safety = consumed
             result.safety_decision = decision.model_copy(update={"state": consumed})
@@ -1606,7 +1790,11 @@ class BrowserSessionRuntime:
             result.state.safety = decision.state
             result.safety_decision = decision
         else:
-            result.state.safety = self._current_safety_state(snapshot, result.state)
+            result.state.safety = self._current_safety_state(
+                snapshot,
+                result.state,
+                connection_id=active_connection_id,
+            )
         return result
 
     def _selected_payment_error(
@@ -1615,6 +1803,7 @@ class BrowserSessionRuntime:
         instrument_id: str,
         agent_id: str,
         profile_id: str,
+        connection_id: str | None = None,
         state: WebState,
         amount: Decimal,
         currency: str,
@@ -1624,9 +1813,17 @@ class BrowserSessionRuntime:
         selected = self._selected_payment
         if selected is None:
             return "declared payment instrument was not selected on the current document"
+        effective_connection_id = (
+            selected.connection_id
+            if connection_id is None
+            else normalize_connection_id(connection_id, agent_id=agent_id)
+        )
         expected = (
             agent_id,
+            effective_connection_id,
             profile_id,
+            self._session_id,
+            self._runtime_generation,
             state.document_id,
             _origin_from_url(state.url),
             instrument_id,
@@ -1637,7 +1834,10 @@ class BrowserSessionRuntime:
         )
         actual = (
             selected.agent_id,
+            selected.connection_id,
             selected.profile_id,
+            selected.session_id,
+            selected.runtime_generation,
             selected.document_id,
             selected.origin,
             selected.instrument_id,
@@ -1672,10 +1872,18 @@ class BrowserSessionRuntime:
         *,
         request: WebOperationRequest,
         evidence: SafetyEvidenceReport,
+        agent_id: str,
+        connection_id: str,
+        profile_id: str,
     ) -> str | None:
         if context_id is None:
             return "payment instrument use requires a task-scoped safety context"
-        declaration = self._safety_contexts.declaration_for(context_id)
+        declaration = self._safety_contexts.declaration_for(
+            context_id,
+            agent_id=agent_id,
+            connection_id=connection_id,
+            profile_id=profile_id,
+        )
         if declaration is None:
             return "payment safety context was not found"
         financial_dimensions = [
@@ -1717,10 +1925,18 @@ class BrowserSessionRuntime:
         context_id: str | None,
         *,
         evidence: SafetyEvidenceReport,
+        agent_id: str,
+        connection_id: str,
+        profile_id: str,
     ) -> tuple[dict[str, Any] | None, str | None]:
         if context_id is None:
             return None, "final financial commit requires a task-scoped safety context"
-        declaration = self._safety_contexts.declaration_for(context_id)
+        declaration = self._safety_contexts.declaration_for(
+            context_id,
+            agent_id=agent_id,
+            connection_id=connection_id,
+            profile_id=profile_id,
+        )
         if declaration is None:
             return None, "financial safety context was not found"
         dimensions = [
@@ -1773,14 +1989,18 @@ class BrowserSessionRuntime:
         origin: str,
         before_revision: int,
         after_revision: int,
+        document_id: str = "",
     ) -> SafetyReceipt:
         contract = decision.contract
         return SafetyReceipt(
             receipt_id=f"receipt_{uuid4().hex}",
-            context_id=decision.context_id or "",
+            context_id=decision.context_id or "unscoped",
             agent_id=agent_id,
             profile_id=profile_id,
+            session_id=self._session_id,
+            runtime_generation=self._runtime_generation,
             origin=origin,
+            document_id=document_id,
             target_object_id=request.target,
             operation=request.operation,
             p10_effect="external_write",
@@ -1821,7 +2041,10 @@ class BrowserSessionRuntime:
             context_id=decision.context_id or "unscoped",
             agent_id=result.state.agent.active_agent_id or "anonymous-mcp",
             profile_id=result.state.agent.profile_id or "default",
+            session_id=self._session_id,
+            runtime_generation=self._runtime_generation,
             origin=_origin_from_url(result.url),
+            document_id=result.state.document_id,
             target_object_id="navigation",
             operation="open_url",
             p10_effect="navigation",
@@ -1872,7 +2095,10 @@ class BrowserSessionRuntime:
             context_id=decision.context_id or "unscoped",
             agent_id=result.state.agent.active_agent_id or "anonymous-mcp",
             profile_id=result.state.agent.profile_id or "default",
+            session_id=self._session_id,
+            runtime_generation=self._runtime_generation,
             origin=_origin_from_url(result.state.url),
+            document_id=result.state.document_id,
             target_object_id=request.target,
             operation=request.operation,
             p10_effect=evidence.p10_effect if evidence is not None else "unknown",
@@ -1901,10 +2127,18 @@ class BrowserSessionRuntime:
         resource_ref: str,
         origin: str,
         purpose: str | None,
+        agent_id: str,
+        connection_id: str,
+        profile_id: str,
     ) -> str | None:
         if context_id is None:
             return "upload requires a task-scoped safety context"
-        declaration = self._safety_contexts.declaration_for(context_id)
+        declaration = self._safety_contexts.declaration_for(
+            context_id,
+            agent_id=agent_id,
+            connection_id=connection_id,
+            profile_id=profile_id,
+        )
         if declaration is None:
             return "upload safety context was not found"
         dimensions = [
@@ -2238,13 +2472,20 @@ class BrowserSessionRuntime:
         except Exception:
             pass
 
-    def _current_safety_state(self, snapshot: AgentLeaseSnapshot, state: WebState):
+    def _current_safety_state(
+        self,
+        snapshot: AgentLeaseSnapshot,
+        state: WebState,
+        *,
+        connection_id: str = "default",
+    ):
         if snapshot.active_agent_id is None:
             return None
         return self._safety_contexts.current_state(
             agent_id=snapshot.active_agent_id,
             profile_id=snapshot.profile_id,
             current_origin=_origin_from_url(state.url),
+            connection_id=connection_id,
         )
 
     def _with_agent_result(self, result: BrowserActionResult) -> BrowserActionResult:

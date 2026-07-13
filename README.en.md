@@ -187,11 +187,11 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 See `docs/browser-runtime-roadmap.md`.
 
-Current milestone: P10 WebFA Object Model and P11 Agent Safety Contract are complete. The complete P12 Multi Session / Multi Profile target architecture is frozen, and P12.1-P12.6 are implemented: persistent Profile Catalog, isolated Profile storage and Chromium Hosts, cross-process Profile locks, BrowserSessionRuntime, concurrent multi-Profile SessionManager/Supervisor routing, connection-scoped Profile grants, Session-exclusive Agent leases, global Tab/WebObject routing, five-tool `profile_ref` integration, Session-specific Monitor grants, VisualStreamHub, and independent HumanControl isolation. P12.7 P11 authority re-scoping and adversarial security review is next. See `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`, `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md`, and `docs/reports/P12_4_6_MULTI_SESSION_ROUTING_MONITOR_REPORT.md`.
+Current milestone: P10 WebFA Object Model, P11 Agent Safety Contract, and P12 Multi Session / Multi Profile Core are complete. P12 provides a persistent Profile Catalog, isolated Chromium Hosts and cross-process locks, BrowserSessionRuntime, concurrent multi-Profile SessionManager/Supervisor routing, connection-scoped Profile grants, Session-exclusive Agent leases, global Tab/WebObject routing, five-tool `profile_ref` integration, Session-specific Monitor grants, VisualStreamHub, independent HumanControl isolation, and explicit connection/Profile/Session/generation binding for SafetyContext, Step-up, local resources, payment authority, and SafetyReceipt. Real Chromium validates persistent multi-Profile isolation for Cookies, localStorage, IndexedDB, and Service Worker registration. The manual-login flow now uses the canonical Profile path and lock. P12 Core is accepted; Cookie import belongs to protected post-Core Profile Bootstrap. See `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md` and `docs/reports/P12_8_CORE_FINAL_ACCEPTANCE_MAINTENANCE_REVIEW.md`.
 
 Next work:
 
-- P12 Multi Session / Multi Profile
+- Profile Bootstrap: Cookie import / Profile clone / bundle restore
 - P13 Durable Trace / Resume
 
 ## License

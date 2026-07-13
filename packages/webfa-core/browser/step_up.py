@@ -22,8 +22,18 @@ class StepUpManager:
     SafetyContext. Approved requests are single-use by default.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        profile_id: str | None = None,
+        session_id: str = "default",
+        runtime_generation: str = "default",
+    ) -> None:
+        self._profile_id = profile_id
+        self._session_id = session_id
+        self._runtime_generation = runtime_generation
         self._states: dict[str, StepUpRequestState] = {}
+        self._connection_bindings: dict[str, str] = {}
         self._fingerprints: dict[tuple[object, ...], str] = {}
         self._lock = RLock()
 
@@ -38,6 +48,8 @@ class StepUpManager:
         target_object_id: str,
         operation: str,
         message: str,
+        connection_id: str = "default",
+        document_id: str = "",
         current_scope: dict[str, StepUpScopeScalar] | None = None,
         requested_scope: dict[str, StepUpScopeScalar] | None = None,
         expires_in_seconds: int = 900,
@@ -49,7 +61,9 @@ class StepUpManager:
             context_id=context_id,
             agent_id=agent_id,
             profile_id=profile_id,
+            connection_id=connection_id,
             origin=origin,
+            document_id=document_id,
             target_object_id=target_object_id,
             operation=operation,
             requested_scope=requested,
@@ -63,6 +77,11 @@ class StepUpManager:
                     if existing.status in {"pending", "approved"}:
                         return existing.model_copy(deep=True)
 
+            if self._profile_id is not None and profile_id != self._profile_id:
+                raise StepUpError(
+                    "step_up_profile_mismatch",
+                    "step-up request is bound to another Browser Profile",
+                )
             now = datetime.now(timezone.utc)
             request = StepUpRequest(
                 step_up_id=f"stepup_{uuid4().hex}",
@@ -70,7 +89,10 @@ class StepUpManager:
                 context_id=context_id,
                 agent_id=agent_id,
                 profile_id=profile_id,
+                session_id=self._session_id,
+                runtime_generation=self._runtime_generation,
                 origin=origin,
+                document_id=document_id,
                 target_object_id=target_object_id,
                 operation=operation,
                 message=message,
@@ -81,6 +103,7 @@ class StepUpManager:
             )
             state = StepUpRequestState(request=request)
             self._states[request.step_up_id] = state
+            self._connection_bindings[request.step_up_id] = connection_id
             self._fingerprints[fingerprint] = request.step_up_id
             return state.model_copy(deep=True)
 
@@ -167,6 +190,8 @@ class StepUpManager:
         origin: str,
         target_object_id: str,
         operation: str,
+        connection_id: str = "default",
+        document_id: str = "",
         requested_scope: dict[str, StepUpScopeScalar] | None = None,
     ) -> StepUpRequestState:
         with self._lock:
@@ -178,16 +203,24 @@ class StepUpManager:
             actual_binding = (
                 context_id,
                 agent_id,
+                connection_id,
                 profile_id,
+                self._session_id,
+                self._runtime_generation,
                 origin,
+                document_id,
                 target_object_id,
                 operation,
             )
             expected_binding = (
                 request.context_id,
                 request.agent_id,
+                self._connection_bindings.get(step_up_id),
                 request.profile_id,
+                request.session_id,
+                request.runtime_generation,
                 request.origin,
+                request.document_id,
                 request.target_object_id,
                 request.operation,
             )
@@ -203,10 +236,20 @@ class StepUpManager:
                 )
             return state.model_copy(deep=True)
 
-    def consume(self, step_up_id: str) -> StepUpRequestState:
+    def consume(
+        self,
+        step_up_id: str,
+        *,
+        connection_id: str = "default",
+    ) -> StepUpRequestState:
         with self._lock:
             state = self._require(step_up_id)
             self._refresh(state)
+            if self._connection_bindings.get(step_up_id) != connection_id:
+                raise StepUpError(
+                    "step_up_binding_mismatch",
+                    "step-up approval is bound to a different Agent connection",
+                )
             if state.status != "approved" or state.remaining_uses <= 0:
                 raise StepUpError("step_up_not_approved", "step-up approval is not available")
             consumed = state.model_copy(
@@ -235,7 +278,9 @@ class StepUpManager:
         context_id: str | None,
         agent_id: str,
         profile_id: str,
+        connection_id: str,
         origin: str,
+        document_id: str,
         target_object_id: str,
         operation: str,
         requested_scope: dict[str, StepUpScopeScalar],
@@ -244,8 +289,10 @@ class StepUpManager:
             reason,
             context_id,
             agent_id,
+            connection_id,
             profile_id,
             origin,
+            document_id,
             target_object_id,
             operation,
             tuple(sorted(requested_scope.items())),

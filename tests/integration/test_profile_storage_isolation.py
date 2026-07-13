@@ -15,9 +15,19 @@ from storage.db import init_db, reset_engine_for_tests
 
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
-        body = b"<!doctype html><html><body>profile isolation</body></html>"
+        if self.path == "/sw.js":
+            body = (
+                b"self.addEventListener('install', event => self.skipWaiting());"
+                b"self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));"
+            )
+            content_type = "application/javascript; charset=utf-8"
+        else:
+            body = b"<!doctype html><html><body>profile isolation</body></html>"
+            content_type = "text/html; charset=utf-8"
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", content_type)
+        if self.path == "/sw.js":
+            self.send_header("Service-Worker-Allowed", "/")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -53,6 +63,8 @@ def _write_identity(host: ManagedChromiumHost, identity: str) -> None:
             tx.onerror = () => reject(tx.error);
           }});
           db.close();
+          await navigator.serviceWorker.register('/sw.js', {{ scope: '/' }});
+          await navigator.serviceWorker.ready;
           return true;
         }})()
         """
@@ -76,10 +88,12 @@ def _read_identity(host: ManagedChromiumHost) -> dict:
             request.onerror = () => reject(request.error);
           });
           db.close();
+          const registrations = await navigator.serviceWorker.getRegistrations();
           return {
             cookie: document.cookie,
             local: localStorage.getItem('webfa_identity'),
             indexed,
+            serviceWorkerCount: registrations.length,
           };
         })()
         """
@@ -162,9 +176,11 @@ def test_two_persistent_profiles_isolate_and_retain_web_storage(monkeypatch, tmp
             state_b = _read_identity(host_b)
             assert state_a["local"] == "A"
             assert state_a["indexed"] == "A"
+            assert state_a["serviceWorkerCount"] == 1
             assert "webfa_identity=A" in state_a["cookie"]
             assert state_b["local"] == "B"
             assert state_b["indexed"] == "B"
+            assert state_b["serviceWorkerCount"] == 1
             assert "webfa_identity=B" in state_b["cookie"]
         finally:
             host_a.close()

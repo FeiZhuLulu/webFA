@@ -193,7 +193,11 @@ class BrowserRuntimeSupervisor:
         with context.operation_lock:
             profile_ref = request.profile_ref or context.current_profile_id or self._default_profile_ref
             entry = self._enter_profile(context, profile_ref=profile_ref, require_write=True)
-            result = entry.runtime.open_web(request, agent_id=context.agent_id)
+            result = entry.runtime.open_web(
+                request,
+                agent_id=context.agent_id,
+                connection_id=context.connection_id,
+            )
             self._bind_tabs(entry)
             return self._routes.project_open_result(
                 result,
@@ -216,7 +220,11 @@ class BrowserRuntimeSupervisor:
                 session_id=entry.session_id,
                 runtime_generation=entry.runtime_generation,
             )
-            result = entry.runtime.observe_web(localized)
+            result = entry.runtime.observe_web(
+                localized,
+                agent_id=context.agent_id,
+                connection_id=context.connection_id,
+            )
             return WebObserveResult(
                 state=self._routes.project_web_state(
                     result.state,
@@ -241,7 +249,11 @@ class BrowserRuntimeSupervisor:
                 session_id=entry.session_id,
                 runtime_generation=entry.runtime_generation,
             )
-            result = entry.runtime.act_web(localized, agent_id=context.agent_id)
+            result = entry.runtime.act_web(
+                localized,
+                agent_id=context.agent_id,
+                connection_id=context.connection_id,
+            )
             self._bind_tabs(entry)
             return self._routes.project_operation_result(
                 result,
@@ -325,7 +337,11 @@ class BrowserRuntimeSupervisor:
                 )
                 local_tab_id = route.local_id
             state = entry.runtime.switch_tab(local_tab_id, agent_id=context.agent_id)
-            web_state = entry.runtime.observe_web(WebObserveRequest(mode="page")).state
+            web_state = entry.runtime.observe_web(
+                WebObserveRequest(mode="page"),
+                agent_id=context.agent_id,
+                connection_id=context.connection_id,
+            ).state
             return self._routes.project_web_state(
                 web_state,
                 profile_id=entry.profile.profile_id,

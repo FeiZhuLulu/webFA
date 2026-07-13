@@ -90,21 +90,23 @@ $env:WEBFA_AUTH_TAKEOVER="auto"
 %APPDATA%\WebFA
 ```
 
-The default browser profile is:
+The default persistent BrowserProfile is stored at:
 
 ```text
-%APPDATA%\WebFA\browser\managed-chromium-profile-default
+%APPDATA%\WebFA\profiles\default\chromium-user-data
 ```
 
-This default profile is shared. If Kimi Code, Claude Code, Codex, and opencode
-all connect to the same Runtime and `WEBFA_HOME`, they use the same website
-login state. This is intentional for the early local runtime: WebFA represents
-the local user's browser identity, not a separate account per agent.
+P12 supports multiple isolated BrowserProfiles. Each active persistent Profile
+uses its own Chromium user-data directory, Managed Chromium Host, and writable
+BrowserSession. Agents use the optional `profile_ref` argument on
+`webfa.open_url` to enter an authorized Profile; no Profile-management tools are
+exposed through MCP.
 
-Set a distinct `WEBFA_AGENT_ID` in each agent's MCP config. WebFA allows one
-active agent to control the browser at a time. If another agent tries to open,
-act, or switch tabs while the lease is active, Runtime returns `409 agent_busy`.
-Read-only observe/tabs/health calls remain available and show the active agent.
+Set a distinct `WEBFA_AGENT_ID` in each agent's MCP config. A writable Session is
+exclusive to one Agent connection, while different authorized Profiles can run
+concurrently. Attempts to write through another connection return a structured
+Session/Profile busy error. `webfa.get_tabs` lists only Sessions authorized for
+the current connection.
 
 The default lease is 10 minutes and renews on each browser-changing action:
 

@@ -30,6 +30,9 @@ Clock = Callable[[], datetime]
 class _ManagedSafetyContext:
     declaration: SafetyDeclaration
     contract: SafetyContract
+    connection_id: str
+    session_id: str
+    runtime_generation: str
     expires_at: datetime
     remaining_uses: int
     origin_scope: tuple[str, ...]
@@ -56,11 +59,17 @@ class SafetyContextManager:
         compiler: SafetyContractCompiler | None = None,
         *,
         clock: Clock | None = None,
+        profile_id: str | None = None,
+        session_id: str = "default",
+        runtime_generation: str = "default",
     ) -> None:
         self._compiler = compiler or SafetyContractCompiler()
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._profile_id = profile_id
+        self._session_id = session_id
+        self._runtime_generation = runtime_generation
         self._contexts: dict[str, _ManagedSafetyContext] = {}
-        self._active_by_principal: dict[tuple[str, str], str] = {}
+        self._active_by_principal: dict[tuple[str, str, str, str, str], str] = {}
         self._lock = RLock()
 
     def evaluate(
@@ -70,6 +79,7 @@ class SafetyContextManager:
         agent_id: str,
         profile_id: str,
         current_origin: str,
+        connection_id: str = "default",
         locale: str = "zh-CN",
     ) -> SafetyDecision:
         with self._lock:
@@ -79,6 +89,7 @@ class SafetyContextManager:
                     agent_id=agent_id,
                     profile_id=profile_id,
                     current_origin=current_origin,
+                    connection_id=connection_id,
                     locale=locale,
                 )
                 if envelope.assertions is not None and decision.context_id is not None:
@@ -88,6 +99,7 @@ class SafetyContextManager:
                         agent_id=agent_id,
                         profile_id=profile_id,
                         current_origin=current_origin,
+                        connection_id=connection_id,
                     )
                 return decision
 
@@ -99,12 +111,14 @@ class SafetyContextManager:
                     agent_id=agent_id,
                     profile_id=profile_id,
                     current_origin=current_origin,
+                    connection_id=connection_id,
                 )
             return self._evaluate_existing(
                 envelope.context_id,
                 agent_id=agent_id,
                 profile_id=profile_id,
                 current_origin=current_origin,
+                connection_id=connection_id,
             )
 
     def current_state(
@@ -113,9 +127,12 @@ class SafetyContextManager:
         agent_id: str,
         profile_id: str,
         current_origin: str,
+        connection_id: str = "default",
     ) -> SafetyContextState | None:
         with self._lock:
-            context_id = self._active_by_principal.get((agent_id, profile_id))
+            context_id = self._active_by_principal.get(
+                (agent_id, connection_id, profile_id, self._session_id, self._runtime_generation)
+            )
             if context_id is None:
                 return None
             managed = self._contexts.get(context_id)
@@ -127,6 +144,7 @@ class SafetyContextManager:
                 agent_id=agent_id,
                 profile_id=profile_id,
                 current_origin=current_origin,
+                connection_id=connection_id,
             )
             if binding is not None:
                 return binding.state
@@ -140,6 +158,7 @@ class SafetyContextManager:
         agent_id: str,
         profile_id: str,
         current_origin: str,
+        connection_id: str = "default",
         locale: str = "zh-CN",
     ) -> SafetyDecision:
         with self._lock:
@@ -158,6 +177,7 @@ class SafetyContextManager:
                 agent_id=agent_id,
                 profile_id=profile_id,
                 current_origin=current_origin,
+                connection_id=connection_id,
             )
             if binding is not None:
                 return binding.model_copy(update={"evidence_report": report})
@@ -239,10 +259,29 @@ class SafetyContextManager:
                 evidence_report=merged_report,
             )
 
-    def declaration_for(self, context_id: str) -> SafetyDeclaration | None:
+    def declaration_for(
+        self,
+        context_id: str,
+        *,
+        agent_id: str | None = None,
+        profile_id: str | None = None,
+        connection_id: str | None = None,
+    ) -> SafetyDeclaration | None:
         with self._lock:
             managed = self._contexts.get(context_id)
-            return managed.declaration.model_copy(deep=True) if managed is not None else None
+            if managed is None:
+                return None
+            if agent_id is not None or profile_id is not None or connection_id is not None:
+                principal = managed.declaration.principal
+                if (
+                    principal.agent_id != (agent_id or principal.agent_id)
+                    or principal.profile_id != (profile_id or principal.profile_id)
+                    or managed.connection_id != (connection_id or managed.connection_id)
+                    or managed.session_id != self._session_id
+                    or managed.runtime_generation != self._runtime_generation
+                ):
+                    return None
+            return managed.declaration.model_copy(deep=True)
 
     def extend_origin_scope(
         self,
@@ -251,6 +290,7 @@ class SafetyContextManager:
         *,
         agent_id: str,
         profile_id: str,
+        connection_id: str = "default",
     ) -> SafetyDecision:
         with self._lock:
             managed = self._contexts.get(context_id)
@@ -262,14 +302,16 @@ class SafetyContextManager:
                     message="safety context was not found",
                 )
             self._refresh_lifecycle(managed)
-            principal = managed.declaration.principal
-            if principal.agent_id != agent_id or principal.profile_id != profile_id:
-                managed.status = "blocked"
-                managed.last_decision = "deny"
-                return self._decision_for_status(
-                    managed,
-                    message="safety context principal binding does not match the active Agent or profile",
-                )
+            binding = self._binding_decision(
+                managed,
+                agent_id=agent_id,
+                profile_id=profile_id,
+                current_origin="",
+                connection_id=connection_id,
+                check_origin=False,
+            )
+            if binding is not None:
+                return binding
             if managed.status in {"expired", "consumed", "blocked", "takeover_required"}:
                 return self._decision_for_status(managed)
             normalized = _normalize_origin(origin)
@@ -299,6 +341,7 @@ class SafetyContextManager:
         agent_id: str,
         profile_id: str,
         current_origin: str,
+        connection_id: str = "default",
     ) -> SafetyContextState | None:
         with self._lock:
             managed = self._contexts.get(context_id)
@@ -310,6 +353,7 @@ class SafetyContextManager:
                 agent_id=agent_id,
                 profile_id=profile_id,
                 current_origin=current_origin,
+                connection_id=connection_id,
             )
             if binding is not None:
                 return binding.state
@@ -336,6 +380,7 @@ class SafetyContextManager:
         agent_id: str,
         profile_id: str,
         current_origin: str,
+        connection_id: str,
         locale: str,
     ) -> SafetyDecision:
         if declaration.principal.agent_id != agent_id:
@@ -344,7 +389,10 @@ class SafetyContextManager:
                 status="blocked",
                 message="safety declaration agent_id does not match the active Agent",
             )
-        if declaration.principal.profile_id != profile_id:
+        if (
+            declaration.principal.profile_id != profile_id
+            or (self._profile_id is not None and profile_id != self._profile_id)
+        ):
             return SafetyDecision(
                 decision="deny",
                 status="blocked",
@@ -375,6 +423,9 @@ class SafetyContextManager:
         managed = _ManagedSafetyContext(
             declaration=declaration,
             contract=contract,
+            connection_id=connection_id,
+            session_id=self._session_id,
+            runtime_generation=self._runtime_generation,
             expires_at=expires_at,
             remaining_uses=declaration.max_uses,
             origin_scope=origin_scope,
@@ -382,7 +433,9 @@ class SafetyContextManager:
             last_decision=decision_name,
         )
         self._contexts[context_id] = managed
-        self._active_by_principal[(agent_id, profile_id)] = context_id
+        self._active_by_principal[
+            (agent_id, connection_id, profile_id, self._session_id, self._runtime_generation)
+        ] = context_id
         self._refresh_lifecycle(managed)
         status = managed.status
         decision_name = self._decision_name_for_status(status)
@@ -405,6 +458,7 @@ class SafetyContextManager:
         agent_id: str,
         profile_id: str,
         current_origin: str,
+        connection_id: str,
     ) -> SafetyDecision:
         managed = self._contexts.get(context_id)
         if managed is None:
@@ -420,6 +474,7 @@ class SafetyContextManager:
             agent_id=agent_id,
             profile_id=profile_id,
             current_origin=current_origin,
+            connection_id=connection_id,
         )
         if binding is not None:
             return binding
@@ -470,6 +525,7 @@ class SafetyContextManager:
         agent_id: str,
         profile_id: str,
         current_origin: str,
+        connection_id: str,
     ) -> SafetyDecision:
         managed = self._contexts.get(context_id)
         if managed is None:
@@ -485,6 +541,7 @@ class SafetyContextManager:
             agent_id=agent_id,
             profile_id=profile_id,
             current_origin=current_origin,
+            connection_id=connection_id,
         )
         if binding is not None:
             return binding
@@ -497,16 +554,25 @@ class SafetyContextManager:
         agent_id: str,
         profile_id: str,
         current_origin: str,
+        connection_id: str,
+        check_origin: bool = True,
     ) -> SafetyDecision | None:
         principal = managed.declaration.principal
-        if principal.agent_id != agent_id or principal.profile_id != profile_id:
-            managed.status = "blocked"
-            managed.last_decision = "deny"
-            return self._decision_for_status(
-                managed,
-                message="safety context principal binding does not match the active Agent or profile",
+        if (
+            principal.agent_id != agent_id
+            or principal.profile_id != profile_id
+            or (self._profile_id is not None and profile_id != self._profile_id)
+            or managed.connection_id != connection_id
+            or managed.session_id != self._session_id
+            or managed.runtime_generation != self._runtime_generation
+        ):
+            return SafetyDecision(
+                decision="deny",
+                status="blocked",
+                context_id=managed.contract.context_id,
+                message="safety context is bound to a different Agent connection or Runtime generation",
             )
-        if managed.origin_scope and current_origin not in managed.origin_scope:
+        if check_origin and managed.origin_scope and current_origin not in managed.origin_scope:
             managed.status = "step_up_required"
             managed.last_decision = "require_step_up"
             return self._decision_for_status(
@@ -559,6 +625,8 @@ class SafetyContextManager:
     def _state(self, managed: _ManagedSafetyContext) -> SafetyContextState:
         return SafetyContextState(
             context_id=managed.contract.context_id,
+            session_id=managed.session_id,
+            runtime_generation=managed.runtime_generation,
             principal=managed.declaration.principal,
             active_dimensions=managed.contract.active_dimensions,
             observed_dimensions=list(managed.observed_dimensions),

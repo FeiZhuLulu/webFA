@@ -445,6 +445,8 @@ class SafetyContract(StrictSafetyModel):
 
 class SafetyContextState(StrictSafetyModel):
     context_id: str = Field(min_length=1, max_length=200)
+    session_id: str = Field(default="default", min_length=1, max_length=200)
+    runtime_generation: str = Field(default="default", min_length=1, max_length=200)
     principal: SafetyPrincipalRef
     active_dimensions: list[SafetyDimensionType]
     observed_dimensions: list[SafetyDimensionType] = Field(default_factory=list)
@@ -464,7 +466,10 @@ class StepUpRequest(StrictSafetyModel):
     context_id: str | None = Field(default=None, max_length=200)
     agent_id: str = Field(min_length=1, max_length=200)
     profile_id: str = Field(min_length=1, max_length=200)
+    session_id: str = Field(default="default", min_length=1, max_length=200)
+    runtime_generation: str = Field(default="default", min_length=1, max_length=200)
     origin: str = Field(default="", max_length=1000)
+    document_id: str = Field(default="", max_length=200)
     target_object_id: str = Field(min_length=1, max_length=200)
     operation: str = Field(min_length=1, max_length=200)
     message: str = Field(min_length=1, max_length=1000)
@@ -500,7 +505,10 @@ class SafetyReceipt(StrictSafetyModel):
     context_id: str = Field(min_length=1, max_length=200)
     agent_id: str = Field(min_length=1, max_length=200)
     profile_id: str = Field(min_length=1, max_length=200)
+    session_id: str = Field(default="default", min_length=1, max_length=200)
+    runtime_generation: str = Field(default="default", min_length=1, max_length=200)
     origin: str = ""
+    document_id: str = Field(default="", max_length=200)
     target_object_id: str = ""
     operation: str = Field(min_length=1, max_length=200)
     p10_effect: P10EffectName = "unknown"
@@ -634,6 +642,9 @@ class LocalResourceGrant(StrictSafetyModel):
     resource_ref: str = Field(min_length=1, max_length=200)
     display_name: str = Field(min_length=1, max_length=500)
     owner: ResourceOwner
+    profile_id: str = Field(default="default", min_length=1, max_length=200)
+    session_id: str = Field(default="default", min_length=1, max_length=200)
+    runtime_generation: str = Field(default="default", min_length=1, max_length=200)
     purpose: str = Field(min_length=1, max_length=500)
     allowed_origins: list[str] = Field(min_length=1, max_length=100)
     bound_agent_ids: list[str] = Field(default_factory=list, max_length=100)
