@@ -161,3 +161,70 @@ def test_cookie_import_control_api_is_two_phase_and_secret_free(monkeypatch, tmp
         assert imported.json()["imported_count"] == 1
         assert secret not in imported.text
         assert "sid" not in imported.text
+
+
+def test_profile_clone_control_api_creates_new_isolated_catalog_entry(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
+    reset_engine_for_tests()
+    app = create_app()
+
+    with TestClient(app) as client:
+        repository = app.state.profile_repository
+        source = repository.get_profile("default")
+        storage = ProfileStorageManager(tmp_path / "WebFA")
+        source_paths = storage.paths_for(source)
+        (source_paths.user_data_dir / "Default" / "Local Storage").mkdir(parents=True)
+        (source_paths.user_data_dir / "Default" / "Local Storage" / "state.log").write_bytes(
+            b"clone-api-state"
+        )
+        app.state.profile_storage_manager = storage
+        app.state.profile_bootstrap_service = ProfileBootstrapService(
+            repository=repository,
+            storage=storage,
+        )
+
+        denied = client.post(
+            f"/v1/profiles/default/bootstrap/clone/preview?expected_version={source.version}"
+        )
+        assert denied.status_code == 403
+
+        previewed = client.post(
+            f"/v1/profiles/default/bootstrap/clone/preview?expected_version={source.version}",
+            headers=HEADERS,
+        )
+        assert previewed.status_code == 200, previewed.text
+        preview = previewed.json()
+        assert preview["file_count"] == 1
+        assert "state.log" not in previewed.text
+        assert "clone-api-state" not in previewed.text
+
+        cloned = client.post(
+            "/v1/profiles/default/bootstrap/clone",
+            headers=HEADERS,
+            json={
+                "preview_token": preview["preview_token"],
+                "expected_source_version": source.version,
+                "target_profile": {
+                    "agent_alias": "api-clone",
+                    "display_name": "API Clone",
+                    "owner": "user_owned",
+                    "trust_mode": "guarded",
+                },
+            },
+        )
+        assert cloned.status_code == 200, cloned.text
+        result = cloned.json()
+        assert result["status"] == "profile_cloned"
+        assert result["target_agent_alias"] == "api-clone"
+        assert "clone-api-state" not in cloned.text
+
+        target = repository.get_profile(result["target_profile_id"])
+        assert target.bootstrap_source == "cloned"
+        assert target.bound_agent_ids == []
+        assert (
+            storage.paths_for(target).user_data_dir
+            / "Default"
+            / "Local Storage"
+            / "state.log"
+        ).read_bytes() == b"clone-api-state"

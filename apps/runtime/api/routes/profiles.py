@@ -21,6 +21,12 @@ from browser.profile_bootstrap import (
     CookieImportVerificationError,
     ProfileBootstrapError,
     ProfileBootstrapService,
+    ProfileCloneApplyError,
+    ProfileCloneBindingError,
+    ProfileCloneBusyError,
+    ProfileClonePreviewExpiredError,
+    ProfileClonePreviewNotFoundError,
+    ProfileCloneSourceChangedError,
 )
 from browser.profile_repository import (
     ProfileConflictError,
@@ -36,6 +42,8 @@ from schemas.profile_bootstrap import (
     CookieImportCancelRequest,
     CookieImportCommitRequest,
     CookieImportFormat,
+    ProfileCloneCancelRequest,
+    ProfileCloneCommitRequest,
 )
 
 
@@ -263,6 +271,65 @@ def commit_cookie_import(
         raise _bootstrap_http_error(exc) from exc
 
 
+@router.post("/profiles/{profile_ref}/bootstrap/clone/preview")
+def preview_profile_clone(
+    profile_ref: str,
+    request: Request,
+    expected_version: int = Query(ge=1),
+):
+    try:
+        preview = get_profile_bootstrap_service(request).preview_profile_clone(
+            profile_ref,
+            expected_source_version=expected_version,
+            control_token=request.headers.get(VISUALIZER_CONTROL_HEADER, ""),
+        )
+        return preview.model_dump(mode="json")
+    except ProfileRepositoryError as exc:
+        raise _profile_http_error(exc) from exc
+    except ProfileBootstrapError as exc:
+        raise _bootstrap_http_error(exc) from exc
+
+
+@router.post("/profiles/{profile_ref}/bootstrap/clone/cancel")
+def cancel_profile_clone(
+    profile_ref: str,
+    payload: ProfileCloneCancelRequest,
+    request: Request,
+):
+    try:
+        result = get_profile_bootstrap_service(request).cancel_profile_clone(
+            profile_ref,
+            preview_token=payload.preview_token,
+            control_token=request.headers.get(VISUALIZER_CONTROL_HEADER, ""),
+        )
+        return result.model_dump(mode="json")
+    except ProfileRepositoryError as exc:
+        raise _profile_http_error(exc) from exc
+    except ProfileBootstrapError as exc:
+        raise _bootstrap_http_error(exc) from exc
+
+
+@router.post("/profiles/{profile_ref}/bootstrap/clone")
+def commit_profile_clone(
+    profile_ref: str,
+    payload: ProfileCloneCommitRequest,
+    request: Request,
+):
+    try:
+        result = get_profile_bootstrap_service(request).commit_profile_clone(
+            profile_ref,
+            preview_token=payload.preview_token,
+            expected_source_version=payload.expected_source_version,
+            target_profile=payload.target_profile,
+            control_token=request.headers.get(VISUALIZER_CONTROL_HEADER, ""),
+        )
+        return result.model_dump(mode="json")
+    except ProfileRepositoryError as exc:
+        raise _profile_http_error(exc) from exc
+    except ProfileBootstrapError as exc:
+        raise _bootstrap_http_error(exc) from exc
+
+
 def _bootstrap_http_error(exc: ProfileBootstrapError) -> HTTPException:
     if isinstance(exc, CookieImportLimitError):
         status_code = 413
@@ -272,11 +339,18 @@ def _bootstrap_http_error(exc: ProfileBootstrapError) -> HTTPException:
         status_code = 404
     elif isinstance(exc, CookieImportPreviewExpiredError):
         status_code = 410
-    elif isinstance(exc, CookieImportBindingError):
+    elif isinstance(exc, (CookieImportBindingError, ProfileCloneBindingError)):
         status_code = 403
-    elif isinstance(exc, CookieImportBusyError):
+    elif isinstance(exc, (CookieImportBusyError, ProfileCloneBusyError, ProfileCloneSourceChangedError)):
         status_code = 409
-    elif isinstance(exc, (CookieImportApplyError, CookieImportVerificationError)):
+    elif isinstance(exc, ProfileClonePreviewNotFoundError):
+        status_code = 404
+    elif isinstance(exc, ProfileClonePreviewExpiredError):
+        status_code = 410
+    elif isinstance(
+        exc,
+        (CookieImportApplyError, CookieImportVerificationError, ProfileCloneApplyError),
+    ):
         status_code = 500
     else:
         status_code = 500

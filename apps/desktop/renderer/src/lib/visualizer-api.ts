@@ -2,6 +2,9 @@ import type {
   BrowserProfileCatalogItem,
   CookieImportPreview,
   CookieImportResult,
+  ProfileClonePreview,
+  ProfileCloneResult,
+  ProfileCloneTargetPayload,
   ProfileSessionCloseResult,
 } from "../types/profile-bootstrap";
 import type {
@@ -155,6 +158,63 @@ export async function commitCookieImport(
     throw new Error(await readApiError(response, "Import cookies failed"));
   }
   return (await response.json()) as CookieImportResult;
+}
+
+export async function previewProfileClone(
+  apiUrl: string,
+  sourceProfileId: string,
+  sourceProfileVersion: number,
+): Promise<ProfileClonePreview> {
+  const query = new URLSearchParams({ expected_version: String(sourceProfileVersion) });
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(sourceProfileId)}/bootstrap/clone/preview?${query}`,
+    { method: "POST", headers: controlHeaders() },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Preview Profile clone failed"));
+  }
+  return (await response.json()) as ProfileClonePreview;
+}
+
+export async function cancelProfileClone(
+  apiUrl: string,
+  sourceProfileId: string,
+  previewToken: string,
+): Promise<void> {
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(sourceProfileId)}/bootstrap/clone/cancel`,
+    {
+      method: "POST",
+      headers: controlHeaders(true),
+      body: JSON.stringify({ preview_token: previewToken }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Cancel Profile clone failed"));
+  }
+}
+
+export async function commitProfileClone(
+  apiUrl: string,
+  preview: ProfileClonePreview,
+  targetProfile: ProfileCloneTargetPayload,
+): Promise<ProfileCloneResult> {
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(preview.source_profile_id)}/bootstrap/clone`,
+    {
+      method: "POST",
+      headers: controlHeaders(true),
+      body: JSON.stringify({
+        preview_token: preview.preview_token,
+        expected_source_version: preview.source_profile_version,
+        target_profile: targetProfile,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Clone Profile failed"));
+  }
+  return (await response.json()) as ProfileCloneResult;
 }
 
 export async function restartHost(apiUrl: string): Promise<VisualizerState> {

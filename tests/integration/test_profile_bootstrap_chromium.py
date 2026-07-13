@@ -37,6 +37,60 @@ def _require_managed_chromium() -> None:
         pytest.skip(str(exc))
 
 
+def _write_identity(host: ManagedChromiumHost, identity: str) -> None:
+    result = host.evaluate(
+        f"""
+        (async () => {{
+          document.cookie = 'clone_identity={identity}; path=/; Max-Age=3600; SameSite=Lax';
+          localStorage.setItem('clone_identity', '{identity}');
+          const db = await new Promise((resolve, reject) => {{
+            const request = indexedDB.open('webfa-clone-test', 1);
+            request.onupgradeneeded = () => request.result.createObjectStore('state');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          }});
+          await new Promise((resolve, reject) => {{
+            const tx = db.transaction('state', 'readwrite');
+            tx.objectStore('state').put('{identity}', 'identity');
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error);
+          }});
+          db.close();
+          return true;
+        }})()
+        """
+    )
+    assert result is True
+
+
+def _read_identity(host: ManagedChromiumHost) -> dict:
+    result = host.evaluate(
+        """
+        (async () => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('webfa-clone-test', 1);
+            request.onupgradeneeded = () => request.result.createObjectStore('state');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const indexed = await new Promise((resolve, reject) => {
+            const request = db.transaction('state', 'readonly').objectStore('state').get('identity');
+            request.onsuccess = () => resolve(request.result || null);
+            request.onerror = () => reject(request.error);
+          });
+          db.close();
+          return {
+            cookie: document.cookie,
+            local: localStorage.getItem('clone_identity'),
+            indexed,
+          };
+        })()
+        """
+    )
+    assert isinstance(result, dict)
+    return result
+
+
 def test_cookie_import_persists_through_real_maintenance_host(monkeypatch, tmp_path: Path) -> None:
     _require_managed_chromium()
     home = tmp_path / "WebFA"
@@ -117,6 +171,120 @@ def test_cookie_import_persists_through_real_maintenance_host(monkeypatch, tmp_p
         finally:
             host.close()
             lock.release()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_profile_clone_copies_real_chromium_identity_and_then_isolates_mutations(monkeypatch, tmp_path: Path) -> None:
+    _require_managed_chromium()
+    home = tmp_path / "WebFA"
+    monkeypatch.setenv("WEBFA_HOME", str(home))
+    reset_engine_for_tests()
+    init_db()
+    repository = ProfileRepository()
+    source = repository.create_profile(
+        BrowserProfileCreate(
+            agent_alias="clone-source",
+            display_name="Clone Source",
+        )
+    )
+    storage = ProfileStorageManager(home)
+    service = ProfileBootstrapService(repository=repository, storage=storage)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/"
+
+    source_lock = storage.acquire_process_lock(
+        source,
+        runtime_instance_id="source-seed",
+        runtime_generation="source-seed-generation",
+        session_id="source-seed-session",
+    )
+    source_host = ManagedChromiumHost(
+        launch_spec=storage.launch_spec(
+            source,
+            headless=True,
+            runtime_instance_id="source-seed",
+            runtime_generation="source-seed-generation",
+        )
+    )
+    try:
+        source_host.navigate(url)
+        _write_identity(source_host, "SOURCE")
+    finally:
+        source_host.close()
+        source_lock.release()
+
+    try:
+        preview = service.preview_profile_clone(
+            source.profile_id,
+            expected_source_version=source.version,
+            control_token="control-token",
+        )
+        result = service.commit_profile_clone(
+            source.profile_id,
+            preview_token=preview.preview_token,
+            expected_source_version=source.version,
+            target_profile=BrowserProfileCreate(
+                agent_alias="clone-target",
+                display_name="Clone Target",
+            ),
+            control_token="control-token",
+        )
+        target = repository.get_profile(result.target_profile_id)
+        assert target.bootstrap_source == "cloned"
+
+        source_lock = storage.acquire_process_lock(
+            source,
+            runtime_instance_id="source-check",
+            runtime_generation="source-check-generation",
+            session_id="source-check-session",
+        )
+        target_lock = storage.acquire_process_lock(
+            target,
+            runtime_instance_id="target-check",
+            runtime_generation="target-check-generation",
+            session_id="target-check-session",
+        )
+        source_host = ManagedChromiumHost(
+            launch_spec=storage.launch_spec(
+                source,
+                headless=True,
+                runtime_instance_id="source-check",
+                runtime_generation="source-check-generation",
+            )
+        )
+        target_host = ManagedChromiumHost(
+            launch_spec=storage.launch_spec(
+                target,
+                headless=True,
+                runtime_instance_id="target-check",
+                runtime_generation="target-check-generation",
+            )
+        )
+        try:
+            source_host.navigate(url)
+            target_host.navigate(url)
+            source_state = _read_identity(source_host)
+            target_state = _read_identity(target_host)
+            assert source_state["local"] == "SOURCE"
+            assert source_state["indexed"] == "SOURCE"
+            assert "clone_identity=SOURCE" in source_state["cookie"]
+            assert target_state == source_state
+
+            _write_identity(target_host, "TARGET")
+            assert _read_identity(target_host)["local"] == "TARGET"
+            assert _read_identity(source_host)["local"] == "SOURCE"
+            assert "clone_identity=SOURCE" in _read_identity(source_host)["cookie"]
+        finally:
+            source_host.close()
+            target_host.close()
+            source_lock.release()
+            target_lock.release()
     finally:
         server.shutdown()
         server.server_close()

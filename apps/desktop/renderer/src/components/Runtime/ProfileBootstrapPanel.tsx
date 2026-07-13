@@ -3,14 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   cancelCookieImport,
+  cancelProfileClone,
   closeProfileSession,
   commitCookieImport,
+  commitProfileClone,
   fetchProfiles,
   previewCookieImport,
+  previewProfileClone,
 } from "../../lib/visualizer-api";
 import type {
   BrowserProfileCatalogItem,
   CookieImportPreview,
+  ProfileClonePreview,
 } from "../../types/profile-bootstrap";
 
 const MAX_COOKIE_FILE_BYTES = 5 * 1024 * 1024;
@@ -36,6 +40,9 @@ export function ProfileBootstrapPanel({
   const [selectedProfileId, setSelectedProfileId] = useState(currentProfileId || "default");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<CookieImportPreview | null>(null);
+  const [clonePreview, setClonePreview] = useState<ProfileClonePreview | null>(null);
+  const [cloneAlias, setCloneAlias] = useState("");
+  const [cloneDisplayName, setCloneDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
 
   const availableProfiles = useMemo(
@@ -83,6 +90,18 @@ export function ProfileBootstrapPanel({
     }
   }
 
+  async function clearClonePreview({ notify = false }: { notify?: boolean } = {}) {
+    const current = clonePreview;
+    setClonePreview(null);
+    if (!current) return;
+    try {
+      await cancelProfileClone(apiUrl, current.source_profile_id, current.preview_token);
+      if (notify) onMessage("Profile clone 预览已取消");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function selectFile(nextFile: File | null) {
     if (preview) await clearPreview();
     setFile(nextFile);
@@ -90,6 +109,7 @@ export function ProfileBootstrapPanel({
 
   async function selectProfile(profileId: string) {
     if (preview) await clearPreview();
+    if (clonePreview) await clearClonePreview();
     setSelectedProfileId(profileId);
   }
 
@@ -153,6 +173,61 @@ export function ProfileBootstrapPanel({
       const input = document.getElementById("webfa-cookie-import-file") as HTMLInputElement | null;
       if (input) input.value = "";
       onMessage(`Cookie 已写入并验证：${result.verified_count}/${result.imported_count}`);
+      await loadProfiles();
+      await onChanged();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createClonePreview() {
+    if (!selectedProfile) {
+      onError("请选择需要克隆的持久 Profile");
+      return;
+    }
+    setBusy(true);
+    try {
+      const next = await previewProfileClone(
+        apiUrl,
+        selectedProfile.profile_id,
+        selectedProfile.version,
+      );
+      setClonePreview(next);
+      if (!cloneAlias) setCloneAlias(`${selectedProfile.agent_alias}-copy`);
+      if (!cloneDisplayName) setCloneDisplayName(`${selectedProfile.display_name} Copy`);
+      onMessage(`Clone 预览完成：${next.file_count} 个文件，${formatBytes(next.total_bytes)}`);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commitClone() {
+    if (!clonePreview) return;
+    if (!cloneAlias.trim() || !cloneDisplayName.trim()) {
+      onError("新 Profile 的别名和显示名称均为必填项");
+      return;
+    }
+    const confirmed = window.confirm(
+      `将源 Profile 的浏览器存储复制为新 Profile“${cloneDisplayName.trim()}”。Agent 授权与 Safety/Financial policy 不会继承。继续吗？`,
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    try {
+      const result = await commitProfileClone(apiUrl, clonePreview, {
+        agent_alias: cloneAlias.trim(),
+        display_name: cloneDisplayName.trim(),
+        owner: "user_owned",
+        trust_mode: "guarded",
+      });
+      setClonePreview(null);
+      setCloneAlias("");
+      setCloneDisplayName("");
+      onMessage(`Profile 已克隆：${result.target_agent_alias} · ${formatBytes(result.total_bytes)}`);
       await loadProfiles();
       await onChanged();
     } catch (error) {
@@ -264,8 +339,98 @@ export function ProfileBootstrapPanel({
           </div>
         </div>
       )}
+
+      <div style={{ borderTop: "1px solid rgba(127,127,127,.22)", marginTop: 14, paddingTop: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8 }}>Clone Profile</div>
+        <div className="viz-control-stack">
+          <input
+            className="viz-input"
+            value={cloneAlias}
+            onChange={(event) => setCloneAlias(event.target.value)}
+            placeholder="新 Profile 别名，例如 work-copy"
+            disabled={disabled || busy || clonePreview === null}
+          />
+          <input
+            className="viz-input"
+            value={cloneDisplayName}
+            onChange={(event) => setCloneDisplayName(event.target.value)}
+            placeholder="新 Profile 显示名称"
+            disabled={disabled || busy || clonePreview === null}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <button
+              type="button"
+              className="viz-btn viz-btn-primary"
+              disabled={disabled || busy || !selectedProfile || clonePreview !== null || preview !== null}
+              onClick={() => void createClonePreview()}
+            >
+              生成 Clone 预览
+            </button>
+            <button
+              type="button"
+              className="viz-btn"
+              disabled={disabled || busy || !selectedProfile}
+              onClick={() => void closeSession()}
+            >
+              关闭源会话
+            </button>
+          </div>
+          <div style={{ fontSize: 11, opacity: 0.72, lineHeight: 1.45 }}>
+            Clone 会复制源 Profile 的浏览器身份与网站存储，但不会继承 Agent bindings、允许 Origin、Safety policy 或 Financial policy。
+          </div>
+        </div>
+      </div>
+
+      {clonePreview && (
+        <div
+          style={{
+            border: "1px solid rgba(127,127,127,.28)",
+            borderRadius: 8,
+            padding: 9,
+            marginTop: 10,
+            fontSize: 11,
+            lineHeight: 1.5,
+          }}
+        >
+          <div style={{ fontWeight: 650, marginBottom: 4 }}>Profile Clone 预览</div>
+          <div>源：{clonePreview.source_agent_alias} · v{clonePreview.source_profile_version}</div>
+          <div>
+            文件 {clonePreview.file_count} · {formatBytes(clonePreview.total_bytes)} · 排除运行时项 {clonePreview.excluded_count}
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <button
+              type="button"
+              className="viz-btn viz-btn-primary"
+              disabled={busy || !cloneAlias.trim() || !cloneDisplayName.trim()}
+              onClick={() => void commitClone()}
+            >
+              确认克隆
+            </button>
+            <button
+              type="button"
+              className="viz-btn"
+              disabled={busy}
+              onClick={() => void clearClonePreview({ notify: true })}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let size = value / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && size >= 1024; index += 1) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size >= 10 ? size.toFixed(1) : size.toFixed(2)} ${unit}`;
 }
 
 function warningLabel(code: string): string {

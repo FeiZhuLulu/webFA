@@ -22,11 +22,14 @@ from browser.profile_repository import (
     ProfileVersionConflictError,
 )
 from browser.profile_storage import (
+    ProfileCloneStorageSnapshot,
     ProfileLockBusyError,
     ProfileMutationLease,
+    ProfileStorageConflictError,
+    ProfileStorageError,
     ProfileStorageManager,
 )
-from schemas.profile import BrowserProfile
+from schemas.profile import BrowserProfile, BrowserProfileCreate
 from schemas.profile_bootstrap import (
     CookieImportCancelResult,
     CookieImportFormat,
@@ -34,6 +37,9 @@ from schemas.profile_bootstrap import (
     CookieImportResult,
     CookieImportSourceFormat,
     CookieImportWarning,
+    ProfileCloneCancelResult,
+    ProfileClonePreview,
+    ProfileCloneResult,
 )
 
 
@@ -77,6 +83,30 @@ class CookieImportApplyError(ProfileBootstrapError):
 
 class CookieImportVerificationError(ProfileBootstrapError):
     code = "cookie_import_verification_failed"
+
+
+class ProfileClonePreviewNotFoundError(ProfileBootstrapError):
+    code = "profile_clone_preview_not_found"
+
+
+class ProfileClonePreviewExpiredError(ProfileBootstrapError):
+    code = "profile_clone_preview_expired"
+
+
+class ProfileCloneBindingError(ProfileBootstrapError):
+    code = "profile_clone_binding_mismatch"
+
+
+class ProfileCloneBusyError(ProfileBootstrapError):
+    code = "profile_clone_busy"
+
+
+class ProfileCloneSourceChangedError(ProfileBootstrapError):
+    code = "profile_clone_source_changed"
+
+
+class ProfileCloneApplyError(ProfileBootstrapError):
+    code = "profile_clone_failed"
 
 
 class _CookieEntryError(ValueError):
@@ -133,6 +163,18 @@ class _PendingCookieImport:
     in_progress: bool = False
 
 
+@dataclass
+class _PendingProfileClone:
+    token: str
+    control_digest: str
+    source_profile_id: str
+    source_profile_version: int
+    storage_snapshot: ProfileCloneStorageSnapshot
+    summary: ProfileClonePreview
+    expires_at: datetime
+    in_progress: bool = False
+
+
 class ProfileMaintenanceHost:
     """Bounded browser host used only while a ProfileMutationLease is held."""
 
@@ -180,11 +222,13 @@ class ProfileBootstrapService:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._preview_ttl = max(60, min(preview_ttl_seconds, 3600))
         self._pending: dict[str, _PendingCookieImport] = {}
+        self._clone_pending: dict[str, _PendingProfileClone] = {}
         self._lock = RLock()
 
     def close(self) -> None:
         with self._lock:
             self._pending.clear()
+            self._clone_pending.clear()
 
     def preview_cookie_import(
         self,
@@ -290,13 +334,14 @@ class ProfileBootstrapService:
     ) -> CookieImportResult:
         now = self._clock()
         with self._lock:
+            pending = self._pending.get(preview_token)
+            if pending is not None and pending.expires_at <= now:
+                self._pending.pop(preview_token, None)
+                raise CookieImportPreviewExpiredError("cookie import preview has expired")
             self._purge_expired_locked(now)
             pending = self._pending.get(preview_token)
             if pending is None:
                 raise CookieImportPreviewNotFoundError("cookie import preview was not found")
-            if pending.expires_at <= now:
-                self._pending.pop(preview_token, None)
-                raise CookieImportPreviewExpiredError("cookie import preview has expired")
             if pending.in_progress:
                 raise CookieImportBusyError("cookie import preview is already being committed")
             if (
@@ -405,6 +450,266 @@ class ProfileBootstrapService:
         finally:
             lease.release()
 
+    def preview_profile_clone(
+        self,
+        source_profile_ref: str,
+        *,
+        expected_source_version: int,
+        control_token: str,
+    ) -> ProfileClonePreview:
+        source = self._repository.get_profile(source_profile_ref)
+        self._require_bootstrap_profile(
+            source,
+            expected_version=expected_source_version,
+        )
+        mutation_id = f"clone_preview_{uuid4().hex}"
+        try:
+            lease = self._storage.acquire_mutation_lease(
+                source,
+                mutation_id=mutation_id,
+                operation="profile_clone_preview",
+            )
+        except ProfileLockBusyError as exc:
+            raise ProfileCloneBusyError(
+                "source Profile is active; close its Browser Session before cloning"
+            ) from exc
+        try:
+            snapshot = self._storage.inspect_clone_source(source)
+        except ProfileStorageError as exc:
+            raise ProfileCloneApplyError("unable to inspect source Profile storage") from exc
+        finally:
+            lease.release()
+
+        now = self._clock()
+        expires_at = now + timedelta(seconds=self._preview_ttl)
+        preview_token = f"clone_preview_{secrets.token_urlsafe(32)}"
+        summary = ProfileClonePreview(
+            preview_token=preview_token,
+            source_profile_id=source.profile_id,
+            source_profile_version=source.version,
+            source_agent_alias=source.agent_alias,
+            file_count=snapshot.file_count,
+            total_bytes=snapshot.total_bytes,
+            excluded_count=snapshot.excluded_count,
+            expires_at=expires_at,
+        )
+        pending = _PendingProfileClone(
+            token=preview_token,
+            control_digest=_control_digest(control_token),
+            source_profile_id=source.profile_id,
+            source_profile_version=source.version,
+            storage_snapshot=snapshot,
+            summary=summary,
+            expires_at=expires_at,
+        )
+        with self._lock:
+            self._purge_expired_locked(now)
+            if len(self._clone_pending) >= 20:
+                oldest = min(
+                    self._clone_pending.values(),
+                    key=lambda item: item.expires_at,
+                )
+                self._clone_pending.pop(oldest.token, None)
+            self._clone_pending[preview_token] = pending
+        self._record_event(
+            profile_id=source.profile_id,
+            event_type="profile_clone_previewed",
+            safe_metadata={
+                "file_count": snapshot.file_count,
+                "total_bytes": snapshot.total_bytes,
+                "excluded_count": snapshot.excluded_count,
+            },
+        )
+        return summary.model_copy(deep=True)
+
+    def cancel_profile_clone(
+        self,
+        source_profile_ref: str,
+        *,
+        preview_token: str,
+        control_token: str,
+    ) -> ProfileCloneCancelResult:
+        now = self._clock()
+        source = self._repository.get_profile(source_profile_ref)
+        with self._lock:
+            self._purge_expired_locked(now)
+            pending = self._clone_pending.get(preview_token)
+            if pending is None:
+                raise ProfileClonePreviewNotFoundError(
+                    "Profile clone preview was not found"
+                )
+            if pending.in_progress:
+                raise ProfileCloneBusyError(
+                    "Profile clone preview is already being committed"
+                )
+            if (
+                pending.source_profile_id != source.profile_id
+                or pending.control_digest != _control_digest(control_token)
+            ):
+                raise ProfileCloneBindingError(
+                    "Profile clone preview is bound to another source Profile or control session"
+                )
+            self._clone_pending.pop(preview_token)
+        return ProfileCloneCancelResult(source_profile_id=source.profile_id)
+
+    def commit_profile_clone(
+        self,
+        source_profile_ref: str,
+        *,
+        preview_token: str,
+        expected_source_version: int,
+        target_profile: BrowserProfileCreate,
+        control_token: str,
+    ) -> ProfileCloneResult:
+        now = self._clock()
+        source = self._repository.get_profile(source_profile_ref)
+        with self._lock:
+            pending = self._clone_pending.get(preview_token)
+            if pending is not None and pending.expires_at <= now:
+                self._clone_pending.pop(preview_token, None)
+                raise ProfileClonePreviewExpiredError(
+                    "Profile clone preview has expired"
+                )
+            self._purge_expired_locked(now)
+            pending = self._clone_pending.get(preview_token)
+            if pending is None:
+                raise ProfileClonePreviewNotFoundError(
+                    "Profile clone preview was not found"
+                )
+            if pending.in_progress:
+                raise ProfileCloneBusyError(
+                    "Profile clone preview is already being committed"
+                )
+            if (
+                pending.source_profile_id != source.profile_id
+                or pending.source_profile_version != expected_source_version
+                or pending.control_digest != _control_digest(control_token)
+            ):
+                raise ProfileCloneBindingError(
+                    "Profile clone preview is bound to another source Profile, version, or control session"
+                )
+            pending.in_progress = True
+
+        try:
+            self._require_bootstrap_profile(
+                source,
+                expected_version=expected_source_version,
+            )
+        except Exception:
+            with self._lock:
+                pending.in_progress = False
+            raise
+
+        mutation_id = f"profile_clone_{uuid4().hex}"
+        target_profile_id = f"profile_{uuid4().hex}"
+        source_lease: ProfileMutationLease | None = None
+        target_lease: ProfileMutationLease | None = None
+        created_profile: BrowserProfile | None = None
+        try:
+            try:
+                source_lease = self._storage.acquire_mutation_lease(
+                    source,
+                    mutation_id=mutation_id,
+                    operation="profile_clone_source",
+                )
+            except ProfileLockBusyError as exc:
+                raise ProfileCloneBusyError(
+                    "source Profile is active; close its Browser Session before cloning"
+                ) from exc
+
+            current_snapshot = self._storage.inspect_clone_source(source)
+            if current_snapshot.fingerprint != pending.storage_snapshot.fingerprint:
+                with self._lock:
+                    self._clone_pending.pop(preview_token, None)
+                raise ProfileCloneSourceChangedError(
+                    "source Profile storage changed after clone preview"
+                )
+
+            target_lease = self._storage.acquire_mutation_lease(
+                target_profile_id,
+                mutation_id=mutation_id,
+                operation="profile_clone_target",
+            )
+            copied = self._storage.clone_profile_storage(
+                source,
+                target_profile_id,
+                mutation_id=mutation_id,
+                expected_fingerprint=pending.storage_snapshot.fingerprint,
+            )
+            target_payload = target_profile.model_copy(
+                update={
+                    "persistence": "persistent",
+                    "bootstrap_source": "cloned",
+                },
+                deep=True,
+            )
+            created_profile = self._repository.create_profile(
+                target_payload,
+                profile_id=target_profile_id,
+            )
+            occurred_at = self._clock()
+            self._record_event(
+                profile_id=source.profile_id,
+                event_type="profile_cloned_from",
+                safe_metadata={
+                    "target_profile_id": created_profile.profile_id,
+                    "file_count": copied.file_count,
+                    "total_bytes": copied.total_bytes,
+                },
+            )
+            self._record_event(
+                profile_id=created_profile.profile_id,
+                event_type="profile_cloned",
+                safe_metadata={
+                    "source_profile_id": source.profile_id,
+                    "file_count": copied.file_count,
+                    "total_bytes": copied.total_bytes,
+                },
+            )
+            with self._lock:
+                self._clone_pending.pop(preview_token, None)
+            return ProfileCloneResult(
+                source_profile_id=source.profile_id,
+                target_profile_id=created_profile.profile_id,
+                target_agent_alias=created_profile.agent_alias,
+                target_profile_version=created_profile.version,
+                file_count=copied.file_count,
+                total_bytes=copied.total_bytes,
+                occurred_at=occurred_at,
+            )
+        except ProfileCloneSourceChangedError:
+            raise
+        except ProfileLockBusyError as exc:
+            with self._lock:
+                pending.in_progress = False
+            raise ProfileCloneBusyError(
+                "Profile clone target storage is busy"
+            ) from exc
+        except ProfileStorageConflictError as exc:
+            with self._lock:
+                pending.in_progress = False
+            raise ProfileCloneSourceChangedError(str(exc)) from exc
+        except ProfileStorageError as exc:
+            with self._lock:
+                pending.in_progress = False
+            raise ProfileCloneApplyError("Profile storage clone failed") from exc
+        except Exception:
+            with self._lock:
+                pending.in_progress = False
+            raise
+        finally:
+            if target_lease is not None:
+                target_lease.release()
+            if source_lease is not None:
+                source_lease.release()
+            if created_profile is None:
+                try:
+                    self._storage.discard_unregistered_profile_storage(
+                        target_profile_id
+                    )
+                except Exception:
+                    pass
+
     def _record_event(
         self,
         *,
@@ -434,7 +739,7 @@ class ProfileBootstrapService:
                 f"profile in state '{profile.catalog_state}' cannot be bootstrapped"
             )
         if profile.persistence != "persistent":
-            raise ProfileStateError("cookie import requires a persistent Browser Profile")
+            raise ProfileStateError("Profile Bootstrap requires a persistent Browser Profile")
 
     def _purge_expired_locked(self, now: datetime) -> None:
         expired = [
@@ -444,6 +749,13 @@ class ProfileBootstrapService:
         ]
         for token in expired:
             self._pending.pop(token, None)
+        expired_clones = [
+            token
+            for token, pending in self._clone_pending.items()
+            if pending.expires_at <= now and not pending.in_progress
+        ]
+        for token in expired_clones:
+            self._clone_pending.pop(token, None)
 
 
 def parse_cookie_import(

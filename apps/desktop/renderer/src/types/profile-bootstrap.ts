@@ -49,3 +49,33 @@ export type ProfileSessionCloseResult = {
   profile_id: string;
   session_id: string | null;
 };
+
+export type ProfileClonePreview = {
+  preview_token: string;
+  source_profile_id: string;
+  source_profile_version: number;
+  source_agent_alias: string;
+  file_count: number;
+  total_bytes: number;
+  excluded_count: number;
+  expires_at: string;
+};
+
+export type ProfileCloneTargetPayload = {
+  agent_alias: string;
+  display_name: string;
+  agent_description?: string;
+  owner?: "user_owned" | "agent_owned" | "shared";
+  trust_mode?: "guarded" | "trusted_agent" | "direct_user";
+};
+
+export type ProfileCloneResult = {
+  status: "profile_cloned";
+  source_profile_id: string;
+  target_profile_id: string;
+  target_agent_alias: string;
+  target_profile_version: number;
+  file_count: number;
+  total_bytes: number;
+  occurred_at: string;
+};

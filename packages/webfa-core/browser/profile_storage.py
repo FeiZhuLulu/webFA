@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -22,6 +23,18 @@ class ProfileLockBusyError(ProfileStorageError):
 
 class ProfileStorageConflictError(ProfileStorageError):
     code = "profile_storage_conflict"
+
+
+class ProfileStorageUnsafeError(ProfileStorageError):
+    code = "profile_storage_unsafe"
+
+
+@dataclass(frozen=True)
+class ProfileCloneStorageSnapshot:
+    file_count: int
+    total_bytes: int
+    excluded_count: int
+    fingerprint: str
 
 
 @dataclass(frozen=True)
@@ -205,6 +218,66 @@ class ProfileStorageManager:
             },
         ).acquire()
 
+    def inspect_clone_source(
+        self,
+        profile: BrowserProfile | str,
+    ) -> ProfileCloneStorageSnapshot:
+        paths = self.paths_for(profile)
+        return _snapshot_clone_storage(paths.user_data_dir)
+
+    def clone_profile_storage(
+        self,
+        source: BrowserProfile | str,
+        target_profile_id: str,
+        *,
+        mutation_id: str,
+        expected_fingerprint: str,
+    ) -> ProfileCloneStorageSnapshot:
+        source_paths = self.paths_for(source)
+        target_paths = self.paths_for(target_profile_id)
+        source_snapshot = _snapshot_clone_storage(source_paths.user_data_dir)
+        if source_snapshot.fingerprint != expected_fingerprint:
+            raise ProfileStorageConflictError(
+                "source Profile storage changed after clone preview"
+            )
+        if target_paths.user_data_dir.exists() and any(target_paths.user_data_dir.iterdir()):
+            raise ProfileStorageConflictError("target Profile storage is not empty")
+        required_bytes = source_snapshot.total_bytes + max(64 * 1024 * 1024, source_snapshot.total_bytes // 20)
+        if shutil.disk_usage(target_paths.profile_root).free < required_bytes:
+            raise ProfileStorageError("insufficient disk space for Profile clone")
+
+        staging = target_paths.profile_root / ".clone"
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir(parents=True, exist_ok=False)
+        try:
+            _copy_clone_storage(source_paths.user_data_dir, staging)
+            staged_snapshot = _snapshot_clone_storage(staging)
+            if (
+                staged_snapshot.file_count != source_snapshot.file_count
+                or staged_snapshot.total_bytes != source_snapshot.total_bytes
+                or staged_snapshot.fingerprint != source_snapshot.fingerprint
+            ):
+                raise ProfileStorageConflictError(
+                    "cloned Profile storage did not match the source snapshot"
+                )
+            if target_paths.user_data_dir.exists():
+                target_paths.user_data_dir.rmdir()
+            os.replace(staging, target_paths.user_data_dir)
+            return source_snapshot
+        except Exception:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            raise
+
+    def discard_unregistered_profile_storage(self, profile_id: str) -> None:
+        _validate_profile_id(profile_id)
+        if profile_id == "default":
+            raise ProfileStorageError("default Profile storage cannot be discarded")
+        profile_root = self.paths_for(profile_id, create=False).profile_root
+        if profile_root.exists():
+            shutil.rmtree(profile_root)
+
     def acquire_mutation_lease(
         self,
         profile: BrowserProfile | str,
@@ -258,6 +331,112 @@ class ProfileStorageManager:
         except OSError:
             pass
         return DefaultProfileMigrationResult(status="migrated", source=source, target=target)
+
+
+_CLONE_EXCLUDED_ROOT_NAMES = {
+    "browsermetrics",
+    "crashpad",
+    "dawncache",
+    "devtoolsactiveport",
+    "grshadercache",
+    "shadercache",
+    "component_crx_cache",
+    "singletoncookie",
+    "singletonlock",
+    "singletonsocket",
+}
+
+
+def _snapshot_clone_storage(root: Path) -> ProfileCloneStorageSnapshot:
+    digest = hashlib.sha256()
+    file_count = 0
+    total_bytes = 0
+    excluded_count = 0
+    for relative, path, is_directory, excluded in _walk_clone_storage(root):
+        if excluded:
+            excluded_count += 1
+            continue
+        encoded_relative = relative.as_posix().encode("utf-8", errors="surrogatepass")
+        if is_directory:
+            digest.update(b"D\0")
+            digest.update(encoded_relative)
+            digest.update(b"\0")
+            continue
+        stat = path.stat(follow_symlinks=False)
+        file_count += 1
+        total_bytes += stat.st_size
+        digest.update(b"F\0")
+        digest.update(encoded_relative)
+        digest.update(b"\0")
+        digest.update(str(stat.st_size).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(str(stat.st_mtime_ns).encode("ascii"))
+        digest.update(b"\0")
+    return ProfileCloneStorageSnapshot(
+        file_count=file_count,
+        total_bytes=total_bytes,
+        excluded_count=excluded_count,
+        fingerprint=digest.hexdigest(),
+    )
+
+
+def _copy_clone_storage(source_root: Path, target_root: Path) -> None:
+    for relative, source, is_directory, excluded in _walk_clone_storage(source_root):
+        if excluded:
+            continue
+        target = target_root / relative
+        if is_directory:
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target, follow_symlinks=False)
+
+
+def _walk_clone_storage(root: Path):
+    root.mkdir(parents=True, exist_ok=True)
+
+    def visit(directory: Path, relative_root: Path):
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(iterator, key=lambda item: item.name.casefold())
+        except OSError as exc:
+            raise ProfileStorageError("unable to inspect Profile storage for cloning") from exc
+        for entry in entries:
+            path = Path(entry.path)
+            relative = relative_root / entry.name
+            if _is_unsafe_link(path, entry):
+                raise ProfileStorageUnsafeError(
+                    "Profile storage contains a symbolic link or directory junction"
+                )
+            excluded = _clone_path_excluded(relative)
+            try:
+                is_directory = entry.is_dir(follow_symlinks=False)
+                is_file = entry.is_file(follow_symlinks=False)
+            except OSError as exc:
+                raise ProfileStorageError("unable to inspect Profile storage entry") from exc
+            if not is_directory and not is_file:
+                raise ProfileStorageUnsafeError(
+                    "Profile storage contains an unsupported filesystem entry"
+                )
+            yield relative, path, is_directory, excluded
+            if is_directory and not excluded:
+                yield from visit(path, relative)
+
+    yield from visit(root, Path())
+
+
+def _clone_path_excluded(relative: Path) -> bool:
+    if len(relative.parts) != 1:
+        return False
+    name = relative.name.casefold()
+    return name in _CLONE_EXCLUDED_ROOT_NAMES or name.startswith("singleton")
+
+
+def _is_unsafe_link(path: Path, entry: os.DirEntry[str]) -> bool:
+    if entry.is_symlink() or path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    return bool(is_junction()) if callable(is_junction) else False
 
 
 def _safe_lock_metadata(metadata: dict[str, Any]) -> dict[str, Any]:

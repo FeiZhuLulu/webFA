@@ -11,9 +11,12 @@ from browser.profile_bootstrap import (
     CookieImportBusyError,
     CookieImportParseError,
     ProfileBootstrapService,
+    ProfileCloneBindingError,
+    ProfileCloneBusyError,
+    ProfileCloneSourceChangedError,
     parse_cookie_import,
 )
-from browser.profile_repository import ProfileRepository
+from browser.profile_repository import ProfileConflictError, ProfileRepository
 from browser.profile_storage import ProfileLockBusyError, ProfileStorageManager
 from schemas.profile import BrowserProfileCreate
 from storage.db import init_db, reset_engine_for_tests
@@ -295,3 +298,152 @@ def test_active_profile_blocks_import_without_consuming_preview(monkeypatch, tmp
         control_token="control-a",
     )
     assert result.status == "cookies_imported"
+
+
+def test_profile_clone_preview_commit_is_control_bound_and_does_not_inherit_agent_policy(monkeypatch, tmp_path: Path) -> None:
+    repository, source, storage = _setup(monkeypatch, tmp_path)
+    source_paths = storage.paths_for(source)
+    (source_paths.user_data_dir / "Default" / "Local Storage").mkdir(parents=True)
+    (source_paths.user_data_dir / "Default" / "Local Storage" / "state.log").write_bytes(b"identity-a")
+    (source_paths.user_data_dir / "Cookies").write_bytes(b"cookie-db")
+    service = ProfileBootstrapService(repository=repository, storage=storage)
+
+    preview = service.preview_profile_clone(
+        source.profile_id,
+        expected_source_version=source.version,
+        control_token="control-a",
+    )
+    assert preview.file_count == 2
+    assert preview.total_bytes > 0
+    assert "Cookies" not in json.dumps(preview.model_dump(mode="json"))
+
+    target_payload = BrowserProfileCreate(
+        agent_alias="cloned-target",
+        display_name="Cloned Target",
+        owner="user_owned",
+        trust_mode="guarded",
+        bound_agent_ids=[],
+        allowed_origins=[],
+    )
+    with pytest.raises(ProfileCloneBindingError):
+        service.commit_profile_clone(
+            source.profile_id,
+            preview_token=preview.preview_token,
+            expected_source_version=source.version,
+            target_profile=target_payload,
+            control_token="control-b",
+        )
+
+    result = service.commit_profile_clone(
+        source.profile_id,
+        preview_token=preview.preview_token,
+        expected_source_version=source.version,
+        target_profile=target_payload,
+        control_token="control-a",
+    )
+
+    target = repository.get_profile(result.target_profile_id)
+    target_paths = storage.paths_for(target)
+    assert result.status == "profile_cloned"
+    assert target.bootstrap_source == "cloned"
+    assert target.bound_agent_ids == []
+    assert target.allowed_origins == []
+    assert target.safety_policy_id is None
+    assert target.financial_policy_id is None
+    assert (target_paths.user_data_dir / "Cookies").read_bytes() == b"cookie-db"
+    assert (
+        target_paths.user_data_dir / "Default" / "Local Storage" / "state.log"
+    ).read_bytes() == b"identity-a"
+
+
+def test_profile_clone_rejects_source_changes_after_preview(monkeypatch, tmp_path: Path) -> None:
+    repository, source, storage = _setup(monkeypatch, tmp_path)
+    source_state = storage.paths_for(source).user_data_dir / "Cookies"
+    source_state.write_bytes(b"before")
+    service = ProfileBootstrapService(repository=repository, storage=storage)
+    preview = service.preview_profile_clone(
+        source.profile_id,
+        expected_source_version=source.version,
+        control_token="control-a",
+    )
+    source_state.write_bytes(b"after-change")
+
+    with pytest.raises(ProfileCloneSourceChangedError):
+        service.commit_profile_clone(
+            source.profile_id,
+            preview_token=preview.preview_token,
+            expected_source_version=source.version,
+            target_profile=BrowserProfileCreate(
+                agent_alias="changed-target",
+                display_name="Changed Target",
+            ),
+            control_token="control-a",
+        )
+    assert all(
+        profile.agent_alias != "changed-target"
+        for profile in repository.list_profiles(include_archived=True)
+    )
+
+
+def test_profile_clone_alias_conflict_cleans_storage_and_allows_retry(monkeypatch, tmp_path: Path) -> None:
+    repository, source, storage = _setup(monkeypatch, tmp_path)
+    (storage.paths_for(source).user_data_dir / "Cookies").write_bytes(b"cookie-db")
+    repository.create_profile(
+        BrowserProfileCreate(
+            agent_alias="existing-alias",
+            display_name="Existing",
+        )
+    )
+    service = ProfileBootstrapService(repository=repository, storage=storage)
+    preview = service.preview_profile_clone(
+        source.profile_id,
+        expected_source_version=source.version,
+        control_token="control-a",
+    )
+    profiles_before = {path.name for path in storage.profiles_root.iterdir()}
+
+    with pytest.raises(ProfileConflictError):
+        service.commit_profile_clone(
+            source.profile_id,
+            preview_token=preview.preview_token,
+            expected_source_version=source.version,
+            target_profile=BrowserProfileCreate(
+                agent_alias="existing-alias",
+                display_name="Conflict",
+            ),
+            control_token="control-a",
+        )
+    profiles_after_failure = {path.name for path in storage.profiles_root.iterdir()}
+    assert profiles_after_failure == profiles_before
+
+    result = service.commit_profile_clone(
+        source.profile_id,
+        preview_token=preview.preview_token,
+        expected_source_version=source.version,
+        target_profile=BrowserProfileCreate(
+            agent_alias="retry-target",
+            display_name="Retry Target",
+        ),
+        control_token="control-a",
+    )
+    assert repository.get_profile(result.target_profile_id).agent_alias == "retry-target"
+
+
+def test_active_source_profile_blocks_clone_preview(monkeypatch, tmp_path: Path) -> None:
+    repository, source, storage = _setup(monkeypatch, tmp_path)
+    service = ProfileBootstrapService(repository=repository, storage=storage)
+    active_lock = storage.acquire_process_lock(
+        source,
+        runtime_instance_id="runtime-active",
+        runtime_generation="generation-active",
+        session_id="session-active",
+    )
+    try:
+        with pytest.raises(ProfileCloneBusyError):
+            service.preview_profile_clone(
+                source.profile_id,
+                expected_source_version=source.version,
+                control_token="control-a",
+            )
+    finally:
+        active_lock.release()

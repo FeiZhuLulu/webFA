@@ -325,13 +325,18 @@ These remain internal BrowserHost details and are not WebFA Agent capabilities.
 
 ## 15. Remaining Profile Bootstrap Work
 
-Cookie import is complete. Remaining Post-Core Bootstrap work:
+Cookie import and Profile clone are complete. Remaining Post-Core Bootstrap work:
 
 ```text
-Profile clone
 WebFA Profile Bundle export/restore
-maintenance verification workflows
+bundle integrity and compatibility verification
 optional browser-extension import adapters
 ```
 
-Clone and bundle work must reuse `ProfileMutationLease` and must remain outside the Agent five-tool interface.
+Profile clone implementation report:
+
+```text
+docs/reports/PROFILE_BOOTSTRAP_CLONE_REPORT.md
+```
+
+Bundle work must reuse `ProfileMutationLease` and must remain outside the Agent five-tool interface.
