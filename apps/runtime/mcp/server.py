@@ -50,11 +50,16 @@ mcp = FastMCP(
 
 
 @mcp.tool(name="webfa.open_url")
-def webfa_open_url(url: str, safety: SafetyOperationEnvelope | None = None) -> str:
-    """Open a URL, prefer constructed URLs for known state, and optionally establish a task-scoped SafetyContext."""
+def webfa_open_url(
+    url: str,
+    profile_ref: str | None = None,
+    safety: SafetyOperationEnvelope | None = None,
+) -> str:
+    """Open a URL, prefer constructed URLs for known state, and optionally select an authorized Browser Profile."""
     return json.dumps(
         tool_open_url(
             url=url,
+            profile_ref=profile_ref,
             safety=safety.model_dump(mode="json") if safety is not None else None,
         ),
         ensure_ascii=False,

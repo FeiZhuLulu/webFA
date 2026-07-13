@@ -14,6 +14,16 @@ def test_runtime_client_sends_agent_id_header(monkeypatch):
     assert headers["X-WebFA-Caller"] == "mcp"
     assert headers["X-WebFA-Agent-Id"] == "opencode"
     assert headers["X-WebFA-MCP-Tool"] == "webfa.open_url"
+    assert headers["X-WebFA-Connection-Id"].startswith("mcp_")
+
+
+def test_runtime_client_uses_explicit_connection_id(monkeypatch):
+    client = WebFARuntimeClient(
+        base_url="http://127.0.0.1:8787",
+        connection_id="connection-test",
+    )
+
+    assert client._headers()["X-WebFA-Connection-Id"] == "connection-test"
 
 
 def test_runtime_client_defaults_agent_id(monkeypatch):

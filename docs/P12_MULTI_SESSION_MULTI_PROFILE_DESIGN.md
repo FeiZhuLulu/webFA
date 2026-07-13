@@ -1,6 +1,6 @@
 # WebFA P12 Multi Session / Multi Profile 完整设计
 
-Status: frozen target architecture; P12.1-P12.3 implemented and accepted
+Status: frozen target architecture; P12.1-P12.6 implemented and accepted
 
 Phase name:
 
@@ -17,10 +17,16 @@ Implementation status:
 - P12.1 Schema and Profile Catalog: complete
 - P12.2 Profile Storage Isolation: complete
 - P12.3 Session Runtime Extraction: complete
-- P12.4 Supervisor and Global Routing: next
-- P12.5-P12.8: not started
+- P12.4 Supervisor and Global Routing: complete
+- P12.5 Agent Grant and Five-Tool Integration: complete
+- P12.6 Monitor and Human Control Isolation: complete
+- P12.7 P11 Re-scoping and Security Review: next
+- P12.8 Final Acceptance and Migration: not started
 
-P12.1-P12.3 report: `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md`.
+Reports:
+
+- `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md`
+- `docs/reports/P12_4_6_MULTI_SESSION_ROUTING_MONITOR_REPORT.md`
 
 P12 建立 WebFA 的多互联网身份与多任务运行模型。它不是给传统浏览器增加“多开”功能，也不是把当前单例 Runtime 简单改成一个字典。P12 的目标是让 Agent 能够在多个彼此隔离、可持久化、可授权、可监控的互联网身份环境中独立工作，同时保持 WebFA 的 Agent 原生接口、安全契约和五工具公共表面。
 

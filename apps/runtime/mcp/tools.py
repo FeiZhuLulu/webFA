@@ -28,11 +28,15 @@ def get_client() -> WebFARuntimeClient:
 CONSOLE_URL = os.getenv("WEBFA_CONSOLE_URL", "http://127.0.0.1:8788")
 
 
-def tool_open_url(url: str, safety: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Open a URL directly; optionally establish or reference a SafetyContext."""
+def tool_open_url(
+    url: str,
+    safety: dict[str, Any] | None = None,
+    profile_ref: str | None = None,
+) -> dict[str, Any]:
+    """Open a URL in the current or an authorized Browser Profile."""
     client = get_client()
     try:
-        return success_response(client.open_url(url, safety=safety))
+        return success_response(client.open_url(url, safety=safety, profile_ref=profile_ref))
     except RuntimeUnavailableError as e:
         return map_unavailable_error(e)
     except RuntimeErrorResponse as e:

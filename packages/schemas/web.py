@@ -380,7 +380,18 @@ class WebObserveQuery(StrictModel):
 
 class WebOpenRequest(StrictModel):
     url: str
+    profile_ref: str | None = Field(default=None, min_length=1, max_length=200)
     safety: SafetyOperationEnvelope | None = None
+
+    @field_validator("profile_ref")
+    @classmethod
+    def normalize_profile_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("profile_ref cannot be empty")
+        return normalized
 
     @field_validator("url")
     @classmethod

@@ -174,7 +174,7 @@ async def _run_mcp_browser_flow(port: int, tmp_path: Path) -> None:
             open_properties = schemas["webfa.open_url"]["properties"]
             observe_properties = schemas["webfa.observe"]["properties"]
             act_properties = schemas["webfa.act"]["properties"]
-            assert {"url", "safety"}.issubset(open_properties)
+            assert {"url", "profile_ref", "safety"}.issubset(open_properties)
             assert {"mode", "target", "query", "range", "since_revision", "detail", "limit"}.issubset(observe_properties)
             assert {"operation", "expected_document_revision", "safety"}.issubset(act_properties)
             assert "action" not in act_properties

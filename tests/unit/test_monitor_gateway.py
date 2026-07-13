@@ -7,6 +7,7 @@ import pytest
 from browser.monitor_gateway import (
     MonitorAccessError,
     MonitorAccessManager,
+    MonitorGatewayRouter,
     decode_visual_frame_packet,
     encode_visual_frame_packet,
     serialize_session_event,
@@ -97,3 +98,25 @@ def test_session_event_serialization_contains_no_binary_payload() -> None:
     assert payload["type"] == "session_event"
     assert payload["event"]["event_type"] == "operation_completed"
     assert b"" not in payload.values()
+
+
+def test_monitor_gateway_router_rejects_replaced_session_generation() -> None:
+    binding = {
+        "session_id": "session-a",
+        "profile_id": "profile-a",
+        "profile_ref": "work",
+        "runtime_generation": "generation-a",
+    }
+    manager = MonitorAccessManager()
+    router = MonitorGatewayRouter(manager, lambda session_id: {**binding, "session_id": session_id})
+    issued = router.issue(session_id="session-a", permissions=("events", "frames"), ttl_seconds=60)
+    consumed = manager.consume(issued.token)
+
+    assert consumed.profile_id == "profile-a"
+    assert consumed.runtime_generation == "generation-a"
+    assert router.validate(consumed)["session_id"] == "session-a"
+
+    binding["runtime_generation"] = "generation-b"
+    with pytest.raises(MonitorAccessError) as excinfo:
+        router.validate(consumed)
+    assert excinfo.value.code == "monitor_generation_mismatch"

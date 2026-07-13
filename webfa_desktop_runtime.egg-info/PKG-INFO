@@ -210,7 +210,7 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 见 `docs/browser-runtime-roadmap.md`。
 
-当前阶段：P10 WebFA Object Model 与 P11 Agent Safety Contract 已完成。P12 Multi Session / Multi Profile 的完整目标架构已经冻结，P12.1-P12.3 已完成：持久 Profile Catalog、Profile 存储与 Chromium Host 隔离、跨进程锁、默认 Profile 迁移、BrowserSessionRuntime 提取、Session 生命周期持久化及 Supervisor 基础均已落地。下一步是 P12.4 Supervisor 与全局路由。设计见 `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`，阶段报告见 `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md`。
+当前阶段：P10 WebFA Object Model 与 P11 Agent Safety Contract 已完成。P12 Multi Session / Multi Profile 的完整目标架构已经冻结，P12.1-P12.6 已完成：持久 Profile Catalog、独立 Chromium Host 与跨进程锁、BrowserSessionRuntime、并发多 Profile SessionManager/Supervisor、连接级 Profile Grant、Session 独占 Lease、全局 Tab/WebObject 路由、保持五工具的 `profile_ref` 集成、指定 Session Monitor、VisualStreamHub 与独立 HumanControl 均已落地。下一步是 P12.7 P11 权限状态重新定域与对抗性安全审查。设计见 `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`，报告见 `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md` 与 `docs/reports/P12_4_6_MULTI_SESSION_ROUTING_MONITOR_REPORT.md`。
 
 后续方向：
 

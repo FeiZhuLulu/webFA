@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
@@ -18,14 +19,25 @@ class RuntimeUnavailableError(Exception):
 class WebFARuntimeClient:
     """HTTP client for WebFA Runtime REST API."""
 
-    def __init__(self, base_url: str | None = None, caller: str = "mcp", agent_id: str | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        caller: str = "mcp",
+        agent_id: str | None = None,
+        connection_id: str | None = None,
+    ) -> None:
         self.base_url = base_url or os.getenv("WEBFA_RUNTIME_URL", "http://127.0.0.1:8787")
         self.caller = caller
         self.agent_id = agent_id if agent_id is not None else os.getenv("WEBFA_AGENT_ID", "anonymous-mcp")
+        self.connection_id = connection_id or os.getenv("WEBFA_CONNECTION_ID") or f"mcp_{uuid4().hex}"
         self._client = httpx.Client(timeout=10.0, **runtime_http_options(self.base_url))
 
     def _headers(self, tool: str | None = None) -> dict[str, str]:
-        h = {"X-WebFA-Caller": self.caller, "X-WebFA-Agent-Id": self.agent_id}
+        h = {
+            "X-WebFA-Caller": self.caller,
+            "X-WebFA-Agent-Id": self.agent_id,
+            "X-WebFA-Connection-Id": self.connection_id,
+        }
         if tool:
             h["X-WebFA-MCP-Tool"] = tool
         return h
@@ -61,8 +73,15 @@ class WebFARuntimeClient:
     def health(self) -> dict[str, Any]:
         return self._get("/health", tool="health")
 
-    def open_url(self, url: str, safety: dict[str, Any] | None = None) -> dict[str, Any]:
+    def open_url(
+        self,
+        url: str,
+        safety: dict[str, Any] | None = None,
+        profile_ref: str | None = None,
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {"url": url}
+        if profile_ref is not None:
+            payload["profile_ref"] = profile_ref
         if safety is not None:
             payload["safety"] = safety
         return self._post("/v1/browser/web/open", tool="webfa.open_url", json=payload)

@@ -31,6 +31,8 @@ class MonitorAccessGrant:
     permissions: tuple[MonitorPermission, ...]
     issued_at: datetime
     expires_at: datetime
+    profile_id: str = "default"
+    runtime_generation: str = "default"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +44,8 @@ class MonitorAccessState:
     expires_at: datetime
     status: MonitorGrantStatus
     connection_id: str | None = None
+    profile_id: str = "default"
+    runtime_generation: str = "default"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +55,8 @@ class MonitorConnectionGrant:
     session_id: str
     permissions: tuple[MonitorPermission, ...]
     expires_at: datetime
+    profile_id: str = "default"
+    runtime_generation: str = "default"
 
 
 class MonitorAccessManager:
@@ -82,10 +88,16 @@ class MonitorAccessManager:
         session_id: str,
         permissions: tuple[MonitorPermission, ...] = ("events", "frames"),
         ttl_seconds: int = 300,
+        profile_id: str = "default",
+        runtime_generation: str = "default",
     ) -> MonitorAccessGrant:
         normalized_session = session_id.strip()
+        normalized_profile = profile_id.strip()
+        normalized_generation = runtime_generation.strip()
         if not normalized_session:
             raise ValueError("session_id is required")
+        if not normalized_profile or not normalized_generation:
+            raise ValueError("profile_id and runtime_generation are required")
         normalized_permissions = tuple(dict.fromkeys(permissions))
         if not normalized_permissions or any(item not in {"events", "frames", "takeover"} for item in normalized_permissions):
             raise ValueError("unsupported Monitor permission")
@@ -114,6 +126,8 @@ class MonitorAccessManager:
                 issued_at=now,
                 expires_at=expires_at,
                 status="issued",
+                profile_id=normalized_profile,
+                runtime_generation=normalized_generation,
             )
             self._token_index[digest] = grant_id
             return MonitorAccessGrant(
@@ -123,6 +137,8 @@ class MonitorAccessManager:
                 permissions=normalized_permissions,
                 issued_at=now,
                 expires_at=expires_at,
+                profile_id=normalized_profile,
+                runtime_generation=normalized_generation,
             )
 
     def consume(self, token: str) -> MonitorConnectionGrant:
@@ -147,6 +163,8 @@ class MonitorAccessManager:
                 session_id=state.session_id,
                 permissions=state.permissions,
                 expires_at=state.expires_at,
+                profile_id=state.profile_id,
+                runtime_generation=state.runtime_generation,
             )
 
     def release(self, connection_id: str) -> MonitorAccessState | None:
@@ -215,6 +233,52 @@ class MonitorAccessManager:
     def _now(self) -> datetime:
         value = self._clock()
         return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+class MonitorGatewayRouter:
+    """Binds Monitor capabilities to an exact Session/Profile/generation tuple."""
+
+    def __init__(
+        self,
+        access_manager: MonitorAccessManager,
+        binding_resolver: Callable[[str], dict[str, str]],
+    ) -> None:
+        self._access_manager = access_manager
+        self._binding_resolver = binding_resolver
+
+    def issue(
+        self,
+        *,
+        session_id: str,
+        permissions: tuple[MonitorPermission, ...] = ("events", "frames"),
+        ttl_seconds: int = 300,
+    ) -> MonitorAccessGrant:
+        binding = self._binding_resolver(session_id)
+        return self._access_manager.issue(
+            session_id=binding["session_id"],
+            profile_id=binding["profile_id"],
+            runtime_generation=binding["runtime_generation"],
+            permissions=permissions,
+            ttl_seconds=ttl_seconds,
+        )
+
+    def validate(self, grant: MonitorConnectionGrant) -> dict[str, str]:
+        try:
+            binding = self._binding_resolver(grant.session_id)
+        except Exception as exc:
+            raise MonitorAccessError(
+                "monitor_session_unavailable",
+                "Monitor Session is no longer active",
+            ) from exc
+        if (
+            binding["profile_id"] != grant.profile_id
+            or binding["runtime_generation"] != grant.runtime_generation
+        ):
+            raise MonitorAccessError(
+                "monitor_generation_mismatch",
+                "Monitor grant belongs to a replaced Session generation",
+            )
+        return binding
 
 
 def serialize_session_event(event: SessionEvent) -> dict[str, object]:

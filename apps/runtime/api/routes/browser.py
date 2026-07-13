@@ -50,6 +50,14 @@ def get_agent_id(request: Request) -> str | None:
     return request.headers.get("X-WebFA-Agent-Id")
 
 
+def get_connection_id(request: Request) -> str:
+    supplied = request.headers.get("X-WebFA-Connection-Id", "").strip()
+    if supplied:
+        return supplied
+    agent_id = (get_agent_id(request) or "anonymous-mcp").strip() or "anonymous-mcp"
+    return f"legacy-http:{agent_id}"
+
+
 def runtime_error_response(exc: BrowserRuntimeError) -> HTTPException:
     return HTTPException(status_code=exc.http_status, detail=exc.to_detail())
 
@@ -145,10 +153,15 @@ def _handle_browser_errors(request: Request, tool: str, action):
 @router.post("/browser/web/open")
 def open_web_url(payload: WebOpenRequest, request: Request):
     def action():
-        result = get_browser_runtime(request).open_web(
-            payload,
-            agent_id=get_agent_id(request),
-        )
+        runtime = get_browser_runtime(request)
+        if isinstance(runtime, BrowserRuntimeSupervisor):
+            result = runtime.open_web(
+                payload,
+                agent_id=get_agent_id(request),
+                connection_id=get_connection_id(request),
+            )
+        else:
+            result = runtime.open_web(payload, agent_id=get_agent_id(request))
         _record_browser_action(request, tool="webfa.open_url", message=payload.url)
         return result.model_dump()
 
@@ -158,7 +171,15 @@ def open_web_url(payload: WebOpenRequest, request: Request):
 @router.post("/browser/web/observe")
 def observe_web(payload: WebObserveRequest | None, request: Request):
     def action():
-        result = get_browser_runtime(request).observe_web(payload or WebObserveRequest())
+        runtime = get_browser_runtime(request)
+        if isinstance(runtime, BrowserRuntimeSupervisor):
+            result = runtime.observe_web(
+                payload or WebObserveRequest(),
+                agent_id=get_agent_id(request),
+                connection_id=get_connection_id(request),
+            )
+        else:
+            result = runtime.observe_web(payload or WebObserveRequest())
         _record_browser_action(request, tool="webfa.observe", message=(payload.mode if payload else "page"))
         return result.state.model_dump()
 
@@ -168,7 +189,15 @@ def observe_web(payload: WebObserveRequest | None, request: Request):
 @router.post("/browser/web/act")
 def act_web(payload: WebOperationRequest, request: Request):
     def action():
-        result = get_browser_runtime(request).act_web(payload, agent_id=get_agent_id(request)).model_dump()
+        runtime = get_browser_runtime(request)
+        if isinstance(runtime, BrowserRuntimeSupervisor):
+            result = runtime.act_web(
+                payload,
+                agent_id=get_agent_id(request),
+                connection_id=get_connection_id(request),
+            ).model_dump()
+        else:
+            result = runtime.act_web(payload, agent_id=get_agent_id(request)).model_dump()
         _record_browser_action(request, tool="webfa.act", message=payload.operation)
         return result
 
@@ -182,8 +211,15 @@ def switch_web_tab(payload: dict, request: Request):
         if not isinstance(tab_id, str):
             raise ValueError("tab_id is required")
         runtime = get_browser_runtime(request)
-        runtime.switch_tab(tab_id, agent_id=get_agent_id(request))
-        state = runtime.observe_web(WebObserveRequest(mode="page")).state
+        if isinstance(runtime, BrowserRuntimeSupervisor):
+            state = runtime.switch_tab_for_connection(
+                tab_id,
+                agent_id=get_agent_id(request),
+                connection_id=get_connection_id(request),
+            )
+        else:
+            runtime.switch_tab(tab_id, agent_id=get_agent_id(request))
+            state = runtime.observe_web(WebObserveRequest(mode="page")).state
         _record_browser_action(request, tool="webfa.switch_tab", message=tab_id)
         return state.model_dump()
 
@@ -234,16 +270,22 @@ def act(payload: BrowserActionRequest, request: Request):
 def tabs(request: Request):
     def action():
         runtime = get_browser_runtime(request)
-        status = runtime.status()
-        result = {
-            "tabs": [tab.model_dump() for tab in runtime.tabs()],
-            "agent": {
-                "active_agent_id": status.get("active_agent_id"),
-                "agent_lease_expires_at": status.get("agent_lease_expires_at"),
-                "profile_shared": status.get("profile_shared", True),
-                "profile_id": status.get("profile_id", "default"),
-            },
-        }
+        if isinstance(runtime, BrowserRuntimeSupervisor):
+            result = runtime.get_tabs(
+                agent_id=get_agent_id(request),
+                connection_id=get_connection_id(request),
+            )
+        else:
+            status = runtime.status()
+            result = {
+                "tabs": [tab.model_dump() for tab in runtime.tabs()],
+                "agent": {
+                    "active_agent_id": status.get("active_agent_id"),
+                    "agent_lease_expires_at": status.get("agent_lease_expires_at"),
+                    "profile_shared": status.get("profile_shared", True),
+                    "profile_id": status.get("profile_id", "default"),
+                },
+            }
         _record_browser_action(request, tool="webfa.get_tabs")
         return result
 

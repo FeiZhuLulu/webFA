@@ -283,13 +283,20 @@ class _StreamDelivery:
                 continue
 
 
-class BoundVisualSurfaceProvider:
-    """Runtime-owned provider that binds host frames to Session/Tab/Document identity."""
+class VisualStreamHub:
+    """Session-scoped visual stream hub over one BrowserHost screencast.
+
+    A BrowserHost still owns exactly one backend screencast. Multiple Monitor or
+    Control Center consumers receive independently queued bound streams from the
+    same Host frames, so a slow consumer cannot block or replace another one.
+    """
 
     def __init__(self, backend: VisualSurfaceBackend, *, event_bus: SessionEventBus | None = None) -> None:
         self._backend = backend
         self._event_bus = event_bus
         self._streams: dict[str, _StreamDelivery] = {}
+        self._backend_stream_id: str | None = None
+        self._backend_config: VisualStreamConfig | None = None
         self._lock = threading.RLock()
         self._closed = False
 
@@ -299,26 +306,39 @@ class BoundVisualSurfaceProvider:
         config: VisualStreamConfig,
         frame_sink: VisualFrameSink,
     ) -> str:
+        stream_id = f"vstream_{uuid4().hex}"
+        delivery = _StreamDelivery(
+            stream_id=stream_id,
+            backend_stream_id="starting",
+            binding_provider=binding_provider,
+            frame_sink=frame_sink,
+            queue_size=config.delivery_queue_size,
+            event_bus=self._event_bus,
+        )
         with self._lock:
             if self._closed:
-                raise RuntimeError("visual surface provider is closed")
-            if self._streams:
-                raise RuntimeError("only one visual stream is supported per BrowserHost in this phase")
-            stream_id = f"vstream_{uuid4().hex}"
-            delivery = _StreamDelivery(
-                stream_id=stream_id,
-                backend_stream_id="starting",
-                binding_provider=binding_provider,
-                frame_sink=frame_sink,
-                queue_size=config.delivery_queue_size,
-                event_bus=self._event_bus,
-            )
-            try:
-                backend_stream_id = self._backend.start_screencast(config, delivery.accept)
-            except Exception:
                 delivery.stop()
-                raise
-            delivery.backend_stream_id = backend_stream_id
+                raise RuntimeError("visual surface provider is closed")
+            if self._backend_config is not None and not _host_stream_configs_compatible(
+                self._backend_config,
+                config,
+            ):
+                delivery.stop()
+                raise RuntimeError(
+                    "visual stream configuration conflicts with the active BrowserHost screencast"
+                )
+            if self._backend_stream_id is None:
+                try:
+                    backend_stream_id = self._backend.start_screencast(
+                        config,
+                        self._broadcast_host_frame,
+                    )
+                except Exception:
+                    delivery.stop()
+                    raise
+                self._backend_stream_id = backend_stream_id
+                self._backend_config = config
+            delivery.backend_stream_id = self._backend_stream_id
             self._streams[stream_id] = delivery
             binding = binding_provider()
         if self._event_bus is not None:
@@ -329,6 +349,8 @@ class BoundVisualSurfaceProvider:
                 document_id=binding.document_id,
                 data={
                     "stream_id": stream_id,
+                    "backend_stream_id": delivery.backend_stream_id,
+                    "consumer_count": self.consumer_count(),
                     "format": config.format,
                     "max_width": config.max_width,
                     "max_height": config.max_height,
@@ -337,12 +359,18 @@ class BoundVisualSurfaceProvider:
         return stream_id
 
     def stop_stream(self, stream_id: str) -> VisualStreamState:
+        backend_stream_id: str | None = None
         with self._lock:
             delivery = self._streams.pop(stream_id, None)
             if delivery is None:
                 raise KeyError(f"visual stream not found: {stream_id}")
+            if not self._streams:
+                backend_stream_id = self._backend_stream_id
+                self._backend_stream_id = None
+                self._backend_config = None
         try:
-            self._backend.stop_screencast(delivery.backend_stream_id)
+            if backend_stream_id is not None:
+                self._backend.stop_screencast(backend_stream_id)
         finally:
             delivery.stop()
         state = delivery.state()
@@ -355,6 +383,7 @@ class BoundVisualSurfaceProvider:
                 document_id=binding.document_id,
                 data={
                     "stream_id": stream_id,
+                    "consumer_count": self.consumer_count(),
                     "frames_received": state.frames_received,
                     "frames_delivered": state.frames_delivered,
                     "frames_dropped": state.frames_dropped,
@@ -372,6 +401,10 @@ class BoundVisualSurfaceProvider:
                 delivery = self._streams.get(stream_id)
             return delivery.state() if delivery is not None else None
 
+    def consumer_count(self) -> int:
+        with self._lock:
+            return len(self._streams)
+
     def close(self) -> None:
         with self._lock:
             if self._closed:
@@ -383,3 +416,26 @@ class BoundVisualSurfaceProvider:
                 self.stop_stream(stream_id)
             except Exception:
                 continue
+
+    def _broadcast_host_frame(self, frame: HostVisualFrame) -> None:
+        with self._lock:
+            deliveries = tuple(self._streams.values())
+        for delivery in deliveries:
+            delivery.accept(frame)
+
+
+class BoundVisualSurfaceProvider(VisualStreamHub):
+    """Compatibility name for the Session-scoped VisualStreamHub."""
+
+
+def _host_stream_configs_compatible(
+    active: VisualStreamConfig,
+    requested: VisualStreamConfig,
+) -> bool:
+    return (
+        active.format == requested.format
+        and active.quality == requested.quality
+        and active.max_width == requested.max_width
+        and active.max_height == requested.max_height
+        and active.every_nth_frame == requested.every_nth_frame
+    )

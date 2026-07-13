@@ -187,7 +187,7 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 See `docs/browser-runtime-roadmap.md`.
 
-Current milestone: P10 WebFA Object Model and P11 Agent Safety Contract are complete. The complete P12 Multi Session / Multi Profile target architecture is frozen, and P12.1-P12.3 are implemented: persistent Profile Catalog, isolated Profile storage and Chromium Hosts, cross-process Profile locks, default Profile migration, BrowserSessionRuntime extraction, persistent Session lifecycle metadata, and the Supervisor foundation. P12.4 Supervisor and Global Routing is next. See `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md` and `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md`.
+Current milestone: P10 WebFA Object Model and P11 Agent Safety Contract are complete. The complete P12 Multi Session / Multi Profile target architecture is frozen, and P12.1-P12.6 are implemented: persistent Profile Catalog, isolated Profile storage and Chromium Hosts, cross-process Profile locks, BrowserSessionRuntime, concurrent multi-Profile SessionManager/Supervisor routing, connection-scoped Profile grants, Session-exclusive Agent leases, global Tab/WebObject routing, five-tool `profile_ref` integration, Session-specific Monitor grants, VisualStreamHub, and independent HumanControl isolation. P12.7 P11 authority re-scoping and adversarial security review is next. See `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`, `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md`, and `docs/reports/P12_4_6_MULTI_SESSION_ROUTING_MONITOR_REPORT.md`.
 
 Next work:
 

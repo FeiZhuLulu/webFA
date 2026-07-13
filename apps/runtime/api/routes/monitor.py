@@ -16,12 +16,14 @@ from browser.human_control import HumanControlError, parse_human_input_event
 from browser.monitor_gateway import (
     MonitorAccessError,
     MonitorConnectionGrant,
+    MonitorGatewayRouter,
     MonitorPermission,
     encode_visual_frame_packet,
     parse_stream_config,
     serialize_session_event,
 )
-from browser.runtime import BrowserRuntime
+from browser.runtime import BrowserRuntime, BrowserSessionRuntime
+from browser.runtime_errors import BrowserRuntimeError
 from browser.runtime_supervisor import BrowserRuntimeSupervisor
 from browser.session_events import SessionEvent
 from browser.visual_surface import VisualFrame
@@ -41,27 +43,55 @@ class MonitorGrantRequest(BaseModel):
     ttl_seconds: int = Field(default=300, ge=30, le=3600)
 
 
+@control_router.get("/visualizer/sessions")
+def list_monitor_sessions(request: Request) -> dict[str, Any]:
+    runtime = get_browser_runtime(request)
+    if isinstance(runtime, BrowserRuntimeSupervisor):
+        return {"sessions": runtime.list_session_summaries()}
+    snapshot = runtime.monitor_snapshot()
+    return {
+        "sessions": [
+            {
+                "session_id": snapshot.get("session_id", "default"),
+                "profile_id": snapshot.get("profile_id", "default"),
+                "profile_ref": snapshot.get("profile_id", "default"),
+                "runtime_generation": "legacy",
+                "host_status": runtime.status().get("host_status"),
+                "human_control_active": snapshot.get("human_control_active", False),
+                "url": snapshot.get("url", "about:blank"),
+            }
+        ]
+    }
+
+
 @control_router.post("/visualizer/monitor-grants")
 def issue_monitor_grant(payload: MonitorGrantRequest, request: Request) -> dict[str, Any]:
     runtime = get_browser_runtime(request)
-    snapshot = runtime.monitor_snapshot()
-    requested_session_id = (
-        snapshot["session_id"] if payload.session_id == "default" else payload.session_id
-    )
-    if requested_session_id != snapshot["session_id"]:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "monitor_session_mismatch",
-                "message": "requested Monitor session is not the active Runtime session",
-            },
-        )
+    manager = get_monitor_access_manager(request)
     try:
-        grant = get_monitor_access_manager(request).issue(
-            session_id=requested_session_id,
-            permissions=payload.permissions,
-            ttl_seconds=payload.ttl_seconds,
-        )
+        if isinstance(runtime, BrowserRuntimeSupervisor):
+            entry = runtime.resolve_monitor_session(payload.session_id)
+            router = MonitorGatewayRouter(manager, runtime.get_session_binding)
+            grant = router.issue(
+                session_id=entry.session_id,
+                permissions=payload.permissions,
+                ttl_seconds=payload.ttl_seconds,
+            )
+        else:
+            snapshot = runtime.monitor_snapshot()
+            requested_session_id = (
+                snapshot["session_id"] if payload.session_id == "default" else payload.session_id
+            )
+            if requested_session_id != snapshot["session_id"]:
+                raise MonitorAccessError(
+                    "monitor_session_mismatch",
+                    "requested Monitor session is not the active Runtime session",
+                )
+            grant = manager.issue(
+                session_id=requested_session_id,
+                permissions=payload.permissions,
+                ttl_seconds=payload.ttl_seconds,
+            )
     except (ValueError, MonitorAccessError) as exc:
         raise HTTPException(
             status_code=400,
@@ -78,6 +108,8 @@ def issue_monitor_grant(payload: MonitorGrantRequest, request: Request) -> dict[
             "permissions": list(grant.permissions),
             "issued_at": grant.issued_at.isoformat(),
             "expires_at": grant.expires_at.isoformat(),
+            "profile_id": grant.profile_id,
+            "runtime_generation": grant.runtime_generation,
         }
     }
 
@@ -94,6 +126,8 @@ def list_monitor_grants(request: Request) -> dict[str, Any]:
                 "expires_at": state.expires_at.isoformat(),
                 "status": state.status,
                 "connection_id": state.connection_id,
+                "profile_id": state.profile_id,
+                "runtime_generation": state.runtime_generation,
             }
             for state in get_monitor_access_manager(request).list()
         ]
@@ -118,6 +152,8 @@ def revoke_monitor_grant(grant_id: str, request: Request) -> dict[str, Any]:
             "expires_at": state.expires_at.isoformat(),
             "status": state.status,
             "connection_id": state.connection_id,
+            "profile_id": state.profile_id,
+            "runtime_generation": state.runtime_generation,
         }
     }
 
@@ -129,10 +165,11 @@ async def monitor_websocket(websocket: WebSocket) -> None:
         return
 
     await websocket.accept()
-    runtime = _get_runtime(websocket)
+    runtime_root = _get_runtime(websocket)
     access_manager = get_monitor_access_manager(websocket)
     connection: _ConnectionBridge | None = None
     connection_grant: MonitorConnectionGrant | None = None
+    runtime: BrowserRuntime | BrowserSessionRuntime | None = None
     subscription_id: str | None = None
     stream_id: str | None = None
 
@@ -164,6 +201,19 @@ async def monitor_websocket(websocket: WebSocket) -> None:
         except MonitorAccessError:
             await websocket.close(code=4401, reason="Monitor token is invalid or already consumed")
             return
+
+        if isinstance(runtime_root, BrowserRuntimeSupervisor):
+            try:
+                MonitorGatewayRouter(
+                    access_manager,
+                    runtime_root.get_session_binding,
+                ).validate(grant)
+                runtime = runtime_root.get_session_runtime(grant.session_id)
+            except (MonitorAccessError, BrowserRuntimeError):
+                await websocket.close(code=4409, reason="Monitor grant is bound to an unavailable Session generation")
+                return
+        else:
+            runtime = runtime_root
 
         snapshot = await asyncio.to_thread(runtime.monitor_snapshot)
         if snapshot.get("session_id") != grant.session_id:
@@ -199,6 +249,8 @@ async def monitor_websocket(websocket: WebSocket) -> None:
                 "session_id": grant.session_id,
                 "permissions": list(grant.permissions),
                 "expires_at": grant.expires_at.isoformat(),
+                "profile_id": grant.profile_id,
+                "runtime_generation": grant.runtime_generation,
                 "snapshot": snapshot,
                 "visual_stream_id": stream_id,
                 "visual_error": visual_error,
@@ -239,13 +291,14 @@ async def monitor_websocket(websocket: WebSocket) -> None:
         if connection is not None:
             connection.close()
         if connection_grant is not None:
-            with contextlib.suppress(Exception):
-                runtime.release_human_control_connection(connection_grant.connection_id)
+            if runtime is not None:
+                with contextlib.suppress(Exception):
+                    runtime.release_human_control_connection(connection_grant.connection_id)
             access_manager.release(connection_grant.connection_id)
-        if stream_id is not None:
+        if stream_id is not None and runtime is not None:
             with contextlib.suppress(Exception):
                 runtime.stop_visual_stream(stream_id)
-        if subscription_id is not None:
+        if subscription_id is not None and runtime is not None:
             with contextlib.suppress(Exception):
                 runtime.unsubscribe_session_events(subscription_id)
         with contextlib.suppress(Exception):
