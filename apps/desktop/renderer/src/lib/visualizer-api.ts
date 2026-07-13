@@ -2,6 +2,9 @@ import type {
   BrowserProfileCatalogItem,
   CookieImportPreview,
   CookieImportResult,
+  ProfileBundleExportPreview,
+  ProfileBundleRestorePreview,
+  ProfileBundleRestoreResult,
   ProfileClonePreview,
   ProfileCloneResult,
   ProfileCloneTargetPayload,
@@ -215,6 +218,120 @@ export async function commitProfileClone(
     throw new Error(await readApiError(response, "Clone Profile failed"));
   }
   return (await response.json()) as ProfileCloneResult;
+}
+
+export async function previewProfileBundleExport(
+  apiUrl: string,
+  sourceProfileId: string,
+  sourceProfileVersion: number,
+): Promise<ProfileBundleExportPreview> {
+  const query = new URLSearchParams({ expected_version: String(sourceProfileVersion) });
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(sourceProfileId)}/bootstrap/bundle/export/preview?${query}`,
+    { method: "POST", headers: controlHeaders() },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Preview Profile Bundle export failed"));
+  }
+  return (await response.json()) as ProfileBundleExportPreview;
+}
+
+export async function cancelProfileBundleExport(
+  apiUrl: string,
+  sourceProfileId: string,
+  previewToken: string,
+): Promise<void> {
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(sourceProfileId)}/bootstrap/bundle/export/cancel`,
+    {
+      method: "POST",
+      headers: controlHeaders(true),
+      body: JSON.stringify({ preview_token: previewToken }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Cancel Profile Bundle export failed"));
+  }
+}
+
+export async function downloadProfileBundleFallback(
+  apiUrl: string,
+  preview: ProfileBundleExportPreview,
+  passphrase: string,
+): Promise<{ blob: Blob; fileName: string; sha256: string }> {
+  const response = await fetch(
+    `${apiUrl}/v1/profiles/${encodeURIComponent(preview.source_profile_id)}/bootstrap/bundle/export`,
+    {
+      method: "POST",
+      headers: controlHeaders(true),
+      body: JSON.stringify({
+        preview_token: preview.preview_token,
+        expected_source_version: preview.source_profile_version,
+        passphrase,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Export Profile Bundle failed"));
+  }
+  return {
+    blob: await response.blob(),
+    fileName: preview.suggested_filename,
+    sha256: response.headers.get("x-webfa-bundle-sha256") ?? "",
+  };
+}
+
+export async function previewProfileBundleRestoreFallback(
+  apiUrl: string,
+  file: File,
+  passphrase: string,
+): Promise<ProfileBundleRestorePreview> {
+  const response = await fetch(`${apiUrl}/v1/profile-bundles/restore/preview`, {
+    method: "POST",
+    headers: {
+      ...controlHeaders(),
+      "Content-Type": "application/octet-stream",
+      "X-WebFA-Bundle-Passphrase": passphrase,
+    },
+    body: file,
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Preview Profile Bundle restore failed"));
+  }
+  return (await response.json()) as ProfileBundleRestorePreview;
+}
+
+export async function cancelProfileBundleRestore(
+  apiUrl: string,
+  previewToken: string,
+): Promise<void> {
+  const response = await fetch(`${apiUrl}/v1/profile-bundles/restore/cancel`, {
+    method: "POST",
+    headers: controlHeaders(true),
+    body: JSON.stringify({ preview_token: previewToken }),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Cancel Profile Bundle restore failed"));
+  }
+}
+
+export async function commitProfileBundleRestore(
+  apiUrl: string,
+  preview: ProfileBundleRestorePreview,
+  targetProfile: ProfileCloneTargetPayload,
+): Promise<ProfileBundleRestoreResult> {
+  const response = await fetch(`${apiUrl}/v1/profile-bundles/restore`, {
+    method: "POST",
+    headers: controlHeaders(true),
+    body: JSON.stringify({
+      preview_token: preview.preview_token,
+      target_profile: targetProfile,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Restore Profile Bundle failed"));
+  }
+  return (await response.json()) as ProfileBundleRestoreResult;
 }
 
 export async function restartHost(apiUrl: string): Promise<VisualizerState> {

@@ -291,17 +291,20 @@ P12
   docs/reports/P12_8_CORE_FINAL_ACCEPTANCE_MAINTENANCE_REVIEW.md.
 
 Profile Bootstrap
-  Post-Core protected Profile maintenance. Cookie import and Profile clone are
-  complete. Cookie import provides local JSON/Netscape input, redacted two-phase
-  preview, a bounded ProfileMaintenanceHost, CDP Storage.setCookies, and real
-  Chromium persistence validation. Clone provides cold source snapshots,
-  ProfileMutationLease on source and generated target, safe filesystem copying,
-  runtime-artifact exclusion, atomic target registration, cleanup on conflict,
-  and real Chromium identity transfer plus post-clone isolation. Neither feature
-  enters MCP, WebState, Monitor, receipts, or Agent authority. Remaining work:
-  WebFA Profile Bundle export/restore. Reports:
-  docs/reports/PROFILE_BOOTSTRAP_COOKIE_IMPORT_REPORT.md and
-  docs/reports/PROFILE_BOOTSTRAP_CLONE_REPORT.md.
+  Post-Core protected Profile maintenance is complete. Cookie import provides
+  local JSON/Netscape input, redacted two-phase preview, a bounded
+  ProfileMaintenanceHost, CDP Storage.setCookies, and real Chromium persistence
+  validation. Clone provides cold source snapshots, source/target
+  ProfileMutationLease, safe filesystem copying, runtime-artifact exclusion,
+  atomic target registration, cleanup on conflict, and real Chromium identity
+  transfer plus post-clone isolation. WebFA Profile Bundle adds streaming
+  Scrypt + AES-256-GCM encrypted export, per-file SHA-256 manifests, strict
+  archive/path validation, native desktop stream save/open, fresh target
+  authorization, and real Chromium export/restore validation. None of these
+  features enters MCP, WebState, Monitor, receipts, or Agent authority. Reports:
+  docs/reports/PROFILE_BOOTSTRAP_COOKIE_IMPORT_REPORT.md,
+  docs/reports/PROFILE_BOOTSTRAP_CLONE_REPORT.md, and
+  docs/reports/PROFILE_BOOTSTRAP_BUNDLE_REPORT.md.
 
 P13
   Durable Trace / Resume.

@@ -1,6 +1,6 @@
 # WebFA P12 Multi Session / Multi Profile 完整设计
 
-Status: P12 Core implemented and accepted; Profile Bootstrap Cookie Import and Clone implemented
+Status: P12 Core and Post-Core Profile Bootstrap implemented and accepted
 
 Phase name:
 
@@ -1353,7 +1353,7 @@ Profile Bootstrap implementation status:
 - human login：complete；
 - Cookie import：complete；
 - Profile clone：complete；
-- restored WebFA Profile Bundle：not started。
+- WebFA Profile Bundle export/restore：complete。
 
 Cookie 导入目标流程：
 
@@ -1390,6 +1390,7 @@ Implemented report:
 ```text
 docs/reports/PROFILE_BOOTSTRAP_COOKIE_IMPORT_REPORT.md
 docs/reports/PROFILE_BOOTSTRAP_CLONE_REPORT.md
+docs/reports/PROFILE_BOOTSTRAP_BUNDLE_REPORT.md
 ```
 
 ---

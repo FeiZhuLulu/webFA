@@ -225,6 +225,17 @@ class ProfileStorageManager:
         paths = self.paths_for(profile)
         return _snapshot_clone_storage(paths.user_data_dir)
 
+    def iter_clone_files(
+        self,
+        profile: BrowserProfile | str,
+    ):
+        paths = self.paths_for(profile)
+        for relative, path, is_directory, excluded in _walk_clone_storage(
+            paths.user_data_dir
+        ):
+            if not excluded and not is_directory:
+                yield relative, path
+
     def clone_profile_storage(
         self,
         source: BrowserProfile | str,

@@ -79,3 +79,38 @@ export type ProfileCloneResult = {
   total_bytes: number;
   occurred_at: string;
 };
+
+export type ProfileBundleExportPreview = {
+  preview_token: string;
+  source_profile_id: string;
+  source_profile_version: number;
+  source_agent_alias: string;
+  source_display_name: string;
+  file_count: number;
+  total_bytes: number;
+  excluded_count: number;
+  suggested_filename: string;
+  expires_at: string;
+};
+
+export type ProfileBundleRestorePreview = {
+  preview_token: string;
+  bundle_format_version: number;
+  source_agent_alias: string;
+  source_display_name: string;
+  source_bootstrap_source: string;
+  file_count: number;
+  total_bytes: number;
+  created_at: string;
+  expires_at: string;
+};
+
+export type ProfileBundleRestoreResult = {
+  status: "profile_restored";
+  target_profile_id: string;
+  target_agent_alias: string;
+  target_profile_version: number;
+  file_count: number;
+  total_bytes: number;
+  occurred_at: string;
+};

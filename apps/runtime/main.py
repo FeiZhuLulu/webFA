@@ -56,6 +56,9 @@ async def lifespan(app: FastAPI):
     profile_bootstrap_service = getattr(app.state, "profile_bootstrap_service", None)
     if profile_bootstrap_service is not None:
         profile_bootstrap_service.close()
+    profile_bundle_service = getattr(app.state, "profile_bundle_service", None)
+    if profile_bundle_service is not None:
+        profile_bundle_service.close()
     browser_runtime = getattr(app.state, "browser_runtime", None)
     if browser_runtime is not None:
         browser_runtime.close()

@@ -239,12 +239,12 @@ Cookie import
 Profile clone
 ```
 
-Remaining:
+WebFA Profile Bundle export/restore is also complete. It reuses ProfileMutationLease, the safe clone walker, redacted previews, and the non-Agent control boundary established here.
+
+Bundle report:
 
 ```text
-WebFA Profile Bundle export
-WebFA Profile Bundle restore
-bundle integrity/signature and compatibility validation
+docs/reports/PROFILE_BOOTSTRAP_BUNDLE_REPORT.md
 ```
 
-Bundle work must reuse ProfileMutationLease, the safe clone walker, redacted previews, and the non-Agent control boundary established here.
+Post-Core Profile Bootstrap is complete.

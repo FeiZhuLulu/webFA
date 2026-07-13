@@ -3,17 +3,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   cancelCookieImport,
+  cancelProfileBundleExport,
+  cancelProfileBundleRestore,
   cancelProfileClone,
   closeProfileSession,
   commitCookieImport,
+  commitProfileBundleRestore,
   commitProfileClone,
+  downloadProfileBundleFallback,
   fetchProfiles,
   previewCookieImport,
+  previewProfileBundleExport,
+  previewProfileBundleRestoreFallback,
   previewProfileClone,
 } from "../../lib/visualizer-api";
 import type {
   BrowserProfileCatalogItem,
   CookieImportPreview,
+  ProfileBundleExportPreview,
+  ProfileBundleRestorePreview,
   ProfileClonePreview,
 } from "../../types/profile-bootstrap";
 
@@ -43,6 +51,16 @@ export function ProfileBootstrapPanel({
   const [clonePreview, setClonePreview] = useState<ProfileClonePreview | null>(null);
   const [cloneAlias, setCloneAlias] = useState("");
   const [cloneDisplayName, setCloneDisplayName] = useState("");
+  const [bundleExportPreview, setBundleExportPreview] = useState<ProfileBundleExportPreview | null>(null);
+  const [bundleExportPassphrase, setBundleExportPassphrase] = useState("");
+  const [bundleExportConfirm, setBundleExportConfirm] = useState("");
+  const [bundleRestorePreview, setBundleRestorePreview] = useState<ProfileBundleRestorePreview | null>(null);
+  const [bundleRestoreFile, setBundleRestoreFile] = useState<File | null>(null);
+  const [bundleRestoreFileName, setBundleRestoreFileName] = useState("");
+  const [bundleRestorePassphrase, setBundleRestorePassphrase] = useState("");
+  const [bundleRestoreAlias, setBundleRestoreAlias] = useState("");
+  const [bundleRestoreDisplayName, setBundleRestoreDisplayName] = useState("");
+  const [desktopBundleAvailable, setDesktopBundleAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const availableProfiles = useMemo(
@@ -75,6 +93,7 @@ export function ProfileBootstrapPanel({
   }, [apiUrl, currentProfileId, disabled, onError]);
 
   useEffect(() => {
+    setDesktopBundleAvailable(Boolean(window.webfaDesktop?.previewProfileBundleRestore));
     void loadProfiles();
   }, [loadProfiles]);
 
@@ -102,6 +121,36 @@ export function ProfileBootstrapPanel({
     }
   }
 
+  async function clearBundleExportPreview({ notify = false }: { notify?: boolean } = {}) {
+    const current = bundleExportPreview;
+    setBundleExportPreview(null);
+    setBundleExportPassphrase("");
+    setBundleExportConfirm("");
+    if (!current) return;
+    try {
+      await cancelProfileBundleExport(apiUrl, current.source_profile_id, current.preview_token);
+      if (notify) onMessage("Profile Bundle 导出预览已取消");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function clearBundleRestorePreview({ notify = false }: { notify?: boolean } = {}) {
+    const current = bundleRestorePreview;
+    setBundleRestorePreview(null);
+    setBundleRestoreFile(null);
+    setBundleRestoreFileName("");
+    setBundleRestoreAlias("");
+    setBundleRestoreDisplayName("");
+    if (!current) return;
+    try {
+      await cancelProfileBundleRestore(apiUrl, current.preview_token);
+      if (notify) onMessage("Profile Bundle 恢复预览已取消并清除临时文件");
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function selectFile(nextFile: File | null) {
     if (preview) await clearPreview();
     setFile(nextFile);
@@ -110,6 +159,7 @@ export function ProfileBootstrapPanel({
   async function selectProfile(profileId: string) {
     if (preview) await clearPreview();
     if (clonePreview) await clearClonePreview();
+    if (bundleExportPreview) await clearBundleExportPreview();
     setSelectedProfileId(profileId);
   }
 
@@ -228,6 +278,161 @@ export function ProfileBootstrapPanel({
       setCloneAlias("");
       setCloneDisplayName("");
       onMessage(`Profile 已克隆：${result.target_agent_alias} · ${formatBytes(result.total_bytes)}`);
+      await loadProfiles();
+      await onChanged();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createBundleExportPreview() {
+    if (!selectedProfile) {
+      onError("请选择需要导出的持久 Profile");
+      return;
+    }
+    setBusy(true);
+    try {
+      const next = await previewProfileBundleExport(
+        apiUrl,
+        selectedProfile.profile_id,
+        selectedProfile.version,
+      );
+      setBundleExportPreview(next);
+      onMessage(`Bundle 导出预览完成：${next.file_count} 个文件，${formatBytes(next.total_bytes)}`);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveBundleExport() {
+    if (!bundleExportPreview) return;
+    if (bundleExportPassphrase.length < 12) {
+      onError("Bundle 口令至少需要 12 个字符");
+      return;
+    }
+    if (bundleExportPassphrase !== bundleExportConfirm) {
+      onError("两次输入的 Bundle 口令不一致");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (window.webfaDesktop?.saveProfileBundle) {
+        const result = await window.webfaDesktop.saveProfileBundle({
+          profileId: bundleExportPreview.source_profile_id,
+          sourceVersion: bundleExportPreview.source_profile_version,
+          previewToken: bundleExportPreview.preview_token,
+          passphrase: bundleExportPassphrase,
+          suggestedFilename: bundleExportPreview.suggested_filename,
+        });
+        if (result.status === "cancelled") {
+          onMessage("已取消保存，导出预览仍可继续使用");
+          return;
+        }
+        setBundleExportPreview(null);
+        setBundleExportPassphrase("");
+        setBundleExportConfirm("");
+        onMessage(`加密 Bundle 已保存：${result.fileName} · ${formatBytes(result.byteCount)}`);
+      } else {
+        const result = await downloadProfileBundleFallback(
+          apiUrl,
+          bundleExportPreview,
+          bundleExportPassphrase,
+        );
+        const url = URL.createObjectURL(result.blob);
+        try {
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = result.fileName;
+          anchor.click();
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+        setBundleExportPreview(null);
+        setBundleExportPassphrase("");
+        setBundleExportConfirm("");
+        onMessage(`加密 Bundle 已生成：${result.fileName}`);
+      }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createBundleRestorePreview() {
+    if (bundleRestorePassphrase.length < 12) {
+      onError("Bundle 口令至少需要 12 个字符");
+      return;
+    }
+    setBusy(true);
+    try {
+      let next: ProfileBundleRestorePreview;
+      let fileName: string;
+      if (window.webfaDesktop?.previewProfileBundleRestore) {
+        const result = await window.webfaDesktop.previewProfileBundleRestore({
+          passphrase: bundleRestorePassphrase,
+        });
+        if (result.status === "cancelled") {
+          onMessage("已取消选择 Bundle 文件");
+          return;
+        }
+        next = result.preview as unknown as ProfileBundleRestorePreview;
+        fileName = result.fileName;
+      } else {
+        if (!bundleRestoreFile) {
+          onError("请选择 .webfa-profile 文件");
+          return;
+        }
+        next = await previewProfileBundleRestoreFallback(
+          apiUrl,
+          bundleRestoreFile,
+          bundleRestorePassphrase,
+        );
+        fileName = bundleRestoreFile.name;
+      }
+      setBundleRestorePreview(next);
+      setBundleRestoreFileName(fileName);
+      setBundleRestoreAlias(`${next.source_agent_alias}-restored`);
+      setBundleRestoreDisplayName(`${next.source_display_name} Restored`);
+      setBundleRestorePassphrase("");
+      onMessage(`Bundle 已认证：${next.file_count} 个文件，${formatBytes(next.total_bytes)}`);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commitBundleRestore() {
+    if (!bundleRestorePreview) return;
+    if (!bundleRestoreAlias.trim() || !bundleRestoreDisplayName.trim()) {
+      onError("恢复后的 Profile 别名和显示名称均为必填项");
+      return;
+    }
+    const confirmed = window.confirm(
+      `将已认证 Bundle 恢复为新 Profile“${bundleRestoreDisplayName.trim()}”。不会覆盖已有 Profile，也不会恢复 Agent 或安全策略绑定。继续吗？`,
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    try {
+      const result = await commitProfileBundleRestore(apiUrl, bundleRestorePreview, {
+        agent_alias: bundleRestoreAlias.trim(),
+        display_name: bundleRestoreDisplayName.trim(),
+        owner: "user_owned",
+        trust_mode: "guarded",
+      });
+      setBundleRestorePreview(null);
+      setBundleRestoreFile(null);
+      setBundleRestoreFileName("");
+      setBundleRestoreAlias("");
+      setBundleRestoreDisplayName("");
+      const input = document.getElementById("webfa-profile-bundle-file") as HTMLInputElement | null;
+      if (input) input.value = "";
+      onMessage(`Profile Bundle 已恢复：${result.target_agent_alias} · ${formatBytes(result.total_bytes)}`);
       await loadProfiles();
       await onChanged();
     } catch (error) {
@@ -417,6 +622,201 @@ export function ProfileBootstrapPanel({
           </div>
         </div>
       )}
+
+      <div style={{ borderTop: "1px solid rgba(127,127,127,.22)", marginTop: 14, paddingTop: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8 }}>Encrypted Profile Bundle</div>
+        <div style={{ fontSize: 11, opacity: 0.72, lineHeight: 1.45, marginBottom: 9 }}>
+          `.webfa-profile` 使用 Scrypt + AES-256-GCM 加密完整浏览器身份。口令无法找回；恢复只会创建新 Profile，不覆盖现有身份，也不恢复 Agent 或 Safety/Financial policy 绑定。
+        </div>
+
+        <div className="viz-control-stack">
+          <div style={{ fontSize: 11, fontWeight: 650 }}>Export selected Profile</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <button
+              type="button"
+              className="viz-btn viz-btn-primary"
+              disabled={
+                disabled ||
+                busy ||
+                !selectedProfile ||
+                bundleExportPreview !== null ||
+                preview !== null ||
+                clonePreview !== null
+              }
+              onClick={() => void createBundleExportPreview()}
+            >
+              生成导出预览
+            </button>
+            <button
+              type="button"
+              className="viz-btn"
+              disabled={disabled || busy || !selectedProfile}
+              onClick={() => void closeSession()}
+            >
+              关闭源会话
+            </button>
+          </div>
+        </div>
+
+        {bundleExportPreview && (
+          <div
+            style={{
+              border: "1px solid rgba(127,127,127,.28)",
+              borderRadius: 8,
+              padding: 9,
+              marginTop: 9,
+              fontSize: 11,
+              lineHeight: 1.5,
+            }}
+          >
+            <div style={{ fontWeight: 650, marginBottom: 4 }}>Bundle 导出预览</div>
+            <div>
+              {bundleExportPreview.source_display_name} · {bundleExportPreview.file_count} 个文件 · {formatBytes(bundleExportPreview.total_bytes)}
+            </div>
+            <div>排除运行时项 {bundleExportPreview.excluded_count} · {bundleExportPreview.suggested_filename}</div>
+            <input
+              className="viz-input"
+              type="password"
+              autoComplete="new-password"
+              value={bundleExportPassphrase}
+              onChange={(event) => setBundleExportPassphrase(event.target.value)}
+              placeholder="加密口令，至少 12 个字符"
+              disabled={busy}
+              style={{ marginTop: 7 }}
+            />
+            <input
+              className="viz-input"
+              type="password"
+              autoComplete="new-password"
+              value={bundleExportConfirm}
+              onChange={(event) => setBundleExportConfirm(event.target.value)}
+              placeholder="再次输入加密口令"
+              disabled={busy}
+              style={{ marginTop: 6 }}
+            />
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              <button
+                type="button"
+                className="viz-btn viz-btn-primary"
+                disabled={
+                  busy ||
+                  bundleExportPassphrase.length < 12 ||
+                  bundleExportPassphrase !== bundleExportConfirm
+                }
+                onClick={() => void saveBundleExport()}
+              >
+                加密并保存
+              </button>
+              <button
+                type="button"
+                className="viz-btn"
+                disabled={busy}
+                onClick={() => void clearBundleExportPreview({ notify: true })}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ borderTop: "1px solid rgba(127,127,127,.16)", marginTop: 12, paddingTop: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 650, marginBottom: 7 }}>Restore encrypted Bundle</div>
+          {!desktopBundleAvailable && (
+            <input
+              id="webfa-profile-bundle-file"
+              type="file"
+              accept=".webfa-profile"
+              disabled={disabled || busy || bundleRestorePreview !== null}
+              onChange={(event) => {
+                const selected = event.target.files?.[0] ?? null;
+                setBundleRestoreFile(selected);
+                setBundleRestoreFileName(selected?.name ?? "");
+              }}
+              style={{ width: "100%", fontSize: 12, marginBottom: 7 }}
+            />
+          )}
+          <input
+            className="viz-input"
+            type="password"
+            autoComplete="current-password"
+            value={bundleRestorePassphrase}
+            onChange={(event) => setBundleRestorePassphrase(event.target.value)}
+            placeholder="Bundle 解密口令"
+            disabled={disabled || busy || bundleRestorePreview !== null}
+          />
+          <button
+            type="button"
+            className="viz-btn viz-btn-primary"
+            disabled={
+              disabled ||
+              busy ||
+              bundleRestorePreview !== null ||
+              bundleRestorePassphrase.length < 12 ||
+              (!desktopBundleAvailable && !bundleRestoreFile)
+            }
+            onClick={() => void createBundleRestorePreview()}
+            style={{ marginTop: 7 }}
+          >
+            {desktopBundleAvailable ? "选择并认证 Bundle" : "认证 Bundle"}
+          </button>
+        </div>
+
+        {bundleRestorePreview && (
+          <div
+            style={{
+              border: "1px solid rgba(127,127,127,.28)",
+              borderRadius: 8,
+              padding: 9,
+              marginTop: 9,
+              fontSize: 11,
+              lineHeight: 1.5,
+            }}
+          >
+            <div style={{ fontWeight: 650, marginBottom: 4 }}>Bundle 恢复预览</div>
+            <div>{bundleRestoreFileName || "Encrypted Bundle"}</div>
+            <div>
+              来源：{bundleRestorePreview.source_display_name} · {bundleRestorePreview.source_agent_alias} · {bundleRestorePreview.source_bootstrap_source}
+            </div>
+            <div>
+              格式 v{bundleRestorePreview.bundle_format_version} · {bundleRestorePreview.file_count} 个文件 · {formatBytes(bundleRestorePreview.total_bytes)}
+            </div>
+            <input
+              className="viz-input"
+              value={bundleRestoreAlias}
+              onChange={(event) => setBundleRestoreAlias(event.target.value)}
+              placeholder="恢复后的新 Profile 别名"
+              disabled={busy}
+              style={{ marginTop: 7 }}
+            />
+            <input
+              className="viz-input"
+              value={bundleRestoreDisplayName}
+              onChange={(event) => setBundleRestoreDisplayName(event.target.value)}
+              placeholder="恢复后的显示名称"
+              disabled={busy}
+              style={{ marginTop: 6 }}
+            />
+            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+              <button
+                type="button"
+                className="viz-btn viz-btn-primary"
+                disabled={busy || !bundleRestoreAlias.trim() || !bundleRestoreDisplayName.trim()}
+                onClick={() => void commitBundleRestore()}
+              >
+                恢复为新 Profile
+              </button>
+              <button
+                type="button"
+                className="viz-btn"
+                disabled={busy}
+                onClick={() => void clearBundleRestorePreview({ notify: true })}
+              >
+                取消并清除
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

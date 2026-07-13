@@ -5,7 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from schemas.profile import BrowserProfileCreate
+from schemas.profile import BrowserProfileCreate, ProfileBootstrapSource
+from schemas.safety import AccountOwner, TrustMode
 
 
 CookieImportFormat = Literal["auto", "json", "netscape"]
@@ -14,6 +15,41 @@ CookieImportSourceFormat = Literal["json", "netscape"]
 
 class StrictProfileBootstrapModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class ProfileBootstrapTarget(StrictProfileBootstrapModel):
+    agent_alias: str = Field(min_length=1, max_length=64)
+    display_name: str = Field(min_length=1, max_length=200)
+    agent_description: str = Field(default="", max_length=500)
+    owner: AccountOwner = "user_owned"
+    trust_mode: TrustMode = "guarded"
+
+    @field_validator("agent_alias")
+    @classmethod
+    def normalize_alias(cls, value: str) -> str:
+        return BrowserProfileCreate(
+            agent_alias=value,
+            display_name="Bootstrap target",
+        ).agent_alias
+
+    def to_profile_create(
+        self,
+        *,
+        bootstrap_source: ProfileBootstrapSource,
+    ) -> BrowserProfileCreate:
+        return BrowserProfileCreate(
+            agent_alias=self.agent_alias,
+            display_name=self.display_name,
+            agent_description=self.agent_description,
+            persistence="persistent",
+            owner=self.owner,
+            trust_mode=self.trust_mode,
+            bound_agent_ids=[],
+            allowed_origins=[],
+            safety_policy_id=None,
+            financial_policy_id=None,
+            bootstrap_source=bootstrap_source,
+        )
 
 
 class CookieImportWarning(StrictProfileBootstrapModel):
@@ -79,14 +115,7 @@ class ProfileClonePreview(StrictProfileBootstrapModel):
 class ProfileCloneCommitRequest(StrictProfileBootstrapModel):
     preview_token: str = Field(min_length=1, max_length=200)
     expected_source_version: int = Field(ge=1)
-    target_profile: BrowserProfileCreate
-
-    @field_validator("target_profile")
-    @classmethod
-    def require_persistent_target(cls, value: BrowserProfileCreate) -> BrowserProfileCreate:
-        if value.persistence != "persistent":
-            raise ValueError("Profile clone target must be persistent")
-        return value.model_copy(update={"bootstrap_source": "cloned"}, deep=True)
+    target_profile: ProfileBootstrapTarget
 
 
 class ProfileCloneCancelRequest(StrictProfileBootstrapModel):
@@ -101,6 +130,60 @@ class ProfileCloneCancelResult(StrictProfileBootstrapModel):
 class ProfileCloneResult(StrictProfileBootstrapModel):
     status: Literal["profile_cloned"] = "profile_cloned"
     source_profile_id: str = Field(min_length=1, max_length=200)
+    target_profile_id: str = Field(min_length=1, max_length=200)
+    target_agent_alias: str = Field(min_length=1, max_length=64)
+    target_profile_version: int = Field(ge=1)
+    file_count: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    occurred_at: datetime
+
+
+class ProfileBundleExportPreview(StrictProfileBootstrapModel):
+    preview_token: str = Field(min_length=1, max_length=200)
+    source_profile_id: str = Field(min_length=1, max_length=200)
+    source_profile_version: int = Field(ge=1)
+    source_agent_alias: str = Field(min_length=1, max_length=64)
+    source_display_name: str = Field(min_length=1, max_length=200)
+    file_count: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    excluded_count: int = Field(ge=0)
+    suggested_filename: str = Field(min_length=1, max_length=240)
+    expires_at: datetime
+
+
+class ProfileBundleExportRequest(StrictProfileBootstrapModel):
+    preview_token: str = Field(min_length=1, max_length=200)
+    expected_source_version: int = Field(ge=1)
+    passphrase: str = Field(min_length=12, max_length=1024)
+
+
+class ProfileBundleExportCancelRequest(StrictProfileBootstrapModel):
+    preview_token: str = Field(min_length=1, max_length=200)
+
+
+class ProfileBundleRestorePreview(StrictProfileBootstrapModel):
+    preview_token: str = Field(min_length=1, max_length=200)
+    bundle_format_version: int = Field(ge=1)
+    source_agent_alias: str = Field(min_length=1, max_length=64)
+    source_display_name: str = Field(min_length=1, max_length=200)
+    source_bootstrap_source: str = Field(min_length=1, max_length=50)
+    file_count: int = Field(ge=0)
+    total_bytes: int = Field(ge=0)
+    created_at: datetime
+    expires_at: datetime
+
+
+class ProfileBundleRestoreCommitRequest(StrictProfileBootstrapModel):
+    preview_token: str = Field(min_length=1, max_length=200)
+    target_profile: ProfileBootstrapTarget
+
+
+class ProfileBundleRestoreCancelRequest(StrictProfileBootstrapModel):
+    preview_token: str = Field(min_length=1, max_length=200)
+
+
+class ProfileBundleRestoreResult(StrictProfileBootstrapModel):
+    status: Literal["profile_restored"] = "profile_restored"
     target_profile_id: str = Field(min_length=1, max_length=200)
     target_agent_alias: str = Field(min_length=1, max_length=64)
     target_profile_version: int = Field(ge=1)

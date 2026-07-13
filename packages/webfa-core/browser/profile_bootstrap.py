@@ -29,7 +29,11 @@ from browser.profile_storage import (
     ProfileStorageError,
     ProfileStorageManager,
 )
-from schemas.profile import BrowserProfile, BrowserProfileCreate
+from schemas.profile import (
+    BrowserProfile,
+    BrowserProfileCreate,
+    ProfileBootstrapSource,
+)
 from schemas.profile_bootstrap import (
     CookieImportCancelResult,
     CookieImportFormat,
@@ -37,6 +41,7 @@ from schemas.profile_bootstrap import (
     CookieImportResult,
     CookieImportSourceFormat,
     CookieImportWarning,
+    ProfileBootstrapTarget,
     ProfileCloneCancelResult,
     ProfileClonePreview,
     ProfileCloneResult,
@@ -558,7 +563,7 @@ class ProfileBootstrapService:
         *,
         preview_token: str,
         expected_source_version: int,
-        target_profile: BrowserProfileCreate,
+        target_profile: ProfileBootstrapTarget | BrowserProfileCreate,
         control_token: str,
     ) -> ProfileCloneResult:
         now = self._clock()
@@ -636,12 +641,9 @@ class ProfileBootstrapService:
                 mutation_id=mutation_id,
                 expected_fingerprint=pending.storage_snapshot.fingerprint,
             )
-            target_payload = target_profile.model_copy(
-                update={
-                    "persistence": "persistent",
-                    "bootstrap_source": "cloned",
-                },
-                deep=True,
+            target_payload = _bootstrap_target_payload(
+                target_profile,
+                bootstrap_source="cloned",
             )
             created_profile = self._repository.create_profile(
                 target_payload,
@@ -756,6 +758,22 @@ class ProfileBootstrapService:
         ]
         for token in expired_clones:
             self._clone_pending.pop(token, None)
+
+
+def _bootstrap_target_payload(
+    target: ProfileBootstrapTarget | BrowserProfileCreate,
+    *,
+    bootstrap_source: ProfileBootstrapSource,
+) -> BrowserProfileCreate:
+    if isinstance(target, ProfileBootstrapTarget):
+        return target.to_profile_create(bootstrap_source=bootstrap_source)
+    return ProfileBootstrapTarget(
+        agent_alias=target.agent_alias,
+        display_name=target.display_name,
+        agent_description=target.agent_description,
+        owner=target.owner,
+        trust_mode=target.trust_mode,
+    ).to_profile_create(bootstrap_source=bootstrap_source)
 
 
 def parse_cookie_import(

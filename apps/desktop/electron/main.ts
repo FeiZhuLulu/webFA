@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -9,7 +10,10 @@ import {
   Tray,
   type IpcMainInvokeEvent,
 } from "electron";
+import { createReadStream, createWriteStream, promises as fs } from "fs";
 import path from "path";
+import { Readable } from "stream";
+import { pipeline } from "stream/promises";
 import { McpProcessManager, McpStatus } from "./mcpProcess";
 import { RuntimeProcessManager, RuntimeStatus } from "./runtimeProcess";
 
@@ -28,6 +32,8 @@ const CONSOLE_FILE_BASE =
 const APP_ROOT = process.env.WEBFA_ROOT ?? path.resolve(__dirname, "../../../..");
 const VISUALIZER_CONTROL_TOKEN =
   process.env.WEBFA_VISUALIZER_CONTROL_TOKEN ?? randomBytes(32).toString("base64url");
+const PROFILE_BUNDLE_CONTENT_TYPE = "application/vnd.webfa.profile-bundle";
+const PROFILE_BUNDLE_EXTENSION = "webfa-profile";
 
 let mainWindow: BrowserWindow | null = null;
 let monitorWindow: BrowserWindow | null = null;
@@ -189,6 +195,126 @@ async function issueMonitorConfig(): Promise<{
   };
 }
 
+async function readControlApiError(response: Response, fallback: string): Promise<string> {
+  try {
+    const payload = (await response.json()) as {
+      detail?: { message?: string } | string;
+    };
+    if (typeof payload.detail === "string") return payload.detail;
+    if (payload.detail?.message) return payload.detail.message;
+  } catch {
+    // Fall back to the bounded generic message below.
+  }
+  return `${fallback} (${response.status})`;
+}
+
+function requireBundlePassphrase(value: unknown): string {
+  if (typeof value !== "string" || value.length < 12 || value.length > 1024 || value.includes("\0")) {
+    throw new Error("Profile Bundle passphrase must contain 12 to 1024 characters");
+  }
+  return value;
+}
+
+async function saveProfileBundle(args: {
+  profileId: string;
+  sourceVersion: number;
+  previewToken: string;
+  passphrase: string;
+  suggestedFilename: string;
+}): Promise<
+  | { status: "cancelled" }
+  | { status: "saved"; fileName: string; byteCount: number; sha256: string }
+> {
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Control Center window is unavailable");
+  const passphrase = requireBundlePassphrase(args.passphrase);
+  const suggestedFilename = path.basename(args.suggestedFilename || `webfa-profile.${PROFILE_BUNDLE_EXTENSION}`);
+  const selection = await dialog.showSaveDialog(mainWindow, {
+    title: "Export encrypted WebFA Profile Bundle",
+    defaultPath: suggestedFilename,
+    filters: [{ name: "WebFA Profile Bundle", extensions: [PROFILE_BUNDLE_EXTENSION] }]
+  });
+  if (selection.canceled || !selection.filePath) return { status: "cancelled" };
+
+  const response = await fetch(
+    `http://${API_HOST}:${API_PORT}/v1/profiles/${encodeURIComponent(args.profileId)}/bootstrap/bundle/export`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-WebFA-Visualizer-Token": VISUALIZER_CONTROL_TOKEN
+      },
+      body: JSON.stringify({
+        preview_token: args.previewToken,
+        expected_source_version: args.sourceVersion,
+        passphrase
+      })
+    }
+  );
+  if (!response.ok) {
+    throw new Error(await readControlApiError(response, "Profile Bundle export failed"));
+  }
+  if (!response.body) throw new Error("Profile Bundle export returned no data");
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.startsWith(PROFILE_BUNDLE_CONTENT_TYPE)) {
+    throw new Error("Profile Bundle export returned an unexpected content type");
+  }
+
+  try {
+    await pipeline(
+      Readable.fromWeb(response.body as never),
+      createWriteStream(selection.filePath, { flags: "w", mode: 0o600 })
+    );
+  } catch (error) {
+    await fs.unlink(selection.filePath).catch(() => undefined);
+    throw error;
+  }
+  const fileStat = await fs.stat(selection.filePath);
+  return {
+    status: "saved",
+    fileName: path.basename(selection.filePath),
+    byteCount: fileStat.size,
+    sha256: response.headers.get("x-webfa-bundle-sha256") ?? ""
+  };
+}
+
+async function previewProfileBundleRestore(args: { passphrase: string }): Promise<
+  | { status: "cancelled" }
+  | { status: "previewed"; fileName: string; preview: Record<string, unknown> }
+> {
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Control Center window is unavailable");
+  const passphrase = requireBundlePassphrase(args.passphrase);
+  const selection = await dialog.showOpenDialog(mainWindow, {
+    title: "Open encrypted WebFA Profile Bundle",
+    properties: ["openFile"],
+    filters: [{ name: "WebFA Profile Bundle", extensions: [PROFILE_BUNDLE_EXTENSION] }]
+  });
+  if (selection.canceled || selection.filePaths.length !== 1) return { status: "cancelled" };
+  const filePath = selection.filePaths[0];
+  const fileStat = await fs.stat(filePath);
+  if (!fileStat.isFile() || fileStat.size <= 0) throw new Error("Selected Profile Bundle is empty or unavailable");
+
+  const requestInit = {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Length": String(fileStat.size),
+      "X-WebFA-Visualizer-Token": VISUALIZER_CONTROL_TOKEN,
+      "X-WebFA-Bundle-Passphrase": passphrase
+    },
+    body: createReadStream(filePath),
+    duplex: "half"
+  } as unknown as RequestInit & { duplex: "half" };
+  const response = await fetch(
+    `http://${API_HOST}:${API_PORT}/v1/profile-bundles/restore/preview`,
+    requestInit
+  );
+  if (!response.ok) {
+    throw new Error(await readControlApiError(response, "Profile Bundle restore preview failed"));
+  }
+  const preview = (await response.json()) as Record<string, unknown>;
+  return { status: "previewed", fileName: path.basename(filePath), preview };
+}
+
 function createTray(): void {
   try {
     const icon = nativeImage.createEmpty();
@@ -289,6 +415,14 @@ app.whenReady().then(() => {
     requireTrustedMainRenderer(event);
     createMonitorWindow();
     return { opened: true };
+  });
+  ipcMain.handle("profileBundle:save", (event, args) => {
+    requireTrustedMainRenderer(event);
+    return saveProfileBundle(args);
+  });
+  ipcMain.handle("profileBundle:previewRestore", (event, args) => {
+    requireTrustedMainRenderer(event);
+    return previewProfileBundleRestore(args);
   });
   ipcMain.handle("monitor:getConfig", async (event) => {
     requireTrustedMonitorRenderer(event);

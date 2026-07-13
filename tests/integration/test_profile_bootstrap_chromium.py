@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from browser.managed_chromium_host import ManagedChromiumHost, _find_chromium_executable
+from browser.profile_bundle import ProfileBundleService
 from browser.profile_bootstrap import ProfileBootstrapService
 from browser.profile_repository import ProfileRepository
 from browser.profile_storage import ProfileStorageManager
@@ -286,6 +287,135 @@ def test_profile_clone_copies_real_chromium_identity_and_then_isolates_mutations
             source_lock.release()
             target_lock.release()
     finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_profile_bundle_roundtrip_restores_real_chromium_identity(monkeypatch, tmp_path: Path) -> None:
+    _require_managed_chromium()
+    home = tmp_path / "WebFA"
+    monkeypatch.setenv("WEBFA_HOME", str(home))
+    reset_engine_for_tests()
+    init_db()
+    repository = ProfileRepository()
+    source = repository.create_profile(
+        BrowserProfileCreate(
+            agent_alias="bundle-source",
+            display_name="Bundle Source",
+        )
+    )
+    storage = ProfileStorageManager(home)
+    bundle_service = ProfileBundleService(
+        repository=repository,
+        storage=storage,
+        temp_root=tmp_path / "bundle-temp",
+    )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/"
+    passphrase = "real chromium bundle passphrase"
+
+    source_lock = storage.acquire_process_lock(
+        source,
+        runtime_instance_id="bundle-source-seed",
+        runtime_generation="bundle-source-generation",
+        session_id="bundle-source-session",
+    )
+    source_host = ManagedChromiumHost(
+        launch_spec=storage.launch_spec(
+            source,
+            headless=True,
+            runtime_instance_id="bundle-source-seed",
+            runtime_generation="bundle-source-generation",
+        )
+    )
+    try:
+        source_host.navigate(url)
+        _write_identity(source_host, "BUNDLE")
+    finally:
+        source_host.close()
+        source_lock.release()
+
+    try:
+        export_preview = bundle_service.preview_export(
+            source.profile_id,
+            expected_source_version=source.version,
+            control_token="control-token",
+        )
+        artifact = bundle_service.export_bundle(
+            source.profile_id,
+            preview_token=export_preview.preview_token,
+            expected_source_version=source.version,
+            passphrase=passphrase,
+            control_token="control-token",
+        )
+        restore_preview = bundle_service.preview_restore(
+            artifact.path,
+            passphrase=passphrase,
+            control_token="control-token",
+        )
+        restored_result = bundle_service.restore_bundle(
+            preview_token=restore_preview.preview_token,
+            target_profile=BrowserProfileCreate(
+                agent_alias="bundle-restored",
+                display_name="Bundle Restored",
+            ),
+            control_token="control-token",
+        )
+        restored = repository.get_profile(restored_result.target_profile_id)
+        assert restored.bootstrap_source == "restored"
+
+        source_lock = storage.acquire_process_lock(
+            source,
+            runtime_instance_id="bundle-source-check",
+            runtime_generation="bundle-source-check-generation",
+            session_id="bundle-source-check-session",
+        )
+        restored_lock = storage.acquire_process_lock(
+            restored,
+            runtime_instance_id="bundle-restored-check",
+            runtime_generation="bundle-restored-check-generation",
+            session_id="bundle-restored-check-session",
+        )
+        source_host = ManagedChromiumHost(
+            launch_spec=storage.launch_spec(
+                source,
+                headless=True,
+                runtime_instance_id="bundle-source-check",
+                runtime_generation="bundle-source-check-generation",
+            )
+        )
+        restored_host = ManagedChromiumHost(
+            launch_spec=storage.launch_spec(
+                restored,
+                headless=True,
+                runtime_instance_id="bundle-restored-check",
+                runtime_generation="bundle-restored-check-generation",
+            )
+        )
+        try:
+            source_host.navigate(url)
+            restored_host.navigate(url)
+            source_state = _read_identity(source_host)
+            restored_state = _read_identity(restored_host)
+            assert restored_state == source_state
+            assert source_state["local"] == "BUNDLE"
+            assert source_state["indexed"] == "BUNDLE"
+            assert "clone_identity=BUNDLE" in source_state["cookie"]
+
+            _write_identity(restored_host, "RESTORED")
+            assert _read_identity(restored_host)["local"] == "RESTORED"
+            assert _read_identity(source_host)["local"] == "BUNDLE"
+        finally:
+            source_host.close()
+            restored_host.close()
+            source_lock.release()
+            restored_lock.release()
+    finally:
+        bundle_service.close()
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)

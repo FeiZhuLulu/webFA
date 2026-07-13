@@ -36,6 +36,20 @@ declare global {
         visualizerControlToken: string;
       }>;
       openMonitor: () => Promise<{ opened: boolean }>;
+      saveProfileBundle: (args: {
+        profileId: string;
+        sourceVersion: number;
+        previewToken: string;
+        passphrase: string;
+        suggestedFilename: string;
+      }) => Promise<
+        | { status: "cancelled" }
+        | { status: "saved"; fileName: string; byteCount: number; sha256: string }
+      >;
+      previewProfileBundleRestore: (args: { passphrase: string }) => Promise<
+        | { status: "cancelled" }
+        | { status: "previewed"; fileName: string; preview: Record<string, unknown> }
+      >;
       onRuntimeStatus: (callback: (status: RuntimeStatus) => void) => () => void;
       onMcpStatus: (callback: (status: McpStatus) => void) => () => void;
     };

@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
+from browser.profile_bundle import BUNDLE_CONTENT_TYPE, ProfileBundleService
 from browser.profile_bootstrap import ProfileBootstrapService
 from browser.profile_storage import ProfileStorageManager
 from storage.db import reset_engine_for_tests
@@ -228,3 +229,94 @@ def test_profile_clone_control_api_creates_new_isolated_catalog_entry(monkeypatc
             / "Local Storage"
             / "state.log"
         ).read_bytes() == b"clone-api-state"
+
+
+def test_profile_bundle_api_streams_encrypted_export_and_restores_new_profile(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
+    reset_engine_for_tests()
+    app = create_app()
+    passphrase = "bundle api passphrase 123"
+
+    with TestClient(app) as client:
+        repository = app.state.profile_repository
+        source = repository.get_profile("default")
+        storage = ProfileStorageManager(tmp_path / "WebFA")
+        source_paths = storage.paths_for(source)
+        (source_paths.user_data_dir / "Default" / "Local Storage").mkdir(parents=True)
+        (source_paths.user_data_dir / "Default" / "Local Storage" / "bundle.log").write_bytes(
+            b"bundle-api-state"
+        )
+        app.state.profile_storage_manager = storage
+        app.state.profile_bundle_service = ProfileBundleService(
+            repository=repository,
+            storage=storage,
+            temp_root=tmp_path / "bundle-temp",
+        )
+
+        previewed = client.post(
+            f"/v1/profiles/default/bootstrap/bundle/export/preview?expected_version={source.version}",
+            headers=HEADERS,
+        )
+        assert previewed.status_code == 200, previewed.text
+        export_preview = previewed.json()
+        assert export_preview["file_count"] == 1
+        assert "bundle.log" not in previewed.text
+        assert "bundle-api-state" not in previewed.text
+
+        exported = client.post(
+            "/v1/profiles/default/bootstrap/bundle/export",
+            headers=HEADERS,
+            json={
+                "preview_token": export_preview["preview_token"],
+                "expected_source_version": source.version,
+                "passphrase": passphrase,
+            },
+        )
+        assert exported.status_code == 200, exported.text
+        assert exported.headers["content-type"].startswith(BUNDLE_CONTENT_TYPE)
+        assert exported.content.startswith(b"WEBFAPB1")
+        assert b"bundle-api-state" not in exported.content
+        assert exported.headers["x-webfa-bundle-sha256"]
+
+        restore_previewed = client.post(
+            "/v1/profile-bundles/restore/preview",
+            headers={
+                **HEADERS,
+                "Content-Type": "application/octet-stream",
+                "X-WebFA-Bundle-Passphrase": passphrase,
+            },
+            content=exported.content,
+        )
+        assert restore_previewed.status_code == 200, restore_previewed.text
+        restore_preview = restore_previewed.json()
+        assert restore_preview["source_agent_alias"] == source.agent_alias
+        assert restore_preview["file_count"] == 1
+        assert "bundle.log" not in restore_previewed.text
+        assert "bundle-api-state" not in restore_previewed.text
+        assert passphrase not in restore_previewed.text
+
+        restored = client.post(
+            "/v1/profile-bundles/restore",
+            headers=HEADERS,
+            json={
+                "preview_token": restore_preview["preview_token"],
+                "target_profile": {
+                    "agent_alias": "bundle-api-restored",
+                    "display_name": "Bundle API Restored",
+                },
+            },
+        )
+        assert restored.status_code == 200, restored.text
+        result = restored.json()
+        assert result["status"] == "profile_restored"
+        target = repository.get_profile(result["target_profile_id"])
+        assert target.bootstrap_source == "restored"
+        assert (
+            storage.paths_for(target).user_data_dir
+            / "Default"
+            / "Local Storage"
+            / "bundle.log"
+        ).read_bytes() == b"bundle-api-state"
+        assert list((tmp_path / "bundle-temp").glob("*.webfa-profile")) == []
+        assert list((tmp_path / "bundle-temp").glob("upload-*.bundle")) == []
