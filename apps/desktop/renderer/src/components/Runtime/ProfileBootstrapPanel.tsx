@@ -26,6 +26,7 @@ import type {
 } from "../../types/profile-bootstrap";
 
 const MAX_COOKIE_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_BROWSER_BUNDLE_BYTES = 256 * 1024 * 1024;
 
 type ProfileBootstrapPanelProps = {
   apiUrl: string;
@@ -58,6 +59,7 @@ export function ProfileBootstrapPanel({
   const [bundleRestoreFile, setBundleRestoreFile] = useState<File | null>(null);
   const [bundleRestoreFileName, setBundleRestoreFileName] = useState("");
   const [bundleRestorePassphrase, setBundleRestorePassphrase] = useState("");
+  const [bundleRestoreCommitPassphrase, setBundleRestoreCommitPassphrase] = useState("");
   const [bundleRestoreAlias, setBundleRestoreAlias] = useState("");
   const [bundleRestoreDisplayName, setBundleRestoreDisplayName] = useState("");
   const [desktopBundleAvailable, setDesktopBundleAvailable] = useState(false);
@@ -140,6 +142,7 @@ export function ProfileBootstrapPanel({
     setBundleRestorePreview(null);
     setBundleRestoreFile(null);
     setBundleRestoreFileName("");
+    setBundleRestoreCommitPassphrase("");
     setBundleRestoreAlias("");
     setBundleRestoreDisplayName("");
     if (!current) return;
@@ -337,6 +340,9 @@ export function ProfileBootstrapPanel({
         setBundleExportConfirm("");
         onMessage(`加密 Bundle 已保存：${result.fileName} · ${formatBytes(result.byteCount)}`);
       } else {
+        if (bundleExportPreview.total_bytes > MAX_BROWSER_BUNDLE_BYTES) {
+          throw new Error("浏览器回退模式仅支持 256 MiB 以内的 Bundle，请使用 WebFA Desktop 流式导出");
+        }
         const result = await downloadProfileBundleFallback(
           apiUrl,
           bundleExportPreview,
@@ -387,6 +393,10 @@ export function ProfileBootstrapPanel({
           onError("请选择 .webfa-profile 文件");
           return;
         }
+        if (bundleRestoreFile.size > MAX_BROWSER_BUNDLE_BYTES) {
+          onError("浏览器回退模式仅支持 256 MiB 以内的 Bundle，请使用 WebFA Desktop 流式恢复");
+          return;
+        }
         next = await previewProfileBundleRestoreFallback(
           apiUrl,
           bundleRestoreFile,
@@ -413,21 +423,31 @@ export function ProfileBootstrapPanel({
       onError("恢复后的 Profile 别名和显示名称均为必填项");
       return;
     }
+    if (bundleRestoreCommitPassphrase.length < 12) {
+      onError("请重新输入 Bundle 口令以确认恢复");
+      return;
+    }
     const confirmed = window.confirm(
       `将已认证 Bundle 恢复为新 Profile“${bundleRestoreDisplayName.trim()}”。不会覆盖已有 Profile，也不会恢复 Agent 或安全策略绑定。继续吗？`,
     );
     if (!confirmed) return;
     setBusy(true);
     try {
-      const result = await commitProfileBundleRestore(apiUrl, bundleRestorePreview, {
-        agent_alias: bundleRestoreAlias.trim(),
-        display_name: bundleRestoreDisplayName.trim(),
-        owner: "user_owned",
-        trust_mode: "guarded",
-      });
+      const result = await commitProfileBundleRestore(
+        apiUrl,
+        bundleRestorePreview,
+        bundleRestoreCommitPassphrase,
+        {
+          agent_alias: bundleRestoreAlias.trim(),
+          display_name: bundleRestoreDisplayName.trim(),
+          owner: "user_owned",
+          trust_mode: "guarded",
+        },
+      );
       setBundleRestorePreview(null);
       setBundleRestoreFile(null);
       setBundleRestoreFileName("");
+      setBundleRestoreCommitPassphrase("");
       setBundleRestoreAlias("");
       setBundleRestoreDisplayName("");
       const input = document.getElementById("webfa-profile-bundle-file") as HTMLInputElement | null;
@@ -780,6 +800,12 @@ export function ProfileBootstrapPanel({
             <div>
               格式 v{bundleRestorePreview.bundle_format_version} · {bundleRestorePreview.file_count} 个文件 · {formatBytes(bundleRestorePreview.total_bytes)}
             </div>
+            <div style={{ marginTop: 5, opacity: 0.82 }}>
+              {bundleRestorePreview.source_platform} → {bundleRestorePreview.current_platform}
+            </div>
+            <div style={{ marginTop: 5, opacity: 0.82 }}>
+              {bundleRestorePreview.compatibility_warning}
+            </div>
             <input
               className="viz-input"
               value={bundleRestoreAlias}
@@ -796,11 +822,26 @@ export function ProfileBootstrapPanel({
               disabled={busy}
               style={{ marginTop: 6 }}
             />
+            <input
+              className="viz-input"
+              type="password"
+              autoComplete="current-password"
+              value={bundleRestoreCommitPassphrase}
+              onChange={(event) => setBundleRestoreCommitPassphrase(event.target.value)}
+              placeholder="重新输入 Bundle 口令以确认恢复"
+              disabled={busy}
+              style={{ marginTop: 6 }}
+            />
             <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
               <button
                 type="button"
                 className="viz-btn viz-btn-primary"
-                disabled={busy || !bundleRestoreAlias.trim() || !bundleRestoreDisplayName.trim()}
+                disabled={
+                  busy ||
+                  !bundleRestoreAlias.trim() ||
+                  !bundleRestoreDisplayName.trim() ||
+                  bundleRestoreCommitPassphrase.length < 12
+                }
                 onClick={() => void commitBundleRestore()}
               >
                 恢复为新 Profile

@@ -17,7 +17,9 @@ native desktop streaming save/open
 real Chromium identity roundtrip
 ```
 
-The Bundle carries Chromium browser identity and website storage. It is therefore treated as a credential-bearing security asset rather than a normal settings archive.
+The Bundle carries the WebFA identity-transfer subset of Chromium website storage. It is therefore treated as a credential-bearing security asset rather than a normal settings archive or a full human-browser backup.
+
+It deliberately excludes browser history, bookmarks, saved-password and autofill databases, open-tab/session restoration data, extensions, caches, and non-Default Chromium subprofiles. The purpose is to provision an Agent internet identity, not migrate a person's complete browser life.
 
 The default Agent MCP surface remains exactly five tools. Bundle export and restore exist only on the protected local control plane.
 
@@ -51,8 +53,10 @@ The plaintext archive contains:
 
 ```text
 manifest.json
-profile/<relative Chromium user-data file>
+profile/<relative identity-transfer file>
 ```
+
+Only files admitted by the same identity-transfer policy used by Profile clone may enter the archive. Restore independently reapplies this policy and rejects excluded members even when they appear inside an authenticated, externally constructed Bundle.
 
 No browser identity metadata or Profile filename appears in the unencrypted header. The header contains only:
 
@@ -88,7 +92,9 @@ The magic, encoded header length, and canonical header bytes are authenticated a
 
 Encryption and decryption are streaming operations. The complete Profile archive is never loaded into Python or Renderer memory.
 
-The user passphrase must contain 12 to 1024 characters. The passphrase is never written into the Bundle, manifest, runtime event, API response, or UI log.
+The user passphrase must contain 12 to 1024 characters. It is sent only in the protected local `X-WebFA-Bundle-Passphrase` request header. It is absent from Pydantic request models and OpenAPI body schemas, and WebFA's validation handler never echoes rejected input values.
+
+After restore preview, Runtime retains only the encrypted upload and authenticated manifest. It does not retain the passphrase. The user must submit the passphrase again for commit, limiting plaintext-secret lifetime and ensuring the final decryption is independently authorized.
 
 A wrong passphrase and a modified ciphertext return the same bounded error class:
 
@@ -105,7 +111,7 @@ The encrypted manifest contains only the minimum restore metadata:
 ```text
 format/version
 creation time
-source safe alias/display name/bootstrap source
+source safe alias/display name/bootstrap source/platform
 file count
 total byte count
 excluded runtime-entry count
@@ -138,7 +144,7 @@ Export flow:
 ```text
 protected preview request
   -> source ProfileMutationLease
-  -> storage snapshot and fingerprint
+  -> identity-transfer snapshot with per-file content hashing
   -> redacted preview
   -> user supplies and confirms passphrase
   -> reacquire source ProfileMutationLease
@@ -189,7 +195,7 @@ The Renderer receives only:
 
 It never receives the full local path or Bundle bytes in the desktop path.
 
-A browser-development fallback exists and may use a Blob for small local test Bundles. Production Electron uses the streaming bridge.
+A browser-development fallback exists for local testing, but it is hard-limited to 256 MiB because it uses Blob/File memory. Larger Bundles must use the Desktop streaming bridge.
 
 ## 7. Restore Upload and Preview
 
@@ -209,13 +215,11 @@ pending restore previews:  10
 
 The encrypted upload remains encrypted while the user reviews the preview. WebFA decrypts into a mode-0600 temporary ZIP only for bounded validation and immediately deletes that plaintext file.
 
-The pending preview stores the encrypted upload and passphrase in Runtime memory. Both are deleted on:
+The pending preview stores only the encrypted upload, authenticated manifest, control binding, and expiry. It does not store the passphrase.
 
-- successful restore;
-- explicit cancel;
-- preview expiry;
-- pending-preview eviction;
-- Runtime shutdown.
+Temporary plaintext ZIP files exist only during bounded export validation or restore validation. They are deleted on the normal path. A cross-process Bundle-service lock gives one Runtime exclusive ownership of the dedicated temporary directory. Because preview state is entirely in memory, the lock owner clears the entire directory at service startup and shutdown; a second Runtime cannot delete or reuse an active operation's artifacts, and no previous-process artifact can remain valid.
+
+Encrypted pending uploads are deleted on successful restore, explicit cancel, preview expiry, pending-preview eviction, or Runtime shutdown.
 
 ## 8. Archive Safety
 
@@ -237,7 +241,8 @@ Every archive member is validated before extraction. Restore rejects:
 - archive members absent from the manifest;
 - manifest entries absent from the archive;
 - size or SHA-256 mismatches;
-- count or total-byte inconsistencies.
+- count or total-byte inconsistencies;
+- browser history, bookmarks, password/autofill databases, sessions/tabs, extensions, caches, non-Default Chromium profiles, or other files outside WebFA's identity-transfer scope.
 
 Restricting Bundles to stored members eliminates decompression-ratio ambiguity and makes resource accounting exact before extraction.
 
@@ -249,7 +254,9 @@ Flow:
 
 ```text
 authenticated preview
+  -> platform/storage-only compatibility warning
   -> explicit target alias/display metadata
+  -> user re-enters Bundle passphrase
   -> generated target Profile ID
   -> target ProfileMutationLease
   -> decrypt and revalidate Bundle
@@ -328,7 +335,7 @@ POST /v1/profile-bundles/restore
 
 Every endpoint requires the local Visualizer control token.
 
-Restore upload additionally receives the passphrase in the protected local request header. HTTP access logs do not include this header, and WebFA does not copy it into exceptions or events.
+Export, restore preview, and restore commit receive the passphrase only in the protected local request header. HTTP access logs do not include this header, WebFA does not copy it into exceptions or events, and generic validation responses omit rejected input values.
 
 ## 12. Real Chromium Validation
 
@@ -345,7 +352,9 @@ The real Chromium test:
 9. mutates the restored Profile;
 10. verifies the source remains unchanged.
 
-This proves encrypted transport, persistence, restoration, and post-restore isolation.
+This proves encrypted transport, same-environment browser-storage restoration, and post-restore isolation. It does not prove that every imported login remains usable across machines, OS users, Chromium builds, devices, or website device-binding policies.
+
+Restore preview reports source and current platform identifiers and explicitly states that the restoration scope is `browser_storage_only`. Files may restore successfully while OS-bound Chromium credentials or device-bound website sessions remain unusable.
 
 ## 13. Adversarial Tests
 
@@ -362,7 +371,11 @@ Coverage includes:
 - cleanup of unregistered target storage;
 - fresh target authorization envelope;
 - protected HTTP export/upload/restore;
-- Runtime temporary-file cleanup;
+- Runtime temporary-file cleanup on normal operation, startup, and shutdown;
+- cross-process exclusive ownership of the Bundle temporary store;
+- passphrase non-retention and mandatory re-entry at restore commit;
+- redacted validation errors that do not echo sensitive inputs;
+- identity-scope rejection of history and non-Default Chromium profiles;
 - real Chromium identity roundtrip;
 - Electron and Renderer type checks;
 - production Next and Electron builds.
@@ -380,7 +393,7 @@ Bundle data never enters:
 - redacted previews;
 - Electron Renderer memory in the normal desktop streaming path.
 
-The encrypted Bundle itself remains sensitive: loss of the passphrase makes it unrecoverable, while possession of both the Bundle and passphrase grants access to the transported browser identity.
+The encrypted Bundle itself remains sensitive: loss of the passphrase makes it unrecoverable, while possession of both the Bundle and passphrase may grant access to the transported website identity. Successful file restoration is not equivalent to successful account authentication.
 
 ## 15. Profile Bootstrap Completion
 

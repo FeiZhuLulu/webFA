@@ -12,8 +12,10 @@ for candidate in [APP_ROOT, APP_ROOT / "packages", APP_ROOT / "packages" / "webf
     if value not in sys.path:
         sys.path.insert(0, value)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from apps.runtime.api.routes.approvals import router as approvals_router
 from apps.runtime.api.routes.audits import router as audits_router
@@ -66,6 +68,25 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="WebFA Runtime", version="0.1.0", lifespan=lifespan)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        _request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        # FastAPI's default Pydantic response can include the rejected input.
+        # WebFA control requests may contain credentials or local resource data,
+        # so validation diagnostics expose only structural error metadata.
+        safe_errors = []
+        for error in exc.errors():
+            safe_errors.append(
+                {
+                    "type": error.get("type", "request_validation_error"),
+                    "loc": error.get("loc", ()),
+                    "msg": "request field validation failed",
+                }
+            )
+        return JSONResponse(status_code=422, content={"detail": safe_errors})
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:8788", "http://localhost:8788"],

@@ -22,6 +22,9 @@ from browser.visual_surface import HostVisualFrame, HostVisualStreamState, Visua
 from schemas.browser import BrowserTab
 
 
+_CDP_CLIENT_ORIGIN = "https://runtime.webfa.invalid"
+
+
 @dataclass
 class PendingJavaScriptDialog:
     dialog_type: str
@@ -708,8 +711,10 @@ class ManagedChromiumHost:
             str(executable),
             "about:blank",
             f"--user-data-dir={profile_dir}",
+            "--profile-directory=Default",
             "--remote-debugging-port=0",
-            "--remote-allow-origins=*",  # dev-preview: tighten before public release
+            f"--remote-allow-origins={_CDP_CLIENT_ORIGIN}",
+            "--disable-extensions",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-background-networking",
@@ -892,7 +897,12 @@ class _CDPClient:
     def _connect(self) -> None:
         from websockets.sync.client import connect
 
-        self._ws = connect(self._websocket_url, open_timeout=5, ping_interval=None)
+        self._ws = connect(
+            self._websocket_url,
+            origin=_CDP_CLIENT_ORIGIN,
+            open_timeout=5,
+            ping_interval=None,
+        )
 
     def _call_once(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         if self._ws is None:

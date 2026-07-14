@@ -12,6 +12,7 @@ from apps.runtime.api.visualizer_control import (
     require_visualizer_control,
 )
 from browser.profile_bundle import (
+    BUNDLE_PASSPHRASE_HEADER,
     MAX_BUNDLE_ENCRYPTED_BYTES,
     ProfileBundleApplyError,
     ProfileBundleBindingError,
@@ -415,7 +416,7 @@ def export_profile_bundle(
             profile_ref,
             preview_token=payload.preview_token,
             expected_source_version=payload.expected_source_version,
-            passphrase=payload.passphrase,
+            passphrase=request.headers.get(BUNDLE_PASSPHRASE_HEADER, ""),
             control_token=request.headers.get(VISUALIZER_CONTROL_HEADER, ""),
         )
     except ProfileRepositoryError as exc:
@@ -438,17 +439,18 @@ def export_profile_bundle(
 
 @router.post("/profile-bundles/restore/preview")
 async def preview_profile_bundle_restore(request: Request):
-    service = get_profile_bundle_service(request)
-    passphrase = request.headers.get("X-WebFA-Bundle-Passphrase", "")
-    declared_length = _bounded_content_length(
-        request,
-        maximum=MAX_BUNDLE_ENCRYPTED_BYTES,
-        code=ProfileBundleLimitError.code,
-        label="Profile Bundle",
-    )
-    upload_path = service.create_upload_path()
-    total = 0
+    upload_path = None
     try:
+        service = get_profile_bundle_service(request)
+        passphrase = request.headers.get(BUNDLE_PASSPHRASE_HEADER, "")
+        declared_length = _bounded_content_length(
+            request,
+            maximum=MAX_BUNDLE_ENCRYPTED_BYTES,
+            code=ProfileBundleLimitError.code,
+            label="Profile Bundle",
+        )
+        upload_path = service.create_upload_path()
+        total = 0
         with upload_path.open("wb") as output:
             async for chunk in request.stream():
                 total += len(chunk)
@@ -469,10 +471,12 @@ async def preview_profile_bundle_restore(request: Request):
         )
         return preview.model_dump(mode="json")
     except ProfileBundleError as exc:
-        upload_path.unlink(missing_ok=True)
+        if upload_path is not None:
+            upload_path.unlink(missing_ok=True)
         raise _bundle_http_error(exc) from exc
     except Exception:
-        upload_path.unlink(missing_ok=True)
+        if upload_path is not None:
+            upload_path.unlink(missing_ok=True)
         raise
 
 
@@ -502,6 +506,7 @@ def restore_profile_bundle(
     try:
         result = get_profile_bundle_service(request).restore_bundle(
             preview_token=payload.preview_token,
+            passphrase=request.headers.get(BUNDLE_PASSPHRASE_HEADER, ""),
             target_profile=payload.target_profile,
             control_token=request.headers.get(VISUALIZER_CONTROL_HEADER, ""),
         )

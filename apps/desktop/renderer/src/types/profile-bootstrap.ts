@@ -99,6 +99,10 @@ export type ProfileBundleRestorePreview = {
   source_agent_alias: string;
   source_display_name: string;
   source_bootstrap_source: string;
+  source_platform: string;
+  current_platform: string;
+  restoration_scope: "browser_storage_only";
+  compatibility_warning: string;
   file_count: number;
   total_bytes: number;
   created_at: string;

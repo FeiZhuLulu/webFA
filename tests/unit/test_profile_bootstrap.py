@@ -305,7 +305,8 @@ def test_profile_clone_preview_commit_is_control_bound_and_does_not_inherit_agen
     source_paths = storage.paths_for(source)
     (source_paths.user_data_dir / "Default" / "Local Storage").mkdir(parents=True)
     (source_paths.user_data_dir / "Default" / "Local Storage" / "state.log").write_bytes(b"identity-a")
-    (source_paths.user_data_dir / "Cookies").write_bytes(b"cookie-db")
+    (source_paths.user_data_dir / "Default" / "Network").mkdir(parents=True)
+    (source_paths.user_data_dir / "Default" / "Network" / "Cookies").write_bytes(b"cookie-db")
     service = ProfileBootstrapService(repository=repository, storage=storage)
 
     preview = service.preview_profile_clone(
@@ -350,7 +351,9 @@ def test_profile_clone_preview_commit_is_control_bound_and_does_not_inherit_agen
     assert target.allowed_origins == []
     assert target.safety_policy_id is None
     assert target.financial_policy_id is None
-    assert (target_paths.user_data_dir / "Cookies").read_bytes() == b"cookie-db"
+    assert (
+        target_paths.user_data_dir / "Default" / "Network" / "Cookies"
+    ).read_bytes() == b"cookie-db"
     assert (
         target_paths.user_data_dir / "Default" / "Local Storage" / "state.log"
     ).read_bytes() == b"identity-a"
@@ -358,7 +361,8 @@ def test_profile_clone_preview_commit_is_control_bound_and_does_not_inherit_agen
 
 def test_profile_clone_rejects_source_changes_after_preview(monkeypatch, tmp_path: Path) -> None:
     repository, source, storage = _setup(monkeypatch, tmp_path)
-    source_state = storage.paths_for(source).user_data_dir / "Cookies"
+    source_state = storage.paths_for(source).user_data_dir / "Default" / "Network" / "Cookies"
+    source_state.parent.mkdir(parents=True)
     source_state.write_bytes(b"before")
     service = ProfileBootstrapService(repository=repository, storage=storage)
     preview = service.preview_profile_clone(
@@ -387,7 +391,9 @@ def test_profile_clone_rejects_source_changes_after_preview(monkeypatch, tmp_pat
 
 def test_profile_clone_alias_conflict_cleans_storage_and_allows_retry(monkeypatch, tmp_path: Path) -> None:
     repository, source, storage = _setup(monkeypatch, tmp_path)
-    (storage.paths_for(source).user_data_dir / "Cookies").write_bytes(b"cookie-db")
+    source_cookie = storage.paths_for(source).user_data_dir / "Default" / "Network" / "Cookies"
+    source_cookie.parent.mkdir(parents=True)
+    source_cookie.write_bytes(b"cookie-db")
     repository.create_profile(
         BrowserProfileCreate(
             agent_alias="existing-alias",

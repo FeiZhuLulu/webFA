@@ -2,10 +2,12 @@ import base64
 import json
 import threading
 import time
+from pathlib import Path
 
 from browser.exceptions import BrowserHostClosedError
 from browser.managed_chromium_host import ManagedChromiumHost
 from browser.managed_chromium_host import _CDPClient
+from browser.profile_storage import ProfileLaunchSpec
 from browser.visual_surface import VisualStreamConfig
 
 
@@ -30,8 +32,9 @@ class FakeWebSocket:
 def test_cdp_client_reconnects_once_after_receive_failure(monkeypatch):
     sockets = [FakeWebSocket(fail_recv=True), FakeWebSocket(fail_recv=False)]
 
-    def fake_connect(url: str, open_timeout: int, ping_interval):
+    def fake_connect(url: str, origin: str, open_timeout: int, ping_interval):
         assert url == "ws://example/devtools/page/1"
+        assert origin == "https://runtime.webfa.invalid"
         return sockets.pop(0)
 
     monkeypatch.setattr("websockets.sync.client.connect", fake_connect)
@@ -40,6 +43,48 @@ def test_cdp_client_reconnects_once_after_receive_failure(monkeypatch):
     result = client.call("Runtime.evaluate", {"expression": "1 + 1"})
 
     assert result == {"ok": True}
+
+
+def test_managed_chromium_launch_restricts_cdp_origin_and_disables_extensions(
+    monkeypatch,
+    tmp_path: Path,
+):
+    captured: dict[str, object] = {}
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    def fake_popen(args, stdout, stderr):
+        captured["args"] = args
+        captured["stdout"] = stdout
+        captured["stderr"] = stderr
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        "browser.managed_chromium_host._find_chromium_executable",
+        lambda: tmp_path / "chrome.exe",
+    )
+    monkeypatch.setattr("browser.managed_chromium_host.subprocess.Popen", fake_popen)
+    launch_spec = ProfileLaunchSpec(
+        profile_id="profile-a",
+        user_data_dir=tmp_path / "profile-a" / "chromium-user-data",
+        downloads_dir=tmp_path / "profile-a" / "downloads",
+        headless=True,
+        runtime_instance_id="runtime-a",
+        runtime_generation="generation-a",
+    )
+    host = ManagedChromiumHost(launch_spec=launch_spec)
+    monkeypatch.setattr(host, "_read_devtools_port", lambda _: 17777)
+
+    host._ensure_started()
+
+    args = captured["args"]
+    assert "--profile-directory=Default" in args
+    assert "--remote-allow-origins=https://runtime.webfa.invalid" in args
+    assert "--remote-allow-origins=*" not in args
+    assert "--disable-extensions" in args
+    host._process = None
 
 
 def test_managed_chromium_screencast_acknowledges_every_frame(monkeypatch):

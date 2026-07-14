@@ -231,6 +231,28 @@ def test_profile_clone_control_api_creates_new_isolated_catalog_entry(monkeypatc
         ).read_bytes() == b"clone-api-state"
 
 
+def test_validation_errors_do_not_echo_sensitive_inputs(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
+    reset_engine_for_tests()
+    secret = "sensitive bundle passphrase 123"
+
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/v1/profiles/default/bootstrap/bundle/export",
+            headers=HEADERS,
+            json={
+                "preview_token": "preview-token",
+                "expected_source_version": 1,
+                "passphrase": secret,
+            },
+        )
+
+    assert response.status_code == 422
+    assert secret not in response.text
+    assert '"input"' not in response.text
+
+
 def test_profile_bundle_api_streams_encrypted_export_and_restores_new_profile(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
@@ -266,11 +288,10 @@ def test_profile_bundle_api_streams_encrypted_export_and_restores_new_profile(mo
 
         exported = client.post(
             "/v1/profiles/default/bootstrap/bundle/export",
-            headers=HEADERS,
+            headers={**HEADERS, "X-WebFA-Bundle-Passphrase": passphrase},
             json={
                 "preview_token": export_preview["preview_token"],
                 "expected_source_version": source.version,
-                "passphrase": passphrase,
             },
         )
         assert exported.status_code == 200, exported.text
@@ -298,7 +319,7 @@ def test_profile_bundle_api_streams_encrypted_export_and_restores_new_profile(mo
 
         restored = client.post(
             "/v1/profile-bundles/restore",
-            headers=HEADERS,
+            headers={**HEADERS, "X-WebFA-Bundle-Passphrase": passphrase},
             json={
                 "preview_token": restore_preview["preview_token"],
                 "target_profile": {

@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import platform
 import secrets
 import shutil
 import stat
@@ -30,9 +31,11 @@ from browser.profile_storage import (
     ProfileCloneStorageSnapshot,
     ProfileLockBusyError,
     ProfileMutationLease,
+    ProfileProcessLock,
     ProfileStorageConflictError,
     ProfileStorageError,
     ProfileStorageManager,
+    profile_transfer_path_excluded,
 )
 from schemas.profile import (
     BrowserProfile,
@@ -48,6 +51,7 @@ from schemas.profile_bootstrap import (
 
 
 BUNDLE_CONTENT_TYPE = "application/vnd.webfa.profile-bundle"
+BUNDLE_PASSPHRASE_HEADER = "X-WebFA-Bundle-Passphrase"
 BUNDLE_EXTENSION = ".webfa-profile"
 BUNDLE_MAGIC = b"WEBFAPB1"
 BUNDLE_FORMAT_VERSION = 1
@@ -128,6 +132,7 @@ class _BundleManifest(_StrictBundleModel):
     source_agent_alias: str = Field(min_length=1, max_length=64)
     source_display_name: str = Field(min_length=1, max_length=200)
     source_bootstrap_source: str = Field(min_length=1, max_length=50)
+    source_platform: str = Field(default="unknown", min_length=1, max_length=100)
     file_count: int = Field(ge=0, le=MAX_BUNDLE_FILES)
     total_bytes: int = Field(ge=0, le=MAX_BUNDLE_PLAINTEXT_BYTES)
     excluded_count: int = Field(ge=0)
@@ -166,7 +171,6 @@ class _PendingRestore:
     token: str
     control_digest: str
     encrypted_path: Path = field(repr=False)
-    passphrase: str = field(repr=False)
     manifest: _BundleManifest
     manifest_digest: str
     summary: ProfileBundleRestorePreview
@@ -195,10 +199,31 @@ class ProfileBundleService:
             temp_root or (self._storage.data_dir / "profile-bundles" / "tmp")
         ).resolve()
         self._temp_root.mkdir(parents=True, exist_ok=True)
+        service_identity = uuid4().hex
+        try:
+            self._service_lock = ProfileProcessLock(
+                self._temp_root.parent / f".{self._temp_root.name}.service.lock",
+                {
+                    "profile_id": "profile-bundle-service",
+                    "runtime_instance_id": f"bundle-service:{service_identity}",
+                    "runtime_generation": f"bundle-service:{service_identity}",
+                    "session_id": "profile-bundle-service",
+                    "pid": os.getpid(),
+                },
+            ).acquire()
+        except ProfileLockBusyError as exc:
+            raise ProfileBundleBusyError(
+                "another Runtime is already using the Profile Bundle temporary store"
+            ) from exc
         self._exports: dict[str, _PendingExport] = {}
         self._restores: dict[str, _PendingRestore] = {}
         self._lock = RLock()
-        self._purge_orphaned_temp_files()
+        self._closed = False
+        try:
+            self._purge_orphaned_temp_files()
+        except Exception:
+            self._service_lock.release()
+            raise
 
     @property
     def temp_root(self) -> Path:
@@ -206,11 +231,15 @@ class ProfileBundleService:
 
     def close(self) -> None:
         with self._lock:
-            pending_paths = [item.encrypted_path for item in self._restores.values()]
+            if self._closed:
+                return
+            self._closed = True
             self._exports.clear()
             self._restores.clear()
-        for path in pending_paths:
-            _delete_file(path)
+        try:
+            self._purge_orphaned_temp_files()
+        finally:
+            self._service_lock.release()
 
     def create_upload_path(self) -> Path:
         path = self._temp_root / f"upload-{uuid4().hex}.bundle"
@@ -461,6 +490,10 @@ class ProfileBundleService:
             source_agent_alias=manifest.source_agent_alias,
             source_display_name=manifest.source_display_name,
             source_bootstrap_source=manifest.source_bootstrap_source,
+            source_platform=manifest.source_platform,
+            current_platform=_current_platform_id(),
+            restoration_scope="browser_storage_only",
+            compatibility_warning=_bundle_compatibility_warning(manifest.source_platform),
             file_count=manifest.file_count,
             total_bytes=manifest.total_bytes,
             created_at=manifest.created_at,
@@ -470,7 +503,6 @@ class ProfileBundleService:
             token=token,
             control_digest=_control_digest(control_token),
             encrypted_path=encrypted_path,
-            passphrase=passphrase,
             manifest=manifest,
             manifest_digest=manifest_digest,
             summary=summary,
@@ -513,9 +545,11 @@ class ProfileBundleService:
         self,
         *,
         preview_token: str,
+        passphrase: str,
         target_profile: ProfileBootstrapTarget | BrowserProfileCreate,
         control_token: str,
     ) -> ProfileBundleRestoreResult:
+        _validate_passphrase(passphrase)
         now = self._clock()
         with self._lock:
             pending = self._restores.get(preview_token)
@@ -556,7 +590,7 @@ class ProfileBundleService:
             _decrypt_bundle_file(
                 pending.encrypted_path,
                 plaintext_path,
-                passphrase=pending.passphrase,
+                passphrase=passphrase,
             )
             manifest, manifest_digest = _inspect_bundle_zip(plaintext_path)
             if manifest_digest != pending.manifest_digest:
@@ -694,6 +728,7 @@ class ProfileBundleService:
             source_agent_alias=source.agent_alias,
             source_display_name=source.display_name,
             source_bootstrap_source=source.bootstrap_source,
+            source_platform=_current_platform_id(),
             file_count=len(entries),
             total_bytes=total_bytes,
             excluded_count=snapshot.excluded_count,
@@ -798,12 +833,14 @@ class ProfileBundleService:
         _delete_file(oldest.encrypted_path)
 
     def _purge_orphaned_temp_files(self) -> None:
-        cutoff = datetime.now(timezone.utc).timestamp() - 24 * 3600
+        # Preview state is intentionally in-memory only. After service restart or
+        # shutdown no temporary artifact can belong to a valid operation, so
+        # retaining even a recent plaintext ZIP would only extend secret lifetime.
         for path in self._temp_root.iterdir():
             try:
-                if path.is_file() and path.stat().st_mtime < cutoff:
-                    path.unlink()
-                elif path.is_dir() and path.stat().st_mtime < cutoff:
+                if path.is_file() or path.is_symlink():
+                    path.unlink(missing_ok=True)
+                elif path.is_dir():
                     shutil.rmtree(path, ignore_errors=True)
             except OSError:
                 continue
@@ -938,7 +975,11 @@ def _inspect_bundle_zip(path: Path) -> tuple[_BundleManifest, str]:
                     "Profile Bundle archive members do not match the manifest"
                 )
             for entry in manifest.entries:
-                _validate_bundle_member_name(entry.path)
+                relative = _validate_bundle_member_name(entry.path)
+                if profile_transfer_path_excluded(Path(*relative.parts)):
+                    raise ProfileBundleFormatError(
+                        "Profile Bundle contains browser data outside the WebFA identity-transfer scope"
+                    )
                 info = info_by_name[entry.path]
                 if info.file_size != entry.size:
                     raise ProfileBundleIntegrityError(
@@ -1315,6 +1356,25 @@ def _sha256_file(path: Path) -> str:
                 break
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _current_platform_id() -> str:
+    system = platform.system().strip().lower() or "unknown"
+    machine = platform.machine().strip().lower() or "unknown"
+    return f"{system}-{machine}"[:100]
+
+
+def _bundle_compatibility_warning(source_platform: str) -> str:
+    current = _current_platform_id()
+    if source_platform != current:
+        return (
+            "Bundle storage was created on a different OS or architecture. "
+            "Files may restore, but Chromium credentials and website sessions may remain unusable."
+        )
+    return (
+        "Bundle restore recreates browser storage only. Authentication is not guaranteed because "
+        "Chromium or websites may bind credentials to the OS user, device, browser build, or hardware."
+    )
 
 
 def _safe_filename(value: str) -> str:

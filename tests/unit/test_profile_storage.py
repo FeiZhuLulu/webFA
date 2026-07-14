@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -57,7 +58,8 @@ def test_profile_clone_storage_excludes_runtime_artifacts_and_matches_snapshot(t
     source = manager.paths_for("profile_source")
     (source.user_data_dir / "Default" / "Local Storage").mkdir(parents=True)
     (source.user_data_dir / "Default" / "Local Storage" / "leveldb.log").write_bytes(b"local-state")
-    (source.user_data_dir / "Cookies").write_bytes(b"cookie-state")
+    (source.user_data_dir / "Default" / "Network").mkdir(parents=True)
+    (source.user_data_dir / "Default" / "Network" / "Cookies").write_bytes(b"cookie-state")
     (source.user_data_dir / "DevToolsActivePort").write_text("9222", encoding="utf-8")
     (source.user_data_dir / "SingletonLock").write_text("stale", encoding="utf-8")
     (source.user_data_dir / "ShaderCache").mkdir()
@@ -88,17 +90,84 @@ def test_profile_clone_storage_excludes_runtime_artifacts_and_matches_snapshot(t
     target = manager.paths_for("profile_target").user_data_dir
     assert copied.file_count == 2
     assert copied.excluded_count == 3
-    assert (target / "Cookies").read_bytes() == b"cookie-state"
+    assert (target / "Default" / "Network" / "Cookies").read_bytes() == b"cookie-state"
     assert (target / "Default" / "Local Storage" / "leveldb.log").read_bytes() == b"local-state"
     assert not (target / "DevToolsActivePort").exists()
     assert not (target / "SingletonLock").exists()
     assert not (target / "ShaderCache").exists()
 
 
+def test_profile_transfer_excludes_human_browser_history_vault_and_extensions(tmp_path: Path):
+    manager = ProfileStorageManager(tmp_path / "WebFA")
+    source = manager.paths_for("profile_source")
+    default = source.user_data_dir / "Default"
+    (default / "Network").mkdir(parents=True)
+    (default / "Network" / "Cookies").write_bytes(b"site-cookie-state")
+    (default / "Local Storage").mkdir(parents=True)
+    (default / "Local Storage" / "state.log").write_bytes(b"site-storage")
+
+    excluded_files = {
+        default / "History": b"browsing-history",
+        default / "Bookmarks": b"human-bookmarks",
+        default / "Login Data": b"password-vault",
+        default / "Web Data": b"autofill-and-payment-data",
+        default / "Secure Preferences": b"extension-policy-state",
+        default / "Network" / "TransportSecurity": b"transport-policy",
+    }
+    for path, payload in excluded_files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    (default / "Extensions" / "malicious-extension").mkdir(parents=True)
+    (default / "Extensions" / "malicious-extension" / "manifest.json").write_text(
+        "{}",
+        encoding="utf-8",
+    )
+    (source.user_data_dir / "Profile 1" / "Network").mkdir(parents=True)
+    (source.user_data_dir / "Profile 1" / "Network" / "Cookies").write_bytes(
+        b"second-chromium-profile"
+    )
+    (default / "Sessions").mkdir()
+    (default / "Sessions" / "Tabs_1").write_bytes(b"open-human-tabs")
+
+    snapshot = manager.inspect_clone_source("profile_source")
+    source_lock = manager.acquire_mutation_lease(
+        "profile_source",
+        mutation_id="identity-transfer-test",
+        operation="profile_clone_source",
+    )
+    target_lock = manager.acquire_mutation_lease(
+        "profile_target",
+        mutation_id="identity-transfer-test",
+        operation="profile_clone_target",
+    )
+    try:
+        manager.clone_profile_storage(
+            "profile_source",
+            "profile_target",
+            mutation_id="identity-transfer-test",
+            expected_fingerprint=snapshot.fingerprint,
+        )
+    finally:
+        target_lock.release()
+        source_lock.release()
+
+    target = manager.paths_for("profile_target").user_data_dir
+    assert (target / "Default" / "Network" / "Cookies").read_bytes() == b"site-cookie-state"
+    assert (target / "Default" / "Local Storage" / "state.log").read_bytes() == b"site-storage"
+    for path in excluded_files:
+        relative = path.relative_to(source.user_data_dir)
+        assert not (target / relative).exists()
+    assert not (target / "Default" / "Extensions").exists()
+    assert not (target / "Default" / "Sessions").exists()
+    assert not (target / "Profile 1").exists()
+    assert snapshot.excluded_count >= len(excluded_files) + 3
+
+
 def test_profile_clone_rejects_changed_source_snapshot(tmp_path: Path):
     manager = ProfileStorageManager(tmp_path / "WebFA")
     source = manager.paths_for("profile_source")
-    state = source.user_data_dir / "Cookies"
+    state = source.user_data_dir / "Default" / "Network" / "Cookies"
+    state.parent.mkdir(parents=True)
     state.write_bytes(b"before")
     snapshot = manager.inspect_clone_source("profile_source")
     state.write_bytes(b"after-change")
@@ -108,6 +177,27 @@ def test_profile_clone_rejects_changed_source_snapshot(tmp_path: Path):
             "profile_source",
             "profile_target",
             mutation_id="clone-change",
+            expected_fingerprint=snapshot.fingerprint,
+        )
+
+
+def test_profile_clone_detects_same_size_change_with_restored_mtime(tmp_path: Path):
+    manager = ProfileStorageManager(tmp_path / "WebFA")
+    source = manager.paths_for("profile_source")
+    state = source.user_data_dir / "Default" / "Network" / "Cookies"
+    state.parent.mkdir(parents=True)
+    state.write_bytes(b"before")
+    original = state.stat()
+    snapshot = manager.inspect_clone_source("profile_source")
+
+    state.write_bytes(b"after!")
+    os.utime(state, ns=(original.st_atime_ns, original.st_mtime_ns))
+
+    with pytest.raises(ProfileStorageConflictError, match="changed"):
+        manager.clone_profile_storage(
+            "profile_source",
+            "profile_target",
+            mutation_id="clone-content-change",
             expected_fingerprint=snapshot.fingerprint,
         )
 

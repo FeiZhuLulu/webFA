@@ -241,12 +241,12 @@ async function saveProfileBundle(args: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-WebFA-Visualizer-Token": VISUALIZER_CONTROL_TOKEN
+        "X-WebFA-Visualizer-Token": VISUALIZER_CONTROL_TOKEN,
+        "X-WebFA-Bundle-Passphrase": passphrase
       },
       body: JSON.stringify({
         preview_token: args.previewToken,
-        expected_source_version: args.sourceVersion,
-        passphrase
+        expected_source_version: args.sourceVersion
       })
     }
   );

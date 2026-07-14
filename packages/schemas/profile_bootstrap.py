@@ -154,7 +154,6 @@ class ProfileBundleExportPreview(StrictProfileBootstrapModel):
 class ProfileBundleExportRequest(StrictProfileBootstrapModel):
     preview_token: str = Field(min_length=1, max_length=200)
     expected_source_version: int = Field(ge=1)
-    passphrase: str = Field(min_length=12, max_length=1024)
 
 
 class ProfileBundleExportCancelRequest(StrictProfileBootstrapModel):
@@ -167,6 +166,10 @@ class ProfileBundleRestorePreview(StrictProfileBootstrapModel):
     source_agent_alias: str = Field(min_length=1, max_length=64)
     source_display_name: str = Field(min_length=1, max_length=200)
     source_bootstrap_source: str = Field(min_length=1, max_length=50)
+    source_platform: str = Field(min_length=1, max_length=100)
+    current_platform: str = Field(min_length=1, max_length=100)
+    restoration_scope: Literal["browser_storage_only"] = "browser_storage_only"
+    compatibility_warning: str = Field(min_length=1, max_length=1000)
     file_count: int = Field(ge=0)
     total_bytes: int = Field(ge=0)
     created_at: datetime

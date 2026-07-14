@@ -291,20 +291,25 @@ P12
   docs/reports/P12_8_CORE_FINAL_ACCEPTANCE_MAINTENANCE_REVIEW.md.
 
 Profile Bootstrap
-  Post-Core protected Profile maintenance is complete. Cookie import provides
-  local JSON/Netscape input, redacted two-phase preview, a bounded
+  Post-Core protected Profile identity provisioning is complete. Cookie import
+  provides local JSON/Netscape input, redacted two-phase preview, a bounded
   ProfileMaintenanceHost, CDP Storage.setCookies, and real Chromium persistence
-  validation. Clone provides cold source snapshots, source/target
-  ProfileMutationLease, safe filesystem copying, runtime-artifact exclusion,
-  atomic target registration, cleanup on conflict, and real Chromium identity
-  transfer plus post-clone isolation. WebFA Profile Bundle adds streaming
-  Scrypt + AES-256-GCM encrypted export, per-file SHA-256 manifests, strict
-  archive/path validation, native desktop stream save/open, fresh target
-  authorization, and real Chromium export/restore validation. None of these
-  features enters MCP, WebState, Monitor, receipts, or Agent authority. Reports:
+  validation. Clone and Bundle are intentionally identity-scoped rather than
+  full-browser backup features: they retain Default-profile website state while
+  excluding history, bookmarks, password/autofill databases, tabs/sessions,
+  extensions, caches, and non-Default Chromium subprofiles. Transfer snapshots
+  include per-file content SHA-256. Managed Chromium is pinned to Default,
+  disables extensions, and restricts CDP to a WebFA-specific Origin. The Bundle
+  uses streaming Scrypt + AES-256-GCM, strict archive/path/scope validation,
+  passphrase re-entry at restore commit, immediate temporary-artifact cleanup,
+  native desktop stream save/open, and a fresh target authorization envelope.
+  Restore reports browser-storage-only compatibility and never claims login
+  recovery. None of these features enters MCP, WebState, Monitor, receipts, or
+  Agent authority. Reports:
   docs/reports/PROFILE_BOOTSTRAP_COOKIE_IMPORT_REPORT.md,
-  docs/reports/PROFILE_BOOTSTRAP_CLONE_REPORT.md, and
-  docs/reports/PROFILE_BOOTSTRAP_BUNDLE_REPORT.md.
+  docs/reports/PROFILE_BOOTSTRAP_CLONE_REPORT.md,
+  docs/reports/PROFILE_BOOTSTRAP_BUNDLE_REPORT.md, and
+  docs/reports/PROFILE_BOOTSTRAP_ADVERSARIAL_REVIEW.md.
 
 P13
   Durable Trace / Resume.

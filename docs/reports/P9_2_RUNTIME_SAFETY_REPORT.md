@@ -25,7 +25,7 @@ Dialog, frame, and URL-policy parity on Playwright is explicitly out of scope.
 | Area | Limitation |
 |------|------------|
 | URL policy | Hostname-string classification only; no DNS resolution; non-standard IP literals may bypass `block` |
-| CDP | `--remote-allow-origins=*` acceptable for dev; tighten before public release |
+| CDP | Historical P9.2 state used `--remote-allow-origins=*`; the current P12/Profile Bootstrap runtime supersedes this with an exact WebFA-specific Origin |
 | Dialog MVP | `alert`/`confirm` on managed Chromium; `prompt` text input not supported; slow dialogs may be missed |
 | Frames | Top-level iframes only; nested iframes not supported |
 | Playwright | No dialog/frame URL-policy parity required |

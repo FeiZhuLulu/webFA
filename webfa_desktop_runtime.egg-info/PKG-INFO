@@ -211,7 +211,7 @@ $env:WEBFA_ENABLE_LEGACY_TRANSACTION="1"
 
 见 `docs/browser-runtime-roadmap.md`。
 
-当前阶段：P10 WebFA Object Model、P11 Agent Safety Contract、P12 Multi Session / Multi Profile Core 与 Post-Core Profile Bootstrap 均已完成。P12 已建立持久 Profile Catalog、独立 Chromium Host 与跨进程锁、BrowserSessionRuntime、并发多 Profile SessionManager/Supervisor、连接级 Profile Grant、Session 独占 Lease、全局 Tab/WebObject 路由、保持五工具的 `profile_ref` 集成、指定 Session Monitor、VisualStreamHub、独立 HumanControl，以及 SafetyContext、Step-up、本地资源、支付授权和 SafetyReceipt 的连接/Session/generation 权限定域。Profile Bootstrap 已包含人工登录、Cookie import、Profile clone，以及 Scrypt + AES-256-GCM 加密的 `.webfa-profile` Bundle 导出/恢复；真实 Chromium 已验证多 Profile 存储隔离、Cookie 导入、身份克隆和加密 Bundle 往返。所有 Bootstrap 能力都只存在于受保护本地控制面，不进入 MCP、WebState、Monitor 或审计回执。设计见 `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`，Bundle 报告见 `docs/reports/PROFILE_BOOTSTRAP_BUNDLE_REPORT.md`。
+当前阶段：P10 WebFA Object Model、P11 Agent Safety Contract、P12 Multi Session / Multi Profile Core 与 Post-Core Profile Bootstrap 均已完成。P12 已建立持久 Profile Catalog、独立 Chromium Host 与跨进程锁、BrowserSessionRuntime、并发多 Profile SessionManager/Supervisor、连接级 Profile Grant、Session 独占 Lease、全局 Tab/WebObject 路由、保持五工具的 `profile_ref` 集成、指定 Session Monitor、VisualStreamHub、独立 HumanControl，以及 SafetyContext、Step-up、本地资源、支付授权和 SafetyReceipt 的连接/Session/generation 权限定域。Profile Bootstrap 已包含人工登录、Cookie import，以及面向 Agent 互联网身份的 Profile clone 和 Scrypt + AES-256-GCM 加密 `.webfa-profile` Bundle。Clone/Bundle 只迁移 Default Profile 的网站身份状态，明确排除历史、书签、密码/自动填充数据库、打开标签页、扩展和其他 Chrome 子 Profile；恢复只声明 browser storage restored，不承诺登录恢复。所有 Bootstrap 能力都只存在于受保护本地控制面，不进入 MCP、WebState、Monitor 或审计回执。设计见 `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`，审查见 `docs/reports/PROFILE_BOOTSTRAP_ADVERSARIAL_REVIEW.md`。
 
 后续方向：
 

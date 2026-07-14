@@ -263,11 +263,13 @@ export async function downloadProfileBundleFallback(
     `${apiUrl}/v1/profiles/${encodeURIComponent(preview.source_profile_id)}/bootstrap/bundle/export`,
     {
       method: "POST",
-      headers: controlHeaders(true),
+      headers: {
+        ...controlHeaders(true),
+        "X-WebFA-Bundle-Passphrase": passphrase,
+      },
       body: JSON.stringify({
         preview_token: preview.preview_token,
         expected_source_version: preview.source_profile_version,
-        passphrase,
       }),
     },
   );
@@ -318,11 +320,15 @@ export async function cancelProfileBundleRestore(
 export async function commitProfileBundleRestore(
   apiUrl: string,
   preview: ProfileBundleRestorePreview,
+  passphrase: string,
   targetProfile: ProfileCloneTargetPayload,
 ): Promise<ProfileBundleRestoreResult> {
   const response = await fetch(`${apiUrl}/v1/profile-bundles/restore`, {
     method: "POST",
-    headers: controlHeaders(true),
+    headers: {
+      ...controlHeaders(true),
+      "X-WebFA-Bundle-Passphrase": passphrase,
+    },
     body: JSON.stringify({
       preview_token: preview.preview_token,
       target_profile: targetProfile,

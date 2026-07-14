@@ -1352,8 +1352,27 @@ Profile Bootstrap implementation status:
 - blank Profile：complete；
 - human login：complete；
 - Cookie import：complete；
-- Profile clone：complete；
-- WebFA Profile Bundle export/restore：complete。
+- identity-scoped Profile clone：complete；
+- encrypted identity-scoped WebFA Profile Bundle export/restore：complete。
+
+Profile Bootstrap is an identity-provisioning control plane for Agent internet use. It is not a general Chrome backup or human-browser migration product. Clone and Bundle transfer only the `Default` Chromium website-identity scope required by WebFA and explicitly exclude:
+
+```text
+history / bookmarks / favicons / top sites
+password and autofill databases
+open tabs and browser sessions
+extensions and extension settings
+non-Default Chrome subprofiles
+runtime/component/browser caches
+```
+
+Managed Chromium always launches with `--profile-directory=Default` and extensions disabled. This preserves the frozen invariant:
+
+```text
+one WebFA BrowserProfile = one explicit internet identity
+```
+
+Transfer fingerprints include per-file content SHA-256, not only filesystem metadata. Bundle restore independently reapplies the identity-scope policy and rejects excluded files even inside an authenticated archive.
 
 Cookie 导入目标流程：
 
@@ -1385,12 +1404,17 @@ login_restored
 
 Agent 不获得 Cookie 导入工具，也不能读取导入结果中的 Cookie 名称和值。
 
+Bundle restore only declares browser-storage restoration. It does not declare account authentication success. Restore preview reports source/current platform and warns that Chromium credentials or website sessions may remain unusable when bound to another OS user, device, browser build, or hardware-backed credential store.
+
+Bundle passphrases are supplied only through the protected local request header. Runtime does not retain a passphrase after preview; the user must re-enter it for commit. Validation responses never echo rejected request inputs, and the dedicated Bundle temporary directory is fully cleared on service startup and shutdown because preview state is intentionally non-durable.
+
 Implemented report:
 
 ```text
 docs/reports/PROFILE_BOOTSTRAP_COOKIE_IMPORT_REPORT.md
 docs/reports/PROFILE_BOOTSTRAP_CLONE_REPORT.md
 docs/reports/PROFILE_BOOTSTRAP_BUNDLE_REPORT.md
+docs/reports/PROFILE_BOOTSTRAP_ADVERSARIAL_REVIEW.md
 ```
 
 ---
@@ -1503,9 +1527,9 @@ Compatibility facade can temporarily preserve the class name `BrowserRuntime` fo
 ### Post-Core: Profile Bootstrap
 
 - Cookie import；
-- Profile clone；
-- Profile bundle restore；
-- maintenance locks and verification。
+- identity-scoped Profile clone；
+- encrypted identity-scoped Profile Bundle export/restore；
+- maintenance locks, content hashing, path/scope validation, and verification。
 
 Profile Bootstrap consumes P12 Core and must not delay or reshape Core acceptance。
 

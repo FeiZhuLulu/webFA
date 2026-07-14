@@ -10,16 +10,29 @@ This phase implements protected cold cloning of one persistent BrowserProfile in
 
 The operation copies browser identity and website storage while deliberately creating a fresh WebFA authorization envelope.
 
-Copied:
+Copied identity scope:
 
 ```text
-Chromium user-data contents
-Cookies and Local State
+Default Chromium website identity only
+Cookies and Local State required by Chromium credential storage
 localStorage
 IndexedDB
 Service Worker state
-site preferences stored by Chromium
-other durable browser identity state
+site permissions and durable website state
+```
+
+Explicitly excluded human-browser scope:
+
+```text
+History, Favicons, Top Sites, Shortcuts, and Visited Links
+Bookmarks
+Login Data and account password databases
+Web Data, autofill, affiliation, and account-personal databases
+current/last Sessions and open Tabs
+Extensions and extension settings
+non-Default Chromium subprofiles such as Profile 1
+runtime, component, shader, GPU, download, and browser caches
+selected transport/reporting state
 ```
 
 Not inherited:
@@ -92,14 +105,15 @@ expiry
 
 ## 4. Consistency Fingerprint
 
-The storage snapshot fingerprints the accepted clone tree using:
+The storage snapshot fingerprints the accepted identity-transfer tree using:
 
 - relative path;
 - entry type;
 - file size;
-- nanosecond modification timestamp.
+- nanosecond modification timestamp;
+- SHA-256 of every file's contents.
 
-Commit recomputes the source snapshot while holding the source mutation lease. Any change after preview produces `profile_clone_source_changed` and invalidates the preview.
+Each file is stat-checked before and after hashing. A concurrent change during snapshot creation fails closed. Commit recomputes the complete content-bound source snapshot while holding the source mutation lease. Equal-size changes with restored timestamps are still detected and produce `profile_clone_source_changed`.
 
 After copying, the staging tree is independently rescanned. File count, byte count, and fingerprint must match before target registration.
 
@@ -115,23 +129,9 @@ The copy walker:
 - requires an empty generated target storage directory;
 - uses a target-local short staging path to remain compatible with Windows path limits.
 
-The following Chromium runtime artifacts are excluded:
+The transfer walker implements an identity-focused boundary rather than copying an entire human browser. It excludes runtime artifacts, caches, browser-history databases, bookmarks, password/autofill databases, session/tab restoration data, extensions, and all non-Default Chromium subprofiles.
 
-```text
-DevToolsActivePort
-SingletonCookie
-SingletonLock
-SingletonSocket
-BrowserMetrics
-Crashpad
-DawnCache
-GrShaderCache
-ShaderCache
-component_crx_cache
-other root Singleton* entries
-```
-
-Durable website storage under the Chromium profile is retained.
+Durable website identity under the `Default` profile is retained. Managed Chromium is also launched with `--profile-directory=Default` and `--disable-extensions`, so one WebFA BrowserProfile remains one explicit internet identity rather than a container for several Chrome profiles or extension environments.
 
 ## 6. Atomic Catalog Boundary
 
@@ -196,7 +196,7 @@ The real Chromium integration test:
 7. mutates the target Profile;
 8. verifies the source Profile remains unchanged.
 
-This proves both identity transfer and post-clone isolation.
+This proves website identity transfer and post-clone isolation. It does not claim to copy a person's browser history, bookmarks, saved-password vault, extension environment, or complete browser personalization.
 
 ## 10. Failure and Race Coverage
 
@@ -209,6 +209,8 @@ Tests cover:
 - cleanup of unregistered target storage;
 - retrying the same preview after a recoverable target conflict;
 - runtime artifact exclusion;
+- history, bookmarks, password/autofill data, sessions/tabs, extensions, and non-Default Chromium profile exclusion;
+- content-hash detection of equal-size source changes with restored timestamps;
 - empty and nested storage trees;
 - Windows path-length-compatible staging;
 - symbolic-link rejection when supported by the host OS;

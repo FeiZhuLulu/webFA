@@ -359,6 +359,7 @@ def test_profile_bundle_roundtrip_restores_real_chromium_identity(monkeypatch, t
         )
         restored_result = bundle_service.restore_bundle(
             preview_token=restore_preview.preview_token,
+            passphrase=passphrase,
             target_profile=BrowserProfileCreate(
                 agent_alias="bundle-restored",
                 display_name="Bundle Restored",

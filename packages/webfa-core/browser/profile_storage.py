@@ -344,17 +344,80 @@ class ProfileStorageManager:
         return DefaultProfileMigrationResult(status="migrated", source=source, target=target)
 
 
-_CLONE_EXCLUDED_ROOT_NAMES = {
-    "browsermetrics",
-    "crashpad",
-    "dawncache",
-    "devtoolsactiveport",
-    "grshadercache",
-    "shadercache",
-    "component_crx_cache",
-    "singletoncookie",
-    "singletonlock",
-    "singletonsocket",
+# Profile transfer is intentionally identity-focused. The top-level allowlist is
+# only `Local State` plus the Chromium `Default` profile. Within `Default`, WebFA
+# excludes human-browser history, password/autofill data, open tabs, extensions,
+# caches, and other data that is not required to provision an Agent internet
+# identity.
+
+_IDENTITY_TRANSFER_EXCLUDED_PROFILE_NAMES = {
+    "account web data",
+    "account web data-journal",
+    "affiliation database",
+    "affiliation database-journal",
+    "archived history",
+    "autofillstrike database",
+    "bookmarks",
+    "bookmarks.bak",
+    "commerce_subscription_db",
+    "current session",
+    "current tabs",
+    "discounts_db",
+    "download service",
+    "extension cookies",
+    "extension cookies-journal",
+    "favicons",
+    "favicons-journal",
+    "history",
+    "history-journal",
+    "last session",
+    "last tabs",
+    "login data",
+    "login data for account",
+    "login data for account-journal",
+    "login data-journal",
+    "network action predictor",
+    "network action predictor-journal",
+    "parcel_tracking_db",
+    "secure preferences",
+    "shortcuts",
+    "shortcuts-journal",
+    "site characteristics database",
+    "top sites",
+    "top sites-journal",
+    "visited links",
+    "web data",
+    "web data for account",
+    "web data for account-journal",
+    "web data-journal",
+}
+
+_IDENTITY_TRANSFER_EXCLUDED_PROFILE_PREFIXES = {
+    "autofillstrikedatabase",
+    "cache",
+    "code cache",
+    "dawngraphitecache",
+    "dawnwebgpucache",
+    "download service",
+    "extension rules",
+    "extension scripts",
+    "extension state",
+    "extensions",
+    "gpucache",
+    "local extension settings",
+    "managed extension settings",
+    "segmentation platform",
+    "sessions",
+    "sync data",
+    "sync extension settings",
+    "web applications",
+}
+
+_IDENTITY_TRANSFER_EXCLUDED_NETWORK_NAMES = {
+    "network persistent state",
+    "reporting and nel",
+    "reporting and nel-journal",
+    "transportsecurity",
 }
 
 
@@ -373,15 +436,35 @@ def _snapshot_clone_storage(root: Path) -> ProfileCloneStorageSnapshot:
             digest.update(encoded_relative)
             digest.update(b"\0")
             continue
-        stat = path.stat(follow_symlinks=False)
+        stat_before = path.stat(follow_symlinks=False)
+        content_digest = hashlib.sha256()
+        try:
+            with path.open("rb") as source:
+                while True:
+                    chunk = source.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    content_digest.update(chunk)
+        except OSError as exc:
+            raise ProfileStorageError("unable to hash Profile storage entry") from exc
+        stat_after = path.stat(follow_symlinks=False)
+        if (
+            stat_before.st_size != stat_after.st_size
+            or stat_before.st_mtime_ns != stat_after.st_mtime_ns
+        ):
+            raise ProfileStorageConflictError(
+                "Profile storage changed while its transfer snapshot was being created"
+            )
         file_count += 1
-        total_bytes += stat.st_size
+        total_bytes += stat_after.st_size
         digest.update(b"F\0")
         digest.update(encoded_relative)
         digest.update(b"\0")
-        digest.update(str(stat.st_size).encode("ascii"))
+        digest.update(str(stat_after.st_size).encode("ascii"))
         digest.update(b"\0")
-        digest.update(str(stat.st_mtime_ns).encode("ascii"))
+        digest.update(str(stat_after.st_mtime_ns).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(content_digest.digest())
         digest.update(b"\0")
     return ProfileCloneStorageSnapshot(
         file_count=file_count,
@@ -436,11 +519,33 @@ def _walk_clone_storage(root: Path):
     yield from visit(root, Path())
 
 
-def _clone_path_excluded(relative: Path) -> bool:
-    if len(relative.parts) != 1:
+def profile_transfer_path_excluded(relative: Path) -> bool:
+    parts = tuple(part.casefold() for part in relative.parts)
+    if not parts:
         return False
-    name = relative.name.casefold()
-    return name in _CLONE_EXCLUDED_ROOT_NAMES or name.startswith("singleton")
+    root = parts[0]
+    if root == "local state":
+        return len(parts) != 1
+    if root != "default":
+        return True
+    if len(parts) == 1:
+        return False
+    child = parts[1]
+    if (
+        child == "network"
+        and len(parts) >= 3
+        and parts[2] in _IDENTITY_TRANSFER_EXCLUDED_NETWORK_NAMES
+    ):
+        return True
+    if child in _IDENTITY_TRANSFER_EXCLUDED_PROFILE_NAMES:
+        return True
+    if child in _IDENTITY_TRANSFER_EXCLUDED_PROFILE_PREFIXES:
+        return True
+    return False
+
+
+# Backward-compatible internal name used by older tests and call sites.
+_clone_path_excluded = profile_transfer_path_excluded
 
 
 def _is_unsafe_link(path: Path, entry: os.DirEntry[str]) -> bool:
