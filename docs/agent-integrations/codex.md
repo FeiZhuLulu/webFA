@@ -10,9 +10,7 @@ Use WebFA through the local MCP server:
       "args": [],
       "env": {
         "WEBFA_RUNTIME_URL": "http://127.0.0.1:8787",
-        "WEBFA_AGENT_ID": "codex",
-        "WEBFA_BROWSER_DRIVER": "managed-chromium",
-        "WEBFA_AUTH_TAKEOVER": "auto"
+        "WEBFA_AGENT_ID": "codex"
       }
     }
   }
@@ -29,7 +27,13 @@ Fei and clicking Submit.
 
 Notes:
 
-- All connected agents share the same default website login state unless they
-  use a different `WEBFA_HOME`.
-- Only one agent should control the browser at a time. WebFA enforces this with
-  an active agent lease.
+- `WEBFA_AGENT_ID` identifies this external client; use a distinct stable value
+  for every Agent configuration.
+- Omitting `profile_ref` uses the configured default Profile. Pass an authorized
+  Profile alias such as `work` to `webfa.open_url` to select another internet
+  identity; tab results include their `profile_ref`.
+- A persistent Profile has at most one active writable Session. Sessions on
+  different Profiles can run concurrently. `session_busy` or legacy
+  `agent_busy` means another connection currently holds the relevant lease.
+- Browser mode and HumanControl policy belong to the Runtime host, not to the
+  Codex MCP client configuration.

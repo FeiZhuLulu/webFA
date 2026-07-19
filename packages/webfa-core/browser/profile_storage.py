@@ -154,12 +154,15 @@ class ProfileStorageManager:
     def __init__(self, data_dir: Path | None = None) -> None:
         self.data_dir = (data_dir or ensure_webfa_data_dir()["data_dir"]).resolve()
         self.profiles_root = self.data_dir / "profiles"
+        _reject_unsafe_managed_directory(self.profiles_root)
         self.profiles_root.mkdir(parents=True, exist_ok=True)
+        _reject_unsafe_managed_directory(self.profiles_root)
 
     def paths_for(self, profile: BrowserProfile | str, *, create: bool = True) -> ProfileStoragePaths:
         profile_id = profile.profile_id if isinstance(profile, BrowserProfile) else profile
         _validate_profile_id(profile_id)
         profile_root = self.profiles_root / profile_id
+        _reject_unsafe_managed_directory(profile_root)
         paths = ProfileStoragePaths(
             profile_root=profile_root,
             user_data_dir=profile_root / "chromium-user-data",
@@ -167,10 +170,19 @@ class ProfileStorageManager:
             maintenance_dir=profile_root / "maintenance",
             lock_file=profile_root / "profile.lock",
         )
+        managed_directories = (
+            paths.user_data_dir,
+            paths.downloads_dir,
+            paths.maintenance_dir,
+        )
+        for directory in managed_directories:
+            _reject_unsafe_managed_directory(directory)
         if create:
-            paths.user_data_dir.mkdir(parents=True, exist_ok=True)
-            paths.downloads_dir.mkdir(parents=True, exist_ok=True)
-            paths.maintenance_dir.mkdir(parents=True, exist_ok=True)
+            profile_root.mkdir(parents=True, exist_ok=True)
+            _reject_unsafe_managed_directory(profile_root)
+            for directory in managed_directories:
+                directory.mkdir(parents=False, exist_ok=True)
+                _reject_unsafe_managed_directory(directory)
         return paths
 
     def launch_spec(
@@ -549,10 +561,23 @@ _clone_path_excluded = profile_transfer_path_excluded
 
 
 def _is_unsafe_link(path: Path, entry: os.DirEntry[str]) -> bool:
-    if entry.is_symlink() or path.is_symlink():
+    if entry.is_symlink() or _path_is_unsafe_link(path):
+        return True
+    return False
+
+
+def _path_is_unsafe_link(path: Path) -> bool:
+    if path.is_symlink():
         return True
     is_junction = getattr(path, "is_junction", None)
     return bool(is_junction()) if callable(is_junction) else False
+
+
+def _reject_unsafe_managed_directory(path: Path) -> None:
+    if _path_is_unsafe_link(path):
+        raise ProfileStorageUnsafeError(
+            "Profile storage path cannot be a symbolic link or directory junction"
+        )
 
 
 def _safe_lock_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -569,7 +594,7 @@ def _safe_lock_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 def _validate_profile_id(profile_id: str) -> None:
     if not profile_id or len(profile_id) > 200:
         raise ProfileStorageError("invalid profile id")
-    if profile_id in {".", ".."} or any(char in profile_id for char in ("/", "\\", "\0")):
+    if profile_id in {".", ".."} or any(char in profile_id for char in ("/", "\\", ":", "\0")):
         raise ProfileStorageError("invalid profile id")
 
 

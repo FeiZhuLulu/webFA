@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import styles from "./monitor.module.css";
 
 type MonitorSnapshot = {
@@ -57,6 +58,19 @@ type HumanControlState = {
 };
 
 const MAX_EVENTS = 80;
+const COMPACT_MONITOR_QUERY = "(max-width: 820px)";
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const HUMAN_CONTROL_REASON_LABELS: Record<string, string> = {
+  authentication: "身份验证",
+  manual_identity_confirmation: "身份确认",
+  opaque_surface: "不透明页面",
+};
+
+function humanControlReasonLabel(reason: string | null | undefined) {
+  if (!reason) return "人工接管";
+  return HUMAN_CONTROL_REASON_LABELS[reason] || reason.replaceAll("_", " ");
+}
 
 export default function MonitorPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -66,6 +80,16 @@ export default function MonitorPage() {
   const reconnectTimerRef = useRef<number | null>(null);
   const stoppedRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const keyboardCaptureButtonRef = useRef<HTMLButtonElement | null>(null);
+  const takeoverButtonRef = useRef<HTMLButtonElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const surfaceColumnRef = useRef<HTMLElement | null>(null);
+  const leftSidebarRef = useRef<HTMLElement | null>(null);
+  const rightSidebarRef = useRef<HTMLElement | null>(null);
+  const leftRestoreRef = useRef<HTMLButtonElement | null>(null);
+  const rightRestoreRef = useRef<HTMLButtonElement | null>(null);
+  const desktopSidebarStateRef = useRef({ leftCollapsed: false, rightCollapsed: false });
+  const wasCompactLayoutRef = useRef(false);
   const compositionRef = useRef(false);
   const skipNextBeforeInputRef = useRef(false);
   const compositionSkipTimerRef = useRef<number | null>(null);
@@ -83,14 +107,51 @@ export default function MonitorPage() {
   const [frameHeader, setFrameHeader] = useState<VisualFrameHeader | null>(null);
   const [frameCount, setFrameCount] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [waitingForSession, setWaitingForSession] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [compactLayout, setCompactLayout] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [humanControl, setHumanControl] = useState<HumanControlState>({
     active: false,
     leaseId: null,
     reason: null,
     expiresAt: null,
   });
+
+  useEffect(() => {
+    const media = window.matchMedia(COMPACT_MONITOR_QUERY);
+    const syncLayout = () => {
+      const nextCompactLayout = media.matches;
+      setCompactLayout(nextCompactLayout);
+      if (nextCompactLayout && !wasCompactLayoutRef.current) {
+        setLeftCollapsed(true);
+        setRightCollapsed(true);
+      } else if (!nextCompactLayout && wasCompactLayoutRef.current) {
+        setLeftCollapsed(desktopSidebarStateRef.current.leftCollapsed);
+        setRightCollapsed(desktopSidebarStateRef.current.rightCollapsed);
+      }
+      wasCompactLayoutRef.current = nextCompactLayout;
+    };
+    syncLayout();
+    media.addEventListener("change", syncLayout);
+    return () => media.removeEventListener("change", syncLayout);
+  }, []);
+
+  const compactDrawerOpen = compactLayout && (!leftCollapsed || !rightCollapsed);
+  useEffect(() => {
+    headerRef.current?.toggleAttribute("inert", compactDrawerOpen);
+    surfaceColumnRef.current?.toggleAttribute("inert", compactDrawerOpen);
+    return () => {
+      headerRef.current?.removeAttribute("inert");
+      surfaceColumnRef.current?.removeAttribute("inert");
+    };
+  }, [compactDrawerOpen]);
+
+  useEffect(() => {
+    if (!humanControl.active) return;
+    inputRef.current?.focus({ preventScroll: true });
+  }, [humanControl.active]);
 
   const applySnapshot = useCallback((nextSnapshot: MonitorSnapshot) => {
     const previous = snapshotRef.current;
@@ -178,6 +239,10 @@ export default function MonitorPage() {
       setLastError("MonitorGateway 尚未连接");
     }
   }, [sendMonitorMessage]);
+
+  const focusHumanControlKeyboard = useCallback(() => {
+    inputRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const releaseHumanControl = useCallback(() => {
     if (!humanControl.leaseId) return;
@@ -322,6 +387,12 @@ export default function MonitorPage() {
 
   const onInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!humanControl.active) return;
+    if (event.key === "Escape" && !event.nativeEvent.isComposing && !compositionRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      keyboardCaptureButtonRef.current?.focus({ preventScroll: true });
+      return;
+    }
     const pasteShortcut = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
     if (pasteShortcut) return;
     const composing = event.nativeEvent.isComposing || compositionRef.current;
@@ -356,6 +427,26 @@ export default function MonitorPage() {
     try {
       const config = await window.webfaMonitor?.getConfig();
       if (!config) throw new Error("当前窗口没有 Monitor 权限");
+      if (config.status === "unavailable") {
+        setWaitingForSession(false);
+        setConnectionState(config.reason === "runtime_unavailable" ? "disconnected" : "error");
+        setLastError(config.reason === "monitor_config_failed" ? "Monitor 配置暂不可用" : null);
+        reconnectTimerRef.current = window.setTimeout(
+          () => void connect(),
+          config.retryAfterMs,
+        );
+        return;
+      }
+      if (config.status === "waiting") {
+        setWaitingForSession(true);
+        setConnectionState("disconnected");
+        reconnectTimerRef.current = window.setTimeout(
+          () => void connect(),
+          config.retryAfterMs,
+        );
+        return;
+      }
+      setWaitingForSession(false);
       const socket = new WebSocket(config.websocketUrl);
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
@@ -402,6 +493,7 @@ export default function MonitorPage() {
         }
         if (payload.type === "human_control_state") {
           const active = payload.active === true;
+          const keyboardCaptureHadFocus = !active && document.activeElement === inputRef.current;
           if (!active) {
             if (moveFrameRef.current !== null) {
               window.cancelAnimationFrame(moveFrameRef.current);
@@ -423,8 +515,8 @@ export default function MonitorPage() {
             reason: active && typeof payload.reason === "string" ? payload.reason : null,
             expiresAt: active && typeof payload.expires_at === "string" ? payload.expires_at : null,
           });
-          if (active) {
-            window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
+          if (!active && keyboardCaptureHadFocus) {
+            window.setTimeout(() => takeoverButtonRef.current?.focus({ preventScroll: true }), 0);
           }
           return;
         }
@@ -441,8 +533,16 @@ export default function MonitorPage() {
         setLastError("无法连接 WebFA MonitorGateway");
       };
       socket.onclose = () => {
+        const keyboardCaptureHadFocus = document.activeElement === inputRef.current;
         socketRef.current = null;
         frameDecodeGenerationRef.current += 1;
+        snapshotRef.current = null;
+        setSnapshot(null);
+        setFrameHeader(null);
+        setFrameCount(0);
+        const canvas = canvasRef.current;
+        const context = canvas?.getContext("2d");
+        if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
         if (moveFrameRef.current !== null) {
           window.cancelAnimationFrame(moveFrameRef.current);
           moveFrameRef.current = null;
@@ -457,13 +557,17 @@ export default function MonitorPage() {
         }
         if (inputRef.current) inputRef.current.value = "";
         setHumanControl({ active: false, leaseId: null, reason: null, expiresAt: null });
+        if (keyboardCaptureHadFocus) {
+          window.setTimeout(() => takeoverButtonRef.current?.focus({ preventScroll: true }), 0);
+        }
         if (stoppedRef.current) return;
         setConnectionState("disconnected");
         reconnectTimerRef.current = window.setTimeout(() => void connect(), 1500);
       };
     } catch (error) {
+      setWaitingForSession(false);
       setConnectionState("error");
-      setLastError(error instanceof Error ? error.message : String(error));
+      setLastError(formatMonitorError(error));
       reconnectTimerRef.current = window.setTimeout(() => void connect(), 2000);
     }
   }, [applySnapshot, drawFrame]);
@@ -486,30 +590,156 @@ export default function MonitorPage() {
     };
   }, [connect]);
 
-  const gridTemplateColumns = `${leftCollapsed ? "0px" : "270px"} minmax(0, 1fr) ${rightCollapsed ? "0px" : "340px"}`;
+  const humanLeaseExpiry = humanControl.expiresAt || snapshot?.human_control_expires_at || null;
+
+  useEffect(() => {
+    if (!snapshot?.agent_lease_expires_at && !humanLeaseExpiry) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [humanLeaseExpiry, snapshot?.agent_lease_expires_at]);
+
   const latestSafetyEvent = events.find((event) => event.event_type === "safety_decision_changed");
-  const statusLabel = connectionState === "live" ? "实时连接" : connectionState === "connecting" ? "正在连接" : connectionState === "error" ? "连接错误" : "连接已断开";
+  const statusLabel = waitingForSession
+    ? "等待会话"
+    : connectionState === "live"
+      ? "实时连接"
+      : connectionState === "connecting"
+        ? "正在连接"
+        : connectionState === "error"
+          ? "连接错误"
+          : "连接已断开";
   const activity = useMemo(() => events.filter((event) => event.event_type !== "frame_available"), [events]);
+  const workspaceClassName = [
+    styles.workspace,
+    leftCollapsed ? styles.workspaceLeftCollapsed : "",
+    rightCollapsed ? styles.workspaceRightCollapsed : "",
+  ].filter(Boolean).join(" ");
+  const connectionClassName = waitingForSession
+    ? styles.statusWaiting
+    : connectionState === "live"
+    ? styles.statusLive
+    : connectionState === "connecting"
+      ? styles.statusConnecting
+      : styles.statusError;
+  const agentLeaseLabel = formatLeaseRemaining(snapshot?.agent_lease_expires_at, nowMs);
+  const humanLeaseLabel = formatLeaseRemaining(humanLeaseExpiry, nowMs);
+  const emptyTitle = waitingForSession
+    ? "等待外部 Agent 建立会话"
+    : connectionState === "live" && lastError
+      ? "视觉流暂不可用"
+      : connectionState === "connecting"
+        ? "正在建立安全监控通道"
+        : connectionState === "error"
+          ? "Monitor 连接失败"
+          : connectionState === "disconnected"
+            ? "Monitor 已断开"
+            : "等待 BrowserHost 视觉帧";
+  const emptyCopy = waitingForSession
+    ? "外部 Agent 打开网页后，Monitor 会自动连接到活动 Browser Session。"
+    : lastError || (connectionState === "connecting"
+      ? "连接成功后会在这里投影同一个 BrowserHost 页面。"
+      : connectionState === "disconnected"
+        ? "正在等待 Runtime 恢复；连接可用后会自动重试。"
+        : "Monitor 不加载目标 URL，也不会创建第二个页面。");
+
+  const openSidebar = (panel: "left" | "right") => {
+    if (panel === "left") {
+      if (compactLayout) setRightCollapsed(true);
+      setLeftCollapsed(false);
+      if (!compactLayout) desktopSidebarStateRef.current.leftCollapsed = false;
+      window.setTimeout(() => leftSidebarRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus(), 0);
+    } else {
+      if (compactLayout) setLeftCollapsed(true);
+      setRightCollapsed(false);
+      if (!compactLayout) desktopSidebarStateRef.current.rightCollapsed = false;
+      window.setTimeout(() => rightSidebarRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus(), 0);
+    }
+  };
+
+  const closeSidebar = (panel: "left" | "right", restoreFocus = true) => {
+    if (panel === "left") {
+      setLeftCollapsed(true);
+      if (!compactLayout) desktopSidebarStateRef.current.leftCollapsed = true;
+    } else {
+      setRightCollapsed(true);
+      if (!compactLayout) desktopSidebarStateRef.current.rightCollapsed = true;
+    }
+    if (compactLayout && restoreFocus) {
+      const restore = panel === "left" ? leftRestoreRef : rightRestoreRef;
+      window.setTimeout(() => restore.current?.focus(), 0);
+    }
+  };
+
+  const handleDrawerKeyDown = (
+    panel: "left" | "right",
+    event: ReactKeyboardEvent<HTMLElement>,
+  ) => {
+    if (!compactLayout) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSidebar(panel);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      .filter((element) => element.getClientRects().length > 0);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <main className={styles.page}>
-      <header className={styles.header}>
+      <a className={styles.skipLink} href="#webfa-monitor-surface">跳至页面表面</a>
+      <header className={styles.header} ref={headerRef}>
         <div className={styles.brand}>
-          <div className={styles.logo}>W</div>
+          <div className={styles.logo} aria-hidden="true"><span /><span /></div>
           <div>
-            <div className={styles.brandTitle}>WebFA 会话监控</div>
-            <div className={styles.brandMeta}>{snapshot?.active_agent_id || "等待 Agent"} · {snapshot?.session_id || "default"}</div>
+            <h1 className={styles.brandTitle}>WebFA 会话监控</h1>
+            <div className={styles.brandMeta}>{snapshot?.active_agent_id || "等待外部 Agent"} · {snapshot?.session_id || "default"}</div>
           </div>
         </div>
-        <div className={styles.headerActions}>
-          <span className={`${styles.pill} ${connectionState === "live" ? styles.pillLive : ""}`}>{statusLabel}</span>
-          <span className={`${styles.pill} ${humanControl.active ? styles.pillHuman : ""}`}>
-            {humanControl.active ? "用户控制中" : "Agent 控制"}
+        <div className={styles.headerActions} aria-live="polite">
+          <span className={`${styles.statusChip} ${connectionClassName}`}>
+            <span className={styles.statusDot} aria-hidden="true" />
+            {statusLabel}
           </span>
+          <span className={`${styles.statusChip} ${humanControl.active ? styles.statusHuman : styles.statusAgent}`}>
+            {humanControl.active ? `用户控制${humanLeaseLabel ? ` · ${humanLeaseLabel}` : ""}` : "外部 Agent 控制"}
+          </span>
+          {humanControl.active && (
+            <button
+              ref={keyboardCaptureButtonRef}
+              className={`${styles.button} ${styles.buttonKeyboard}`}
+              type="button"
+              onClick={focusHumanControlKeyboard}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                focusHumanControlKeyboard();
+              }}
+              aria-label="继续页面键盘控制"
+              title="进入目标页面键盘输入；按 Esc 返回 Monitor 控件"
+            >
+              页面键盘
+            </button>
+          )}
           <button
-            className={`${styles.button} ${humanControl.active ? styles.buttonRelease : snapshot?.takeover_required ? styles.buttonAttention : ""}`}
+            ref={takeoverButtonRef}
+            className={`${styles.button} ${styles.buttonPrimary} ${humanControl.active ? styles.buttonRelease : snapshot?.takeover_required ? styles.buttonAttention : ""}`}
             type="button"
-            disabled={connectionState !== "live" || !frameHeader}
+            disabled={connectionState !== "live" || (humanControl.active ? !humanControl.leaseId : !frameHeader)}
             onClick={humanControl.active ? releaseHumanControl : acquireHumanControl}
           >
             {humanControl.active ? "完成并归还 Agent" : snapshot?.takeover_required ? "开始人工接管" : "临时接管"}
@@ -518,15 +748,24 @@ export default function MonitorPage() {
         </div>
       </header>
 
-      <section className={styles.workspace} style={{ gridTemplateColumns }}>
-        <aside className={`${styles.sidebar} ${styles.left}`} aria-hidden={leftCollapsed}>
+      <section className={workspaceClassName} aria-label="Session Monitor 工作区">
+        <aside
+          ref={leftSidebarRef}
+          className={`${styles.sidebar} ${styles.left}`}
+          aria-label="会话上下文"
+          aria-modal={compactLayout ? true : undefined}
+          role={compactLayout ? "dialog" : undefined}
+          hidden={leftCollapsed}
+          onKeyDown={(event) => handleDrawerKeyDown("left", event)}
+        >
           <div className={styles.sidebarHeader}>
-            <span className={styles.sidebarTitle}>会话上下文</span>
-            <button className={styles.collapseButton} type="button" onClick={() => setLeftCollapsed(true)} aria-label="收起左栏">‹</button>
+            <h2 className={styles.sidebarTitle}>会话上下文</h2>
+            <button className={styles.collapseButton} type="button" onClick={() => closeSidebar("left")} aria-label="收起左栏">‹</button>
           </div>
           <div className={styles.cards}>
-            <InfoCard title="Agent">
-              <InfoRow label="当前 Agent" value={snapshot?.active_agent_id || "未连接"} />
+            <InfoCard title="外部 Agent">
+              <InfoRow label="连接身份" value={snapshot?.active_agent_id || "未连接"} />
+              <InfoRow label="外部 Agent Lease" value={agentLeaseLabel || "未生效"} />
               <InfoRow label="Session" value={snapshot?.session_id || "default"} />
               <InfoRow label="Profile" value={snapshot?.profile_id || "default"} />
             </InfoCard>
@@ -540,24 +779,54 @@ export default function MonitorPage() {
             <InfoCard title="Runtime 事实">
               <InfoRow label="文档修订" value={String(snapshot?.document_revision ?? 0)} />
               <InfoRow label="视觉帧" value={String(frameCount)} />
-              <InfoRow label="接管要求" value={snapshot?.takeover_required ? snapshot.takeover_reason || "需要用户" : "无"} />
-              <InfoRow label="控制权" value={humanControl.active ? "当前用户" : "Agent"} />
+              <InfoRow label="接管要求" value={snapshot?.takeover_required ? humanControlReasonLabel(snapshot.takeover_reason) : "无"} />
+              <InfoRow label="控制权" value={humanControl.active ? "当前用户" : "外部 Agent"} />
+              <InfoRow label="接管 Lease" value={humanControl.active ? humanLeaseLabel || "有效" : "未生效"} />
             </InfoCard>
           </div>
         </aside>
 
-        <section className={styles.surfaceColumn}>
+        {compactDrawerOpen && (
+          <button
+            className={styles.drawerBackdrop}
+            type="button"
+            aria-label="关闭侧栏"
+            onPointerDown={() => {
+              if (!leftCollapsed) closeSidebar("left");
+              if (!rightCollapsed) closeSidebar("right");
+            }}
+          />
+        )}
+
+        <section
+          id="webfa-monitor-surface"
+          ref={surfaceColumnRef}
+          className={styles.surfaceColumn}
+          tabIndex={-1}
+        >
           <div className={styles.surfaceHeader}>
-            <span className={styles.surfaceHeaderTitle}>页面表面</span>
-            <span className={styles.surfaceHeaderMeta}>{safeDisplayUrl(snapshot?.url)}</span>
+            <div className={styles.surfaceHeaderSide}>
+              {leftCollapsed && <button ref={leftRestoreRef} className={styles.restoreButton} type="button" onClick={() => openSidebar("left")} aria-label="展开左栏">›</button>}
+              <h2 className={styles.surfaceHeaderTitle}>页面表面</h2>
+            </div>
+            <div className={styles.surfaceHeaderSide}>
+              <span className={styles.surfaceHeaderMeta}>{safeDisplayUrl(snapshot?.url)}</span>
+              {rightCollapsed && <button ref={rightRestoreRef} className={styles.restoreButton} type="button" onClick={() => openSidebar("right")} aria-label="展开右栏">‹</button>}
+            </div>
           </div>
-          <div className={styles.surface}>
+          <div className={styles.surface} data-ui="monitor-surface">
             <span className={`${styles.readonlyBadge} ${humanControl.active ? styles.controlBadge : ""}`}>
               {humanControl.active
-                ? "HumanControlLease · 用户正在控制同一 BrowserHost 页面"
-                : "WebFA BrowserHost 实时投影 · 不可操作"}
+                ? `HumanControlLease · 用户正在控制同一页面${humanLeaseLabel ? ` · ${humanLeaseLabel}` : ""}`
+                : waitingForSession
+                  ? "等待活动 Browser Session · 只读监控"
+                  : connectionState === "live"
+                    ? "WebFA BrowserHost 实时投影 · 不可操作"
+                    : connectionState === "connecting"
+                      ? "正在建立 Monitor 连接 · 无实时页面"
+                      : "Monitor 连接已断开 · 无实时页面"}
             </span>
-            <div className={`${styles.canvasFrame} ${humanControl.active ? styles.canvasFrameActive : ""}`} style={{ visibility: frameHeader ? "visible" : "hidden" }}>
+            <div className={`${styles.canvasFrame} ${humanControl.active ? styles.canvasFrameActive : ""} ${!frameHeader ? styles.canvasFrameEmpty : ""}`}>
               <canvas
                 ref={canvasRef}
                 className={`${styles.canvas} ${humanControl.active ? styles.canvasInteractive : ""}`}
@@ -574,6 +843,8 @@ export default function MonitorPage() {
                   ref={inputRef}
                   className={styles.inputCapture}
                   aria-label="人工接管键盘输入捕获"
+                  aria-describedby="webfa-human-control-keyboard-hint"
+                  aria-keyshortcuts="Escape"
                   autoCapitalize="off"
                   autoCorrect="off"
                   spellCheck={false}
@@ -619,25 +890,39 @@ export default function MonitorPage() {
               )}
             </div>
             {!frameHeader && (
-              <div className={styles.emptySurface}>
-                正在等待 BrowserHost 视觉帧<br />
-                Monitor 不会加载目标 URL，也不会创建第二个页面。
+              <div
+                className={`${styles.emptySurface} ${lastError ? styles.emptySurfaceError : ""}`}
+                role={lastError ? "alert" : "status"}
+                data-ui="monitor-empty-surface"
+              >
+                <div className={styles.emptyMark} aria-hidden="true"><span /><span /><span /></div>
+                <div className={styles.emptyEyebrow}>{lastError || connectionState === "disconnected" ? "CONNECTION" : "LIVE SURFACE"}</div>
+                <div className={styles.emptyTitle}>{emptyTitle}</div>
+                <div className={styles.emptyCopy}>{emptyCopy}</div>
               </div>
             )}
           </div>
           <div className={styles.surfaceFooter}>
             <span>{frameHeader ? `${frameHeader.width} × ${frameHeader.height} · ${frameHeader.format.toUpperCase()}` : "暂无视觉帧"}</span>
-            <span>{humanControl.active ? `用户控制 · ${humanControl.reason || "人工接管"}` : frameHeader ? `frame ${frameHeader.frame_seq} · ${shortId(frameHeader.document_id)}` : "只读监控模式"}</span>
+            <span id="webfa-human-control-keyboard-hint">{humanControl.active ? `用户控制 · ${humanControlReasonLabel(humanControl.reason)} · Esc 返回 Monitor` : frameHeader ? `frame ${frameHeader.frame_seq} · ${shortId(frameHeader.document_id)}` : "只读监控模式"}</span>
           </div>
         </section>
 
-        <aside className={`${styles.sidebar} ${styles.right}`} aria-hidden={rightCollapsed}>
+        <aside
+          ref={rightSidebarRef}
+          className={`${styles.sidebar} ${styles.right}`}
+          aria-label="活动与安全"
+          aria-modal={compactLayout ? true : undefined}
+          role={compactLayout ? "dialog" : undefined}
+          hidden={rightCollapsed}
+          onKeyDown={(event) => handleDrawerKeyDown("right", event)}
+        >
           <div className={styles.sidebarHeader}>
-            <span className={styles.sidebarTitle}>活动与安全</span>
-            <button className={styles.collapseButton} type="button" onClick={() => setRightCollapsed(true)} aria-label="收起右栏">›</button>
+            <h2 className={styles.sidebarTitle}>活动与安全</h2>
+            <button className={styles.collapseButton} type="button" onClick={() => closeSidebar("right")} aria-label="收起右栏">›</button>
           </div>
           <div className={styles.cards}>
-            {lastError && <div className={`${styles.card} ${styles.error}`}><div className={styles.cardTitle}>连接信息</div>{lastError}</div>}
+            {lastError && <div className={`${styles.card} ${styles.error}`} role="alert"><div className={styles.cardTitle}>连接信息</div><div className={styles.errorCopy}>{lastError}</div></div>}
             <InfoCard title="当前安全状态">
               <InfoRow label="决策" value={String(latestSafetyEvent?.data.decision || "无待处理事项")} />
               <InfoRow label="状态" value={String(latestSafetyEvent?.data.status || "正常")} />
@@ -645,7 +930,7 @@ export default function MonitorPage() {
             </InfoCard>
             <div className={styles.card}>
               <div className={styles.cardTitle}>实时活动</div>
-              {activity.length === 0 ? <div className={styles.eventMeta}>等待 Runtime 事件</div> : activity.map((event) => (
+              {activity.length === 0 ? <div className={styles.activityEmpty}><span aria-hidden="true" />Runtime 事件会按发生顺序显示在这里</div> : activity.map((event) => (
                 <div className={styles.event} key={event.event_id}>
                   <span className={`${styles.eventDot} ${event.data.requires_user_attention ? styles.eventAttention : ""}`} />
                   <div>
@@ -659,18 +944,23 @@ export default function MonitorPage() {
         </aside>
       </section>
 
-      {leftCollapsed && <button className={styles.restoreLeft} type="button" onClick={() => setLeftCollapsed(false)} aria-label="展开左栏">›</button>}
-      {rightCollapsed && <button className={styles.restoreRight} type="button" onClick={() => setRightCollapsed(false)} aria-label="展开右栏">‹</button>}
     </main>
   );
 }
 
 function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div className={styles.card}><div className={styles.cardTitle}>{title}</div>{children}</div>;
+  return <section className={styles.card}><h3 className={styles.cardTitle}>{title}</h3>{children}</section>;
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return <div className={styles.row}><span className={styles.rowLabel}>{label}</span><span className={styles.rowValue}>{value}</span></div>;
+}
+
+function formatMonitorError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/^Error invoking remote method 'monitor:getConfig': Error:\s*/i, "")
+    .replace(/^Failed to issue Monitor grant \(\d+\):\s*/i, "");
 }
 
 function shortId(value?: string | null): string {
@@ -689,6 +979,18 @@ function safeDisplayUrl(value?: string | null): string {
   }
 }
 
+function formatLeaseRemaining(value: string | null | undefined, nowMs: number): string {
+  if (!value) return "";
+  const expiresAt = Date.parse(value);
+  if (!Number.isFinite(expiresAt)) return "到期时间未知";
+  const seconds = Math.max(0, Math.ceil((expiresAt - nowMs) / 1000));
+  if (seconds <= 0) return "已到期";
+  if (seconds < 60) return `${seconds}秒`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder ? `${minutes}分${remainder}秒` : `${minutes}分钟`;
+}
+
 function eventLabel(event: SessionEvent): string {
   const labels: Record<string, string> = {
     session_started: "Session 已启动",
@@ -698,13 +1000,13 @@ function eventLabel(event: SessionEvent): string {
     navigation_failed: "页面导航失败",
     document_changed: "页面状态已变化",
     tab_switched: "已切换标签页",
-    operation_started: "Agent 开始执行操作",
-    operation_completed: "Agent 操作已完成",
-    operation_failed: "Agent 操作失败",
+    operation_started: "外部 Agent 开始执行操作",
+    operation_completed: "外部 Agent 操作已完成",
+    operation_failed: "外部 Agent 操作失败",
     safety_decision_changed: "安全状态已更新",
     takeover_required: "需要用户接管",
     takeover_started: "用户已接管页面",
-    takeover_finished: "页面已归还 Agent",
+    takeover_finished: "页面已归还外部 Agent",
     visual_stream_started: "视觉流已启动",
     visual_stream_stopped: "视觉流已停止",
     browser_crashed: "BrowserHost 已退出",

@@ -5,9 +5,11 @@ from pathlib import Path
 
 import pytest
 
+import browser.profile_storage as profile_storage_module
 from browser.profile_storage import (
     ProfileLockBusyError,
     ProfileStorageConflictError,
+    ProfileStorageError,
     ProfileStorageManager,
     ProfileStorageUnsafeError,
 )
@@ -23,6 +25,46 @@ def test_profile_storage_paths_are_isolated(tmp_path: Path):
     assert profile_a.user_data_dir.is_dir()
     assert profile_b.downloads_dir.is_dir()
     assert profile_a.profile_root.parent == manager.profiles_root
+
+
+@pytest.mark.parametrize(
+    "profile_id",
+    ("", ".", "..", "../outside", "..\\outside", "C:outside", "bad/profile"),
+)
+def test_profile_storage_rejects_non_local_profile_ids(tmp_path: Path, profile_id: str):
+    manager = ProfileStorageManager(tmp_path / "WebFA")
+    with pytest.raises(ProfileStorageError, match="invalid profile id"):
+        manager.paths_for(profile_id)
+
+
+def test_profile_storage_rejects_profile_root_link_or_junction(monkeypatch, tmp_path: Path):
+    manager = ProfileStorageManager(tmp_path / "WebFA")
+    unsafe_root = manager.profiles_root / "profile_unsafe"
+    original = profile_storage_module._path_is_unsafe_link
+    monkeypatch.setattr(
+        profile_storage_module,
+        "_path_is_unsafe_link",
+        lambda path: path == unsafe_root or original(path),
+    )
+
+    with pytest.raises(ProfileStorageUnsafeError, match="symbolic link or directory junction"):
+        manager.paths_for("profile_unsafe")
+    assert not unsafe_root.exists()
+
+
+def test_profile_storage_rejects_managed_child_link_without_creating_paths(monkeypatch, tmp_path: Path):
+    manager = ProfileStorageManager(tmp_path / "WebFA")
+    unsafe_child = manager.profiles_root / "profile_unsafe_child" / "chromium-user-data"
+    original = profile_storage_module._path_is_unsafe_link
+    monkeypatch.setattr(
+        profile_storage_module,
+        "_path_is_unsafe_link",
+        lambda path: path == unsafe_child or original(path),
+    )
+
+    with pytest.raises(ProfileStorageUnsafeError, match="symbolic link or directory junction"):
+        manager.paths_for("profile_unsafe_child", create=False)
+    assert not unsafe_child.parent.exists()
 
 
 def test_profile_process_lock_is_cross_handle_exclusive(tmp_path: Path):

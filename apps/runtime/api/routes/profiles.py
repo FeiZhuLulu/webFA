@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -73,6 +74,7 @@ router = APIRouter(
     tags=["profiles"],
     dependencies=[Depends(require_visualizer_control)],
 )
+_PROFILE_SERVICE_INIT_FALLBACK_LOCK = threading.RLock()
 
 
 class ProfileVersionRequest(BaseModel):
@@ -83,41 +85,65 @@ class ProfileVersionRequest(BaseModel):
 
 def get_profile_repository(request: Request) -> ProfileRepository:
     repository = getattr(request.app.state, "profile_repository", None)
-    if repository is None:
-        repository = ProfileRepository()
-        repository.ensure_default_profile()
-        request.app.state.profile_repository = repository
-    return repository
+    if repository is not None:
+        return repository
+    with _profile_service_init_lock(request):
+        repository = getattr(request.app.state, "profile_repository", None)
+        if repository is None:
+            repository = ProfileRepository()
+            repository.ensure_default_profile()
+            request.app.state.profile_repository = repository
+        return repository
 
 
 def get_profile_storage_manager(request: Request) -> ProfileStorageManager:
     storage = getattr(request.app.state, "profile_storage_manager", None)
-    if storage is None:
-        storage = ProfileStorageManager()
-        request.app.state.profile_storage_manager = storage
-    return storage
+    if storage is not None:
+        return storage
+    with _profile_service_init_lock(request):
+        storage = getattr(request.app.state, "profile_storage_manager", None)
+        if storage is None:
+            storage = ProfileStorageManager()
+            request.app.state.profile_storage_manager = storage
+        return storage
 
 
 def get_profile_bootstrap_service(request: Request) -> ProfileBootstrapService:
     service = getattr(request.app.state, "profile_bootstrap_service", None)
-    if service is None:
-        service = ProfileBootstrapService(
-            repository=get_profile_repository(request),
-            storage=get_profile_storage_manager(request),
-        )
-        request.app.state.profile_bootstrap_service = service
-    return service
+    if service is not None:
+        return service
+    with _profile_service_init_lock(request):
+        service = getattr(request.app.state, "profile_bootstrap_service", None)
+        if service is None:
+            service = ProfileBootstrapService(
+                repository=get_profile_repository(request),
+                storage=get_profile_storage_manager(request),
+            )
+            request.app.state.profile_bootstrap_service = service
+        return service
 
 
 def get_profile_bundle_service(request: Request) -> ProfileBundleService:
     service = getattr(request.app.state, "profile_bundle_service", None)
-    if service is None:
-        service = ProfileBundleService(
-            repository=get_profile_repository(request),
-            storage=get_profile_storage_manager(request),
-        )
-        request.app.state.profile_bundle_service = service
-    return service
+    if service is not None:
+        return service
+    with _profile_service_init_lock(request):
+        service = getattr(request.app.state, "profile_bundle_service", None)
+        if service is None:
+            service = ProfileBundleService(
+                repository=get_profile_repository(request),
+                storage=get_profile_storage_manager(request),
+            )
+            request.app.state.profile_bundle_service = service
+        return service
+
+
+def _profile_service_init_lock(request: Request):
+    return getattr(
+        request.app.state,
+        "runtime_service_init_lock",
+        _PROFILE_SERVICE_INIT_FALLBACK_LOCK,
+    )
 
 
 @router.get("/profiles")
@@ -188,14 +214,30 @@ def archive_profile(profile_ref: str, payload: ProfileVersionRequest, request: R
 
 @router.post("/profiles/{profile_ref}/restore")
 def restore_profile(profile_ref: str, payload: ProfileVersionRequest, request: Request):
+    repository = get_profile_repository(request)
+    lease = None
     try:
-        profile = get_profile_repository(request).restore_profile(
+        selected = repository.get_profile(profile_ref)
+        lease = get_profile_storage_manager(request).acquire_mutation_lease(
+            selected,
+            mutation_id=f"profile_restore_{uuid4().hex}",
+            operation="profile_restore",
+        )
+        profile = repository.restore_profile(
             profile_ref,
             expected_version=payload.expected_version,
         )
         return profile.model_dump(mode="json")
+    except ProfileLockBusyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
     except ProfileRepositoryError as exc:
         raise _profile_http_error(exc) from exc
+    finally:
+        if lease is not None:
+            lease.release()
 
 
 @router.post("/profiles/{profile_ref}/session/close")

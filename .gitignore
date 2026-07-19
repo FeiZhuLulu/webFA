@@ -2,6 +2,11 @@
 node_modules/
 .next/
 dist/
+build/
+apps/desktop/electron/dist/
+apps/desktop/renderer/out/
+.release/
+*.egg-info/
 __pycache__/
 .pytest_cache/
 *.pyc

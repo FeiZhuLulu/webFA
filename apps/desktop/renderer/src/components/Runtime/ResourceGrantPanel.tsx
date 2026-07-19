@@ -109,12 +109,14 @@ export function ResourceGrantPanel({
         <input
           id="webfa-resource-file"
           type="file"
+          aria-label="选择需要授权的本地文件"
           disabled={disabled || busy}
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           style={{ width: "100%", fontSize: 12 }}
         />
         <input
           className="viz-input"
+          aria-label="资源用途"
           value={purpose}
           onChange={(event) => setPurpose(event.target.value)}
           placeholder="用途，例如 submit_application"
@@ -122,6 +124,7 @@ export function ResourceGrantPanel({
         />
         <input
           className="viz-input"
+          aria-label="允许使用资源的 Origin"
           value={origin}
           onChange={(event) => setOrigin(event.target.value)}
           placeholder="允许的 Origin，例如 https://example.com"
@@ -130,6 +133,7 @@ export function ResourceGrantPanel({
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <select
             className="viz-input"
+            aria-label="资源所有者"
             value={owner}
             onChange={(event) => setOwner(event.target.value as "agent" | "user" | "shared")}
             disabled={disabled || busy}
@@ -141,6 +145,7 @@ export function ResourceGrantPanel({
           <input
             className="viz-input"
             type="number"
+            aria-label="最大使用次数"
             min={1}
             max={100}
             value={maxUses}
@@ -151,6 +156,7 @@ export function ResourceGrantPanel({
         </div>
         <select
           className="viz-input"
+          aria-label="资源授权有效期"
           value={expiresInSeconds}
           onChange={(event) => setExpiresInSeconds(Number(event.target.value))}
           disabled={disabled || busy}

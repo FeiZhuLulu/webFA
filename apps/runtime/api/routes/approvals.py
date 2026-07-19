@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 
+from apps.runtime.api.visualizer_control import require_visualizer_control
 from approvals.service import ApprovalService
 from schemas.approval import ApprovalApproveRequest, ApprovalRejectRequest
 from storage.db import session_scope
 
-router = APIRouter()
+router = APIRouter(tags=["approvals"])
+_HUMAN_DECISION_DEPENDENCIES = [Depends(require_visualizer_control)]
 _service = ApprovalService()
 
 
@@ -28,7 +30,10 @@ def get_approval(approval_id: str):
         return approval.model_dump(mode="json")
 
 
-@router.post("/approvals/{approval_id}/approve")
+@router.post(
+    "/approvals/{approval_id}/approve",
+    dependencies=_HUMAN_DECISION_DEPENDENCIES,
+)
 def approve(approval_id: str, body: ApprovalApproveRequest | None = None):
     user_note = body.user_note if body else None
     with session_scope() as session:
@@ -41,7 +46,10 @@ def approve(approval_id: str, body: ApprovalApproveRequest | None = None):
         return result.model_dump(mode="json")
 
 
-@router.post("/approvals/{approval_id}/reject")
+@router.post(
+    "/approvals/{approval_id}/reject",
+    dependencies=_HUMAN_DECISION_DEPENDENCIES,
+)
 def reject(approval_id: str, body: ApprovalRejectRequest | None = None):
     reason = body.reason if body else None
     with session_scope() as session:

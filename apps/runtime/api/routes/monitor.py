@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
@@ -92,6 +92,11 @@ def issue_monitor_grant(payload: MonitorGrantRequest, request: Request) -> dict[
                 permissions=payload.permissions,
                 ttl_seconds=payload.ttl_seconds,
             )
+    except BrowserRuntimeError as exc:
+        raise HTTPException(
+            status_code=exc.http_status,
+            detail=exc.to_detail(),
+        ) from exc
     except (ValueError, MonitorAccessError) as exc:
         raise HTTPException(
             status_code=400,
@@ -165,13 +170,13 @@ async def monitor_websocket(websocket: WebSocket) -> None:
         return
 
     await websocket.accept()
-    runtime_root = _get_runtime(websocket)
     access_manager = get_monitor_access_manager(websocket)
     connection: _ConnectionBridge | None = None
     connection_grant: MonitorConnectionGrant | None = None
     runtime: BrowserRuntime | BrowserSessionRuntime | None = None
     subscription_id: str | None = None
     stream_id: str | None = None
+    grant_router: MonitorGatewayRouter | None = None
 
     try:
         try:
@@ -202,12 +207,14 @@ async def monitor_websocket(websocket: WebSocket) -> None:
             await websocket.close(code=4401, reason="Monitor token is invalid or already consumed")
             return
 
+        runtime_root = _get_runtime(websocket)
         if isinstance(runtime_root, BrowserRuntimeSupervisor):
             try:
-                MonitorGatewayRouter(
+                grant_router = MonitorGatewayRouter(
                     access_manager,
                     runtime_root.get_session_binding,
-                ).validate(grant)
+                )
+                grant_router.validate(grant)
                 runtime = runtime_root.get_session_runtime(grant.session_id)
             except (MonitorAccessError, BrowserRuntimeError):
                 await websocket.close(code=4409, reason="Monitor grant is bound to an unavailable Session generation")
@@ -271,7 +278,17 @@ async def monitor_websocket(websocket: WebSocket) -> None:
             _human_sync_loop(runtime, connection, grant)
         )
         grant_watch = asyncio.create_task(
-            _grant_watch_loop(websocket, access_manager, grant.grant_id, grant.expires_at)
+            _grant_watch_loop(
+                websocket,
+                access_manager,
+                grant.grant_id,
+                grant.expires_at,
+                binding_validator=(
+                    (lambda: grant_router.validate(grant))
+                    if grant_router is not None
+                    else None
+                ),
+            )
         )
         done, pending = await asyncio.wait(
             {writer, receiver, human_sync, grant_watch},
@@ -487,17 +504,15 @@ async def _receiver_loop(
                 if reason is not None and not isinstance(reason, str):
                     raise ValueError("reason must be a string")
                 ttl = payload.get("ttl_seconds", 300)
-                if not isinstance(ttl, int) or isinstance(ttl, bool):
-                    raise ValueError("ttl_seconds must be an integer")
-                remaining = max(
-                    30,
-                    int((grant.expires_at - datetime.now(timezone.utc)).total_seconds()),
+                bounded_ttl = _bounded_human_control_ttl(
+                    ttl,
+                    grant.expires_at,
                 )
                 lease = await asyncio.to_thread(
                     runtime.acquire_human_control,
                     connection_id=grant.connection_id,
                     reason=reason,
-                    ttl_seconds=min(ttl, remaining, 1800),
+                    ttl_seconds=bounded_ttl,
                 )
                 connection.set_human_control_lease(lease.lease_id)
                 connection.send_control(
@@ -639,6 +654,8 @@ async def _grant_watch_loop(
     access_manager,
     grant_id: str,
     expires_at: datetime,
+    *,
+    binding_validator: Callable[[], object] | None = None,
 ) -> None:
     while True:
         delay = max(0.0, (expires_at - datetime.now(timezone.utc)).total_seconds())
@@ -656,21 +673,39 @@ async def _grant_watch_loop(
         if state.status in {"expired", "closed"}:
             await websocket.close(code=4408, reason="Monitor grant is no longer active")
             return
+        if binding_validator is not None:
+            try:
+                binding_validator()
+            except MonitorAccessError:
+                await websocket.close(
+                    code=4409,
+                    reason="Monitor grant is bound to an unavailable Session generation",
+                )
+                return
         await asyncio.sleep(min(0.5, delay))
 
 
-def _get_runtime(websocket: WebSocket) -> BrowserRuntime | BrowserRuntimeSupervisor:
-    runtime = getattr(websocket.app.state, "browser_runtime", None)
-    if runtime is not None:
-        return runtime
-    supervisor = getattr(websocket.app.state, "browser_runtime_supervisor", None)
-    if supervisor is None:
-        supervisor = BrowserRuntimeSupervisor(
-            profile_repository=getattr(websocket.app.state, "profile_repository", None),
+def _bounded_human_control_ttl(
+    requested_ttl: object,
+    grant_expires_at: datetime,
+    *,
+    now: datetime | None = None,
+) -> int:
+    if not isinstance(requested_ttl, int) or isinstance(requested_ttl, bool):
+        raise ValueError("ttl_seconds must be an integer")
+    if requested_ttl < 30:
+        raise ValueError("ttl_seconds must be at least 30")
+    current = now or datetime.now(timezone.utc)
+    remaining = int((grant_expires_at - current).total_seconds())
+    if remaining < 30:
+        raise ValueError(
+            "Monitor grant must have at least 30 seconds remaining to acquire HumanControlLease"
         )
-        websocket.app.state.browser_runtime_supervisor = supervisor
-    websocket.app.state.browser_runtime = supervisor
-    return supervisor
+    return min(requested_ttl, remaining, 1800)
+
+
+def _get_runtime(websocket: WebSocket) -> BrowserRuntime | BrowserRuntimeSupervisor:
+    return get_browser_runtime(websocket)
 
 
 def _monitor_origin_allowed(origin: str | None) -> bool:

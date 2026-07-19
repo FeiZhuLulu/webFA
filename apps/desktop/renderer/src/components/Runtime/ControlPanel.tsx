@@ -7,6 +7,8 @@ type ControlPanelProps = {
   onCopyJson: () => void;
   onStartRuntime?: () => void;
   onStopRuntime?: () => void;
+  startDisabled?: boolean;
+  stopDisabled?: boolean;
 };
 
 export function ControlPanel({
@@ -18,9 +20,11 @@ export function ControlPanel({
   onCopyJson,
   onStartRuntime,
   onStopRuntime,
+  startDisabled = false,
+  stopDisabled = false,
 }: ControlPanelProps) {
   return (
-    <div className="viz-column-content" style={{ paddingTop: 0 }}>
+    <div className="viz-column-content viz-column-content-tight-top">
       <div className="viz-control-stack">
         <button type="button" className="viz-btn" onClick={onRefresh} disabled={busy}>
           {busy ? "刷新中…" : "刷新状态 Refresh State"}
@@ -32,17 +36,22 @@ export function ControlPanel({
           重启宿主 Restart Host
         </button>
         <button type="button" className="viz-btn" onClick={onCopyJson}>
-          复制 Agent State JSON
+          复制页面投影 JSON
         </button>
         {(onStartRuntime || onStopRuntime) && (
           <div className="viz-runtime-controls">
             {onStartRuntime && (
-              <button type="button" className="viz-btn viz-btn-primary" onClick={onStartRuntime}>
+              <button
+                type="button"
+                className="viz-btn viz-btn-primary"
+                onClick={onStartRuntime}
+                disabled={startDisabled}
+              >
                 启动 Runtime
               </button>
             )}
             {onStopRuntime && (
-              <button type="button" className="viz-btn" onClick={onStopRuntime}>
+              <button type="button" className="viz-btn" onClick={onStopRuntime} disabled={stopDisabled}>
                 停止 Runtime
               </button>
             )}

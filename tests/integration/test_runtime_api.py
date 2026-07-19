@@ -2,6 +2,12 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from apps.runtime.identity import (
+    PRODUCT_ID,
+    RELEASE_VERSION,
+    RUNTIME_INSTANCE_ID,
+    RUNTIME_PROTOCOL_VERSION,
+)
 from apps.runtime.main import create_app
 from browser.managed_chromium_host import _find_chromium_executable
 from storage.db import reset_engine_for_tests
@@ -24,17 +30,32 @@ def test_health_returns_ok(monkeypatch, tmp_path: Path):
 
     with TestClient(create_app()) as client:
         response = client.get("/health")
+        repeated = client.get("/health")
 
     assert response.status_code == 200
     body = response.json()
+    assert repeated.status_code == 200
+    assert body["product"] == PRODUCT_ID
+    assert body["release_version"] == RELEASE_VERSION
+    assert body["protocol_version"] == RUNTIME_PROTOCOL_VERSION
+    assert body["instance_id"] == RUNTIME_INSTANCE_ID
+    assert repeated.json()["instance_id"] == body["instance_id"]
     assert body["status"] == "ok"
     assert body["runtime"] == "running"
-    assert body["storage"]["db_path"].endswith("webfa.db")
+    assert body["storage"] == {"status": "ready", "persistent": True}
     assert body["browser"]["selected_driver"] == "managed-chromium"
     assert body["browser"]["host_status"] == "not_started"
     assert "executable_found" in body["browser"]
     body_str = str(body).lower()
-    for forbidden in ("token", "cookie", "localstorage", "sessionstorage", "websocketdebuggerurl"):
+    for forbidden in (
+        "token",
+        "cookie",
+        "localstorage",
+        "sessionstorage",
+        "websocketdebuggerurl",
+        "db_path",
+        str(tmp_path).lower(),
+    ):
         assert forbidden not in body_str
 
 

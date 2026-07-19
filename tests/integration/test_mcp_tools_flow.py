@@ -13,6 +13,9 @@ from apps.runtime.main import create_app
 from apps.runtime.mcp.runtime_client import WebFARuntimeClient
 from storage.db import reset_engine_for_tests
 
+TOKEN = "mcp-flow-human-control-token"
+CONTROL_HEADERS = {"X-WebFA-Visualizer-Token": TOKEN}
+
 
 def test_legacy_transactions_endpoint_still_available(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
@@ -82,6 +85,7 @@ def test_mcp_status_legacy_transaction_tools_are_opt_in(monkeypatch, tmp_path: P
 def test_legacy_transaction_rest_flow(monkeypatch, tmp_path: Path):
     """Legacy transaction REST flow; not part of the P4.5 agent browser path."""
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     from apps.runtime.mcp.tools import tool_discover, tool_plan, tool_preview, tool_execute, tool_get_execution, tool_get_proof
@@ -118,7 +122,10 @@ def test_legacy_transaction_rest_flow(monkeypatch, tmp_path: Path):
         assert exec_fail.status_code == 403
 
         # Approve
-        approve_resp = client.post(f"/v1/approvals/{approval_id}/approve")
+        approve_resp = client.post(
+            f"/v1/approvals/{approval_id}/approve",
+            headers=CONTROL_HEADERS,
+        )
         assert approve_resp.status_code == 200
         token = approve_resp.json()["approval_token"]
 

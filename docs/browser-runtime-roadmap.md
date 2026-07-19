@@ -169,12 +169,12 @@ P9
   intentionally left for follow-up work.
 
 P9.1
-  WebFA-owned Auth Surface.
-  Login, QR-code, verification-code, 2FA, and authorization flows happen inside
-  the WebFA UI takeover area. Opening the takeover area closes the hidden
-  Runtime host to release the shared default profile; completing takeover
-  destroys the embedded WebContents and restarts the hidden host with the same
-  profile. Separate visible Chromium hosts remain legacy fallback only.
+  Historical WebFA-owned Auth Surface — superseded and retired by UI-1B.
+  The original implementation closed the hidden Runtime host, created a
+  duplicate Electron page for login/QR/2FA/authorization, and restarted the host
+  afterward. That model is no longer current product behavior. UI-1B replaced it
+  with a Session-scoped HumanControlLease that forwards local input to the same
+  BrowserHost page and never creates a second page or restarts the Host.
 
 P9.2
   Runtime Safety + Page Surface Hardening (Developer Preview).
@@ -230,8 +230,9 @@ P11
   SafetyReceipt audit are live. Real Managed Chromium validation covers external-
   write preflight, user-owned identity escalation, protected upload, payment
   verification takeover, Runtime-observed totals, autonomous saved-method payment,
-  and approved over-autonomy payment scope escalation. P12 Multi Session / Multi
-  Profile is next. Detailed plan: docs/p11plan.md. Final acceptance:
+  and approved over-autonomy payment scope escalation. At P11 acceptance, P12
+  Multi Session / Multi Profile was the next phase; it is complete below.
+  Detailed historical plan: docs/p11plan.md. Final acceptance:
   docs/reports/P11_FINAL_ACCEPTANCE_REPORT.md. The earlier design draft remains at
   docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md for design history.
 
@@ -316,6 +317,12 @@ P13
   Persist semantic operations, WebState revisions, object versions, ChangeSets,
   takeover and approval events, and bounded artifacts so interrupted agent tasks
   can be inspected and resumed.
+
+Current sequencing note (2026-07-16)
+  P13 remains defined future scope, but implementation is deferred while P1-P12,
+  Post-Core Profile Bootstrap, release maintenance, adversarial review, and the
+  Control Center / Session Monitor experience are brought to a stable closure
+  baseline.
 
 Long term
   Keep mature web engines such as Chromium/Blink/V8 as implementation details.

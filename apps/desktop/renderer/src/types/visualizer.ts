@@ -248,6 +248,9 @@ export type VisualizerState = {
     headless: boolean;
     host_status: string;
     visible_window: boolean;
+    executable_found: boolean | null;
+    executable_name: string | null;
+    last_error: string | null;
   };
   agent: {
     active_agent_id: string | null;

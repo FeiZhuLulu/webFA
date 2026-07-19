@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 from apps.runtime.main import create_app
 from storage.db import reset_engine_for_tests
 
+TOKEN = "approval-human-control-token"
+CONTROL_HEADERS = {"X-WebFA-Visualizer-Token": TOKEN}
+
 
 def _create_plan_and_preview(client):
     """Helper: create plan, preview, return plan_id and approval_id."""
@@ -51,12 +54,19 @@ def test_get_approval(monkeypatch, tmp_path: Path):
 
 def test_approve(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
         _, approval_id = _create_plan_and_preview(client)
-        resp = client.post(f"/v1/approvals/{approval_id}/approve", json={"user_note": "LGTM"})
+        denied = client.post(f"/v1/approvals/{approval_id}/approve")
+        resp = client.post(
+            f"/v1/approvals/{approval_id}/approve",
+            headers=CONTROL_HEADERS,
+            json={"user_note": "LGTM"},
+        )
 
+    assert denied.status_code == 403
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "approved"
@@ -65,11 +75,16 @@ def test_approve(monkeypatch, tmp_path: Path):
 
 def test_reject(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
         _, approval_id = _create_plan_and_preview(client)
-        resp = client.post(f"/v1/approvals/{approval_id}/reject", json={"reason": "Not needed"})
+        resp = client.post(
+            f"/v1/approvals/{approval_id}/reject",
+            headers=CONTROL_HEADERS,
+            json={"reason": "Not needed"},
+        )
 
     assert resp.status_code == 200
     body = resp.json()
@@ -78,9 +93,13 @@ def test_reject(monkeypatch, tmp_path: Path):
 
 def test_approve_not_found(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
-        resp = client.post("/v1/approvals/nonexistent/approve")
+        resp = client.post(
+            "/v1/approvals/nonexistent/approve",
+            headers=CONTROL_HEADERS,
+        )
 
     assert resp.status_code == 404

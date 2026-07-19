@@ -80,6 +80,144 @@ def test_profile_catalog_control_api_is_protected_and_versioned(monkeypatch, tmp
         assert archived.json()["catalog_state"] == "archived"
 
 
+def test_profile_restore_requires_exclusive_mutation_lease(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
+    reset_engine_for_tests()
+    app = create_app()
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/profiles",
+            headers=HEADERS,
+            json={
+                "agent_alias": "restore-lock",
+                "display_name": "Restore Lock",
+            },
+        )
+        assert created.status_code == 201, created.text
+        profile = created.json()
+        archived = client.request(
+            "DELETE",
+            f"/v1/profiles/{profile['profile_id']}",
+            headers=HEADERS,
+            json={"expected_version": profile["version"]},
+        )
+        assert archived.status_code == 200, archived.text
+        archived_profile = archived.json()
+
+        blocker = app.state.profile_storage_manager.acquire_mutation_lease(
+            profile["profile_id"],
+            mutation_id="competing-maintenance",
+            operation="profile_bundle_restore_target",
+        )
+        try:
+            denied = client.post(
+                f"/v1/profiles/{profile['profile_id']}/restore",
+                headers=HEADERS,
+                json={"expected_version": archived_profile["version"]},
+            )
+            assert denied.status_code == 409, denied.text
+            assert denied.json()["detail"]["code"] == "profile_busy"
+            assert (
+                app.state.profile_repository.get_profile(profile["profile_id"]).catalog_state
+                == "archived"
+            )
+        finally:
+            blocker.release()
+
+        restored = client.post(
+            f"/v1/profiles/{profile['profile_id']}/restore",
+            headers=HEADERS,
+            json={"expected_version": archived_profile["version"]},
+        )
+        assert restored.status_code == 200, restored.text
+        assert restored.json()["catalog_state"] == "ready"
+
+
+def test_profile_archive_does_not_cross_an_active_storage_lock(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
+    reset_engine_for_tests()
+    app = create_app()
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/profiles",
+            headers=HEADERS,
+            json={
+                "agent_alias": "archive-lock",
+                "display_name": "Archive Lock",
+            },
+        )
+        assert created.status_code == 201, created.text
+        profile = created.json()
+        storage = ProfileStorageManager(tmp_path / "WebFA")
+        app.state.profile_storage_manager = storage
+        blocker = storage.acquire_process_lock(
+            profile["profile_id"],
+            runtime_instance_id="other-runtime",
+            runtime_generation="other-generation",
+            session_id="other-session",
+        )
+        try:
+            denied = client.request(
+                "DELETE",
+                f"/v1/profiles/{profile['profile_id']}",
+                headers=HEADERS,
+                json={"expected_version": profile["version"]},
+            )
+            assert denied.status_code == 409, denied.text
+            assert denied.json()["detail"]["code"] == "profile_busy"
+            unchanged = app.state.profile_repository.get_profile(profile["profile_id"])
+            assert unchanged.catalog_state == "ready"
+            assert unchanged.version == profile["version"]
+        finally:
+            blocker.release()
+
+
+def test_profile_patch_is_versioned_catalog_metadata_not_storage_maintenance(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
+    reset_engine_for_tests()
+    app = create_app()
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/v1/profiles",
+            headers=HEADERS,
+            json={
+                "agent_alias": "patch-lock",
+                "display_name": "Patch Lock",
+            },
+        )
+        assert created.status_code == 201, created.text
+        profile = created.json()
+        storage = ProfileStorageManager(tmp_path / "WebFA")
+        app.state.profile_storage_manager = storage
+        blocker = storage.acquire_process_lock(
+            profile["profile_id"],
+            runtime_instance_id="other-runtime",
+            runtime_generation="other-generation",
+            session_id="other-session",
+        )
+        try:
+            updated = client.patch(
+                f"/v1/profiles/{profile['profile_id']}",
+                headers=HEADERS,
+                json={
+                    "expected_version": profile["version"],
+                    "owner": "agent_owned",
+                },
+            )
+            assert updated.status_code == 200, updated.text
+            changed = app.state.profile_repository.get_profile(profile["profile_id"])
+            assert changed.owner == "agent_owned"
+            assert changed.version == profile["version"] + 1
+        finally:
+            blocker.release()
+
+
 def test_cookie_import_control_api_is_two_phase_and_secret_free(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)

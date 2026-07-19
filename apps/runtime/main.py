@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from contextlib import asynccontextmanager
+from ipaddress import ip_address
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # Allow `python -m uvicorn apps.runtime.main:app` from the repo root before editable install.
 APP_ROOT = Path(__file__).resolve().parents[2]
@@ -34,17 +37,47 @@ from apps.runtime.api.routes.providers import router as providers_router
 from apps.runtime.api.routes.transactions import router as transactions_router
 from apps.runtime.api.routes.visualizer import router as visualizer_router
 from apps.runtime.api.routes.workspaces import router as workspaces_router
+from apps.runtime.version import __version__
 from browser.profile_repository import ProfileRepository
-from registry.transaction_registry import build_default_registry
+from registry.transaction_registry import build_default_registry, default_resources_root
 from storage.db import init_db, upsert_transactions
 from storage.file_store import ensure_webfa_data_dir
+
+
+def _console_allowed_origins() -> list[str]:
+    strict = os.getenv("WEBFA_STRICT_CONSOLE_ORIGINS") == "1"
+    origins = [] if strict else ["http://127.0.0.1:8788", "http://localhost:8788"]
+    for value in os.getenv("WEBFA_CONSOLE_ALLOWED_ORIGINS", "").split(","):
+        origin = value.strip()
+        if not origin or origin in origins:
+            continue
+        parsed = urlsplit(origin)
+        if parsed.scheme != "http" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("WEBFA_CONSOLE_ALLOWED_ORIGINS accepts loopback HTTP origins only")
+        if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+            raise ValueError("WEBFA_CONSOLE_ALLOWED_ORIGINS accepts origins without paths only")
+        if parsed.hostname != "localhost":
+            try:
+                is_loopback = ip_address(parsed.hostname).is_loopback
+            except ValueError:
+                is_loopback = False
+            if not is_loopback:
+                raise ValueError("WEBFA_CONSOLE_ALLOWED_ORIGINS accepts loopback HTTP origins only")
+        origins.append(origin.rstrip("/"))
+    if strict and not origins:
+        raise ValueError(
+            "WEBFA_STRICT_CONSOLE_ORIGINS=1 requires at least one explicit "
+            "loopback origin in WEBFA_CONSOLE_ALLOWED_ORIGINS"
+        )
+    return origins
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     paths = ensure_webfa_data_dir()
     db_path = init_db()
-    resources_root = Path(os.getenv("WEBFA_RESOURCES_ROOT", Path(__file__).resolve().parents[2] / "resources"))
+    resources_override = os.getenv("WEBFA_RESOURCES_ROOT")
+    resources_root = Path(resources_override).expanduser() if resources_override else default_resources_root()
     registry = build_default_registry(resources_root)
     upsert_transactions(registry.as_json())
 
@@ -54,20 +87,52 @@ async def lifespan(app: FastAPI):
     profile_repository = ProfileRepository()
     profile_repository.ensure_default_profile()
     app.state.profile_repository = profile_repository
-    yield
-    profile_bootstrap_service = getattr(app.state, "profile_bootstrap_service", None)
-    if profile_bootstrap_service is not None:
-        profile_bootstrap_service.close()
-    profile_bundle_service = getattr(app.state, "profile_bundle_service", None)
-    if profile_bundle_service is not None:
-        profile_bundle_service.close()
-    browser_runtime = getattr(app.state, "browser_runtime", None)
-    if browser_runtime is not None:
-        browser_runtime.close()
+    try:
+        yield
+    finally:
+        _close_runtime_services(app)
+
+
+def _close_runtime_services(app: FastAPI) -> None:
+    failures: list[Exception] = []
+    closed_service_ids: set[int] = set()
+    for attribute in (
+        "profile_bootstrap_service",
+        "profile_bundle_service",
+        "browser_runtime",
+        "browser_runtime_supervisor",
+    ):
+        service = getattr(app.state, attribute, None)
+        # Revoke the published reference before closing. This makes shutdown
+        # idempotent and prevents a re-entered embedded App from handing out a
+        # service that has already released its BrowserHost or worker resources.
+        setattr(app.state, attribute, None)
+        if service is None or id(service) in closed_service_ids:
+            continue
+        closed_service_ids.add(id(service))
+        try:
+            service.close()
+        except Exception as exc:
+            failures.append(exc)
+    # Capabilities and UI projections are bound to the stopped Runtime
+    # generation. Never preserve bearer grants, action history, or rendered
+    # previews when an embedded App instance is entered again.
+    for attribute in (
+        "monitor_access_manager",
+        "visualizer_action_log",
+        "visualizer_preview_cache",
+        "visualizer_auth_surface",
+    ):
+        setattr(app.state, attribute, None)
+    if failures:
+        raise ExceptionGroup("WebFA runtime shutdown failed", failures)
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="WebFA Runtime", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="WebFA Runtime", version=__version__, lifespan=lifespan)
+    # All lazily published Runtime/Profile services share one re-entrant lock.
+    # Profile service construction resolves nested repository/storage services.
+    app.state.runtime_service_init_lock = threading.RLock()
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
@@ -89,7 +154,7 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=422, content={"detail": safe_errors})
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://127.0.0.1:8788", "http://localhost:8788"],
+        allow_origins=_console_allowed_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

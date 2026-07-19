@@ -1,0 +1,1 @@
+"""Versioned transaction definition resources."""

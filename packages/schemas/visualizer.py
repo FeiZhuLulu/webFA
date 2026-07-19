@@ -26,6 +26,9 @@ class VisualizerRuntimeInfo(BaseModel):
     headless: bool = False
     host_status: str = "not_started"
     visible_window: bool = False
+    executable_found: bool | None = None
+    executable_name: str | None = None
+    last_error: str | None = None
 
 
 class VisualizerAgentInfo(BaseModel):

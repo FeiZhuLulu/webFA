@@ -25,9 +25,23 @@ export function ActionLogger({ entries }: ActionLoggerProps) {
   }, [entries]);
 
   return (
-    <div className="viz-console" ref={consoleRef}>
+    <div
+      className={`viz-console${entries.length === 0 ? " empty" : ""}`}
+      ref={consoleRef}
+      role="log"
+      aria-label="Agent Action Log"
+      aria-live="polite"
+      aria-relevant="additions"
+      data-ui="action-log"
+    >
       {entries.length === 0 ? (
-        <div className="viz-console-line muted">等待 agent 操作…</div>
+        <div className="viz-console-empty" data-ui="action-log-empty">
+          <div className="viz-console-empty-mark" aria-hidden="true"><span /><span /><span /></div>
+          <div className="viz-console-empty-title">等待 Agent 活动</div>
+          <div className="viz-console-empty-copy">
+            外部 Agent 的 WebFA 调用与结果会按时间顺序显示在这里。
+          </div>
+        </div>
       ) : (
         entries.map((entry, index) => (
           <div key={`${entry.timestamp}-${entry.tool}-${index}`} className="viz-console-line">

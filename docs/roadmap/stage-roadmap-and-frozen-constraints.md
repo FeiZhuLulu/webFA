@@ -121,7 +121,7 @@ agent -> open_url -> observe page_state -> act on element_id -> observe updated 
 
 ## P5 — Browser Runtime Core
 
-状态：active
+状态：completed（历史阶段；当前实现已继续演进到 P10-P12）
 
 目标：
 

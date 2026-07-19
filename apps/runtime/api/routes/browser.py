@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import threading
 
 from fastapi import APIRouter, HTTPException, Request
+from starlette.requests import HTTPConnection
 
 from apps.runtime.api.action_log import get_action_log
 from browser.agent_lease import AgentLeaseBusyError
@@ -15,6 +17,7 @@ from schemas.browser import BrowserActionRequest, BrowserOpenRequest
 from schemas.web import WebObserveRequest, WebOpenRequest, WebOperationRequest
 
 router = APIRouter(tags=["browser"])
+_RUNTIME_INIT_FALLBACK_LOCK = threading.Lock()
 
 
 def _require_unsafe_legacy_browser_api() -> None:
@@ -32,18 +35,31 @@ def _require_unsafe_legacy_browser_api() -> None:
         )
 
 
-def get_browser_runtime(request: Request) -> BrowserRuntime | BrowserRuntimeSupervisor:
+def get_browser_runtime(request: HTTPConnection) -> BrowserRuntime | BrowserRuntimeSupervisor:
     runtime = getattr(request.app.state, "browser_runtime", None)
     if runtime is not None:
         return runtime
-    supervisor = getattr(request.app.state, "browser_runtime_supervisor", None)
-    if supervisor is None:
-        supervisor = BrowserRuntimeSupervisor(
-            profile_repository=getattr(request.app.state, "profile_repository", None),
-        )
-        request.app.state.browser_runtime_supervisor = supervisor
-    request.app.state.browser_runtime = supervisor
-    return supervisor
+
+    # Sync FastAPI handlers can resolve this dependency concurrently in the
+    # worker thread pool. Serialize the first construction so an overwritten,
+    # untracked Supervisor cannot retain a BrowserHost past application shutdown.
+    init_lock = getattr(
+        request.app.state,
+        "runtime_service_init_lock",
+        _RUNTIME_INIT_FALLBACK_LOCK,
+    )
+    with init_lock:
+        runtime = getattr(request.app.state, "browser_runtime", None)
+        if runtime is not None:
+            return runtime
+        supervisor = getattr(request.app.state, "browser_runtime_supervisor", None)
+        if supervisor is None:
+            supervisor = BrowserRuntimeSupervisor(
+                profile_repository=getattr(request.app.state, "profile_repository", None),
+            )
+            request.app.state.browser_runtime_supervisor = supervisor
+        request.app.state.browser_runtime = supervisor
+        return supervisor
 
 
 def get_agent_id(request: Request) -> str | None:
@@ -228,7 +244,7 @@ def switch_web_tab(payload: dict, request: Request):
 
 # Legacy BrowserState/BrowserAction compatibility endpoints. Default MCP does not use these.
 @router.post("/browser/open", include_in_schema=False)
-@router.post("/browser/legacy/open")
+@router.post("/browser/legacy/open", deprecated=True)
 def open_url(payload: BrowserOpenRequest, request: Request):
     _require_unsafe_legacy_browser_api()
 
@@ -241,7 +257,7 @@ def open_url(payload: BrowserOpenRequest, request: Request):
 
 
 @router.get("/browser/observe", include_in_schema=False)
-@router.get("/browser/legacy/observe")
+@router.get("/browser/legacy/observe", deprecated=True)
 def observe(request: Request):
     _require_unsafe_legacy_browser_api()
 
@@ -254,7 +270,7 @@ def observe(request: Request):
 
 
 @router.post("/browser/act", include_in_schema=False)
-@router.post("/browser/legacy/act")
+@router.post("/browser/legacy/act", deprecated=True)
 def act(payload: BrowserActionRequest, request: Request):
     _require_unsafe_legacy_browser_api()
 
@@ -293,7 +309,7 @@ def tabs(request: Request):
 
 
 @router.post("/browser/tabs/switch", include_in_schema=False)
-@router.post("/browser/legacy/tabs/switch")
+@router.post("/browser/legacy/tabs/switch", deprecated=True)
 def switch_tab(payload: dict, request: Request):
     _require_unsafe_legacy_browser_api()
 

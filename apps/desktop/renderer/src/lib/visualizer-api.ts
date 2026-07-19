@@ -20,6 +20,7 @@ import type {
   UnknownEffectPolicy,
   VisualizerState,
 } from "../types/visualizer";
+import type { McpClientConfig, McpRuntimeStatus } from "../types/mcp";
 
 const API_FALLBACK = "http://127.0.0.1:8787";
 let visualizerControlToken = "";
@@ -40,6 +41,34 @@ function controlHeaders(json = false): HeadersInit {
 
 export function resolveApiUrl(preferred?: string | null): string {
   return preferred || API_FALLBACK;
+}
+
+export async function fetchMcpRuntimeStatus(
+  apiUrl: string,
+  signal?: AbortSignal,
+): Promise<McpRuntimeStatus> {
+  const response = await fetch(`${apiUrl}/v1/mcp/status`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "MCP status failed"));
+  }
+  return (await response.json()) as McpRuntimeStatus;
+}
+
+export async function fetchMcpClientConfig(
+  apiUrl: string,
+  signal?: AbortSignal,
+): Promise<McpClientConfig> {
+  const response = await fetch(`${apiUrl}/v1/mcp/config`, {
+    cache: "no-store",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "MCP config failed"));
+  }
+  return (await response.json()) as McpClientConfig;
 }
 
 async function readApiError(response: Response, fallback: string): Promise<string> {

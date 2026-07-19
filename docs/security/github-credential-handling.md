@@ -50,6 +50,15 @@ P4 需要额外:
 }
 ```
 
+这是历史 Provider 路径的本地文件存储，不是硬件 Vault，也不承诺在本机用户账户已经
+失陷后保护 PAT。文件内容仍是明文 token；安全边界依赖 WebFA 数据目录所属的本地操作
+系统账户。POSIX 上 credentials 目录和文件分别收紧为 `0700`/`0600`；Windows 上继承
+用户数据目录的 ACL。不要把 `WEBFA_HOME` 指向共享目录。
+
+Credential ref 的 provider/connection 两段都经过严格校验，读取不会创建目录，符号链接
+逃逸会被拒绝。写入使用同目录私有临时文件、flush/fsync 和原子 replace；替换失败时保留
+上一份完整凭据并清理临时文件。该机制保证边界与崩溃一致性，不等同于静态加密。
+
 ### provider_connections 表
 
 只保存引用，不保存 token:
@@ -103,12 +112,21 @@ token_stored=true
 
 ## 凭证生命周期
 
-1. 用户在 Console 输入 token
-2. 调用 `POST /v1/providers/github/connect`
+Provider connection 的 status/connect/test/disconnect 全部属于本地人类控制面，而不是
+Agent Runtime API。调用方必须配置 `WEBFA_VISUALIZER_CONTROL_TOKEN`，并在每次请求中发送
+`X-WebFA-Visualizer-Token`；缺少配置时 Runtime fail closed，缺少或错误 header 时拒绝请求。
+该控制 Token 不得进入 MCP 配置、Agent prompt、URL、响应或持久化的 Provider 记录。
+
+1. 用户在受信任的本地控制面输入 token
+2. 带控制 header 调用 `POST /v1/providers/github/connect`
 3. token 存入 credential store
 4. credential_ref 存入 provider_connections
 5. 调用 GitHub API 测试连接
 6. 更新 provider_connections.status
+
+凭据文件替换与 SQLite 元数据提交由同一进程内生命周期锁串行化。如果元数据事务失败，
+connect 会恢复先前凭据（或删除新凭据）；disconnect 会恢复刚删除的凭据。数据库按
+`provider` 自然键读取连接记录，不能把随机记录 `id` 当作 provider 名。
 
 读取时:
 1. GitHub adapter 内部调用 credential_store.get(credential_ref)
@@ -117,7 +135,7 @@ token_stored=true
 4. token 不返回给调用方
 
 断开时:
-1. 调用 `DELETE /v1/providers/github/disconnect`
+1. 带控制 header 调用 `DELETE /v1/providers/github/disconnect`
 2. credential store 删除 token 文件
 3. provider_connections.status = disconnected
 4. credential_ref = null

@@ -46,6 +46,9 @@ def test_visualizer_state_before_browser_start(monkeypatch, tmp_path: Path):
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["runtime"]["host_status"] == "not_started"
+        assert isinstance(body["runtime"]["executable_found"], bool)
+        assert "executable_name" in body["runtime"]
+        assert body["runtime"]["last_error"] is None
         assert body["browser_state"] is None
         assert body["web_state"] is None
         assert body["takeover_surface"]["active"] is False

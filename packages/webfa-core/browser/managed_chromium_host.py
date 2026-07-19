@@ -11,7 +11,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -1051,19 +1051,47 @@ def _find_chromium_executable() -> Path:
         found = shutil.which(command)
         if found:
             candidates.append(Path(found))
-    candidates.extend(
-        Path(path)
-        for path in (
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        )
-    )
+    candidates.extend(_chromium_install_candidates())
     for candidate in candidates:
         if candidate.exists():
             return candidate
     raise RuntimeError("Chromium executable not found; set WEBFA_CHROMIUM_EXECUTABLE")
+
+
+def _chromium_install_candidates(
+    *,
+    platform_name: str | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> list[Path]:
+    if (platform_name or os.name) != "nt":
+        return []
+    env = environment if environment is not None else os.environ
+    install_roots: list[Path] = []
+    for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432"):
+        value = env.get(key)
+        if value:
+            root = Path(value)
+            if root not in install_roots:
+                install_roots.append(root)
+    local_app_data = env.get("LOCALAPPDATA")
+    if local_app_data:
+        root = Path(local_app_data)
+        if root not in install_roots:
+            install_roots.append(root)
+    if not install_roots:
+        system_drive = env.get("SYSTEMDRIVE")
+        if system_drive:
+            install_roots.extend(
+                [Path(system_drive) / "Program Files", Path(system_drive) / "Program Files (x86)"]
+            )
+    return [
+        candidate
+        for root in install_roots
+        for candidate in (
+            root / "Google" / "Chrome" / "Application" / "chrome.exe",
+            root / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        )
+    ]
 
 
 def _flatten_frame_tree(node: dict[str, Any], *, parent_id: str | None = None, items: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:

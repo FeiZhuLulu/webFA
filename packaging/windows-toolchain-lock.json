@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "electron_builder_version": "26.15.3",
+  "nsis": {
+    "toolset": "0.0.0",
+    "release": "nsis-3.0.4.1",
+    "archive": "nsis-3.0.4.1.7z",
+    "sha256": "9877df902530f96357d13a7a31ae2b9df67f48b11ffc9a1700a7c961574ec5fa"
+  },
+  "nsis_resources": {
+    "release": "nsis-resources-3.4.1",
+    "archive": "nsis-resources-3.4.1.7z",
+    "sha256": "593a9a92ef958321293ac6a2ee61e64bf1bd543142a5bd6b3d310709cc924103"
+  },
+  "seven_zip": {
+    "release": "7zip@1.0.0",
+    "archive": "7zip-win-x64.tar.gz",
+    "sha256": "be071f15bd6da2f78fe81c6ddef2009b0c4d8a51f36b780cb806c7e6df95e1b3"
+  }
+}

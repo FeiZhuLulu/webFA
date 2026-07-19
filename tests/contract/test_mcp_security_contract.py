@@ -54,7 +54,18 @@ def test_health_browser_status_has_no_sensitive_data(monkeypatch, tmp_path: Path
     with TestClient(create_app()) as client:
         body_str = str(client.get("/health").json()).lower()
 
-    for forbidden in ("token", "cookie", "localstorage", "sessionstorage", "websocket", "devtools"):
+    for forbidden in (
+        "token",
+        "cookie",
+        "localstorage",
+        "sessionstorage",
+        "websocket",
+        "devtools",
+        "db_path",
+        "data_dir",
+        "logs_dir",
+        str(tmp_path).lower(),
+    ):
         assert forbidden not in body_str
 
 

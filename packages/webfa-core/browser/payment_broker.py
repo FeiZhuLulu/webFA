@@ -118,6 +118,14 @@ class PaymentInstrumentBroker:
 
     def register_instrument(self, instrument: PaymentInstrumentRef) -> PaymentInstrumentState:
         with self._lock:
+            self.validate_instrument(instrument)
+            state = PaymentInstrumentState(instrument=instrument.model_copy(deep=True))
+            self._instruments[instrument.instrument_id] = state
+            return state.model_copy(deep=True)
+
+    def validate_instrument(self, instrument: PaymentInstrumentRef) -> PaymentInstrumentRef:
+        """Validate a reference without creating or replacing broker state."""
+        with self._lock:
             if self._profile_id is not None and instrument.profile_id != self._profile_id:
                 raise PaymentInstrumentError(
                     "payment_profile_mismatch",
@@ -133,9 +141,7 @@ class PaymentInstrumentBroker:
                     "payment_backend_unavailable",
                     "local protected card storage is not enabled in the P11 payment MVP",
                 )
-            state = PaymentInstrumentState(instrument=instrument.model_copy(deep=True))
-            self._instruments[instrument.instrument_id] = state
-            return state.model_copy(deep=True)
+            return instrument.model_copy(deep=True)
 
     def get_instrument(self, instrument_id: str) -> PaymentInstrumentState:
         with self._lock:

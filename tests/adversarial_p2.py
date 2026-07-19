@@ -19,7 +19,13 @@ from apps.runtime.mcp.tools import (
 
 API = "http://127.0.0.1:8787"
 DB = os.path.join(os.environ["APPDATA"], "WebFA", "webfa.db")
+CONTROL_TOKEN = os.getenv("WEBFA_VISUALIZER_CONTROL_TOKEN", "").strip()
 results = []
+
+if not CONTROL_TOKEN:
+    raise RuntimeError(
+        "WEBFA_VISUALIZER_CONTROL_TOKEN must match the live Runtime for human approval decisions"
+    )
 
 
 def ok(r):
@@ -35,12 +41,18 @@ def err_status(r):
 
 
 def approve_via_api(approval_id):
-    resp = httpx.post(f"{API}/v1/approvals/{approval_id}/approve")
+    resp = httpx.post(
+        f"{API}/v1/approvals/{approval_id}/approve",
+        headers={"X-WebFA-Visualizer-Token": CONTROL_TOKEN},
+    )
     return resp.json().get("approval_token", "")
 
 
 def reject_via_api(approval_id):
-    httpx.post(f"{API}/v1/approvals/{approval_id}/reject")
+    httpx.post(
+        f"{API}/v1/approvals/{approval_id}/reject",
+        headers={"X-WebFA-Visualizer-Token": CONTROL_TOKEN},
+    )
 
 
 def tamper_plan(plan_id, field, value):

@@ -2,8 +2,8 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "WebFA Visualizer",
-  description: "WebFA Runtime Inspector and Human Takeover Panel"
+  title: "WebFA Control Center",
+  description: "WebFA Runtime monitoring, identity management, and human control"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

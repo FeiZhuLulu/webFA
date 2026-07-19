@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -11,8 +12,9 @@ from browser.raw_snapshot import RawWebSnapshot
 from browser.profile_storage import ProfileStorageManager
 from browser.runtime_errors import BrowserRuntimeError
 from browser.runtime_supervisor import BrowserRuntimeSupervisor
+from browser.session_routing import AgentSessionLeaseManager
 from schemas.browser import BrowserActionRequest, BrowserTab, BrowserViewport
-from schemas.profile import BrowserProfileCreate
+from schemas.profile import BrowserProfileCreate, BrowserProfileUpdate
 from schemas.web import WebObserveRequest, WebOpenRequest
 from storage.db import init_db, reset_engine_for_tests
 
@@ -162,6 +164,157 @@ def test_same_profile_is_exclusive_between_agent_connections(monkeypatch, tmp_pa
         )
     assert excinfo.value.code == "session_busy"
 
+    supervisor.close()
+
+
+def test_control_session_creation_does_not_mint_agent_authority(monkeypatch, tmp_path: Path) -> None:
+    profiles, sessions, storage = _setup(monkeypatch, tmp_path)
+    work = profiles.get_profile("work")
+    profiles.update_profile(
+        work.profile_id,
+        BrowserProfileUpdate(
+            expected_version=work.version,
+            bound_agent_ids=["agent-a"],
+        ),
+    )
+    supervisor = BrowserRuntimeSupervisor(
+        driver_factory=FakeDriver,
+        profile_repository=profiles,
+        session_repository=sessions,
+        storage_manager=storage,
+        initialize_storage=False,
+    )
+
+    control_runtime = supervisor.ensure_control_session_runtime("work")
+
+    assert control_runtime.profile_id == work.profile_id
+    assert supervisor.ensure_control_session_runtime() is control_runtime
+    assert supervisor.status()["active_session_count"] == 1
+    assert supervisor.status().get("active_agent_id") is None
+    with pytest.raises(BrowserRuntimeError) as excinfo:
+        supervisor.open_web(
+            WebOpenRequest(url="https://work.example", profile_ref="work"),
+            agent_id="agent-b",
+            connection_id="conn-b",
+        )
+    assert excinfo.value.code == "profile_access_denied"
+
+    opened = supervisor.open_web(
+        WebOpenRequest(url="https://work.example", profile_ref="work"),
+        agent_id="agent-a",
+        connection_id="conn-a",
+    )
+    assert opened.state.session_id == control_runtime.session_id
+    supervisor.close()
+
+
+def test_local_tab_id_cannot_bypass_connection_exclusive_session_lease(monkeypatch, tmp_path: Path) -> None:
+    profiles, sessions, storage = _setup(monkeypatch, tmp_path)
+    supervisor = BrowserRuntimeSupervisor(
+        driver_factory=FakeDriver,
+        profile_repository=profiles,
+        session_repository=sessions,
+        storage_manager=storage,
+        initialize_storage=False,
+    )
+    supervisor.open_web(
+        WebOpenRequest(url="https://example.com"),
+        agent_id="same-agent",
+        connection_id="conn-a",
+    )
+    supervisor.observe_web(
+        WebObserveRequest(mode="page"),
+        agent_id="same-agent",
+        connection_id="conn-b",
+    )
+
+    with pytest.raises(BrowserRuntimeError) as excinfo:
+        supervisor.switch_tab_for_connection(
+            "tab_1",
+            agent_id="same-agent",
+            connection_id="conn-b",
+        )
+
+    assert excinfo.value.code == "session_busy"
+    supervisor.close()
+
+
+def test_active_profile_grant_rechecks_current_agent_binding_policy(monkeypatch, tmp_path: Path) -> None:
+    profiles, sessions, storage = _setup(monkeypatch, tmp_path)
+    selected = profiles.get_profile("work")
+    profiles.update_profile(
+        "work",
+        BrowserProfileUpdate(
+            expected_version=selected.version,
+            bound_agent_ids=["agent-a"],
+        ),
+    )
+    supervisor = BrowserRuntimeSupervisor(
+        driver_factory=FakeDriver,
+        profile_repository=profiles,
+        session_repository=sessions,
+        storage_manager=storage,
+        initialize_storage=False,
+    )
+    opened = supervisor.open_web(
+        WebOpenRequest(url="https://work.example", profile_ref="work"),
+        agent_id="agent-a",
+        connection_id="conn-a",
+    )
+    current = profiles.get_profile("work")
+    profiles.update_profile(
+        "work",
+        BrowserProfileUpdate(
+            expected_version=current.version,
+            bound_agent_ids=["agent-b"],
+        ),
+    )
+
+    with pytest.raises(BrowserRuntimeError) as excinfo:
+        supervisor.observe_web(
+            WebObserveRequest(mode="page"),
+            agent_id="agent-a",
+            connection_id="conn-a",
+        )
+
+    assert opened.state.agent.profile_id == current.profile_id
+    assert excinfo.value.code == "profile_access_denied"
+    supervisor.close()
+
+
+def test_supervisor_projects_connection_scoped_session_lease_as_agent_state(monkeypatch, tmp_path: Path) -> None:
+    profiles, sessions, storage = _setup(monkeypatch, tmp_path)
+    now = [datetime(2040, 1, 1, tzinfo=timezone.utc)]
+    leases = AgentSessionLeaseManager(ttl_seconds=90, clock=lambda: now[0])
+    supervisor = BrowserRuntimeSupervisor(
+        driver_factory=FakeDriver,
+        profile_repository=profiles,
+        session_repository=sessions,
+        storage_manager=storage,
+        session_leases=leases,
+        initialize_storage=False,
+    )
+    opened = supervisor.open_web(
+        WebOpenRequest(url="https://example.com"),
+        agent_id="agent-a",
+        connection_id="conn-a",
+    )
+    expected_expiry = (now[0] + timedelta(seconds=90)).isoformat()
+
+    assert opened.state.agent.active_agent_id == "agent-a"
+    assert opened.state.agent.agent_lease_expires_at == expected_expiry
+    assert supervisor.status(connection_id="conn-a")["agent_lease_expires_at"] == expected_expiry
+    assert supervisor.monitor_snapshot(opened.state.session_id)["agent_lease_expires_at"] == expected_expiry
+
+    now[0] += timedelta(seconds=60)
+    observed = supervisor.observe_web(
+        WebObserveRequest(mode="page"),
+        agent_id="agent-a",
+        connection_id="conn-a",
+    )
+    renewed_expiry = (now[0] + timedelta(seconds=90)).isoformat()
+    assert observed.state.agent.agent_lease_expires_at == renewed_expiry
+    assert supervisor.status(connection_id="conn-a")["agent_lease_expires_at"] == renewed_expiry
     supervisor.close()
 
 

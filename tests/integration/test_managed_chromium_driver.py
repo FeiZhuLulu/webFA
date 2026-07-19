@@ -594,3 +594,23 @@ def test_managed_chromium_restarts_after_process_exit(monkeypatch, tmp_path: Pat
         assert restarted["last_error"] is None
     finally:
         host.close()
+
+
+def test_managed_chromium_close_reaps_process_and_is_idempotent(monkeypatch, tmp_path: Path):
+    _require_managed_chromium()
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+
+    host = ManagedChromiumHost(headless=True)
+    process = None
+    try:
+        host.navigate(FIXTURE_PAGE.as_uri())
+        process = host._process
+        assert process is not None and process.poll() is None
+
+        host.close()
+
+        assert process.poll() is not None
+        assert host.status()["host_status"] == "not_started"
+        host.close()
+    finally:
+        host.close()

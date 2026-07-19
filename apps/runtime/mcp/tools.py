@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any
 
 from apps.runtime.mcp.errors import (
@@ -16,13 +17,27 @@ from apps.runtime.mcp.errors import (
 from apps.runtime.mcp.runtime_client import WebFARuntimeClient
 
 _client: WebFARuntimeClient | None = None
+_client_lock = threading.Lock()
 
 
 def get_client() -> WebFARuntimeClient:
     global _client
-    if _client is None:
-        _client = WebFARuntimeClient()
-    return _client
+    client = _client
+    if client is not None:
+        return client
+    with _client_lock:
+        if _client is None:
+            _client = WebFARuntimeClient()
+        return _client
+
+
+def close_client() -> None:
+    global _client
+    with _client_lock:
+        client = _client
+        _client = None
+    if client is not None:
+        client.close()
 
 
 CONSOLE_URL = os.getenv("WEBFA_CONSOLE_URL", "http://127.0.0.1:8788")

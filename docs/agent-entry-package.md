@@ -1,7 +1,11 @@
-# WebFA Agent Entry Package
+# WebFA External Agent Entry Package
 
-P8 makes WebFA usable as a local agent runtime without requiring users or agents
-to remember repository-only commands.
+The installed WebFA entry package exposes the current P4-P12 agent-native local
+Runtime to independent external Agents without requiring repository-only
+commands. Historical P1-P3 transaction components remain packaged for explicit
+legacy compatibility but are disabled from the default Agent surface. WebFA does
+not create, plan for, or run an Agent; each client decides its own work and owns
+its MCP stdio connection.
 
 ## Install
 
@@ -26,8 +30,11 @@ Starts the local FastAPI Runtime on `127.0.0.1:8787`.
 webfa-mcp
 ```
 
-Runs the MCP stdio server. It checks `WEBFA_RUNTIME_URL`; if no Runtime is
-reachable, it starts a local Runtime subprocess and waits for `/health`.
+Runs the MCP stdio server. It reuses only a Runtime with a compatible WebFA
+identity. Auto-start is allowed only for an unreachable loopback HTTP endpoint;
+an endpoint lock coalesces concurrent starts and each MCP client holds a stable-
+process-identity lease. The last live owner stops only an MCP-auto-started
+Runtime, never an external or Desktop-owned Runtime.
 
 ```powershell
 webfa mcp-config
@@ -42,12 +49,15 @@ Prints MCP client configuration using the installed command:
       "command": "webfa-mcp",
       "args": [],
       "env": {
-        "WEBFA_RUNTIME_URL": "http://127.0.0.1:8787"
+        "WEBFA_RUNTIME_URL": "http://127.0.0.1:8787",
+        "WEBFA_AGENT_ID": "external-agent"
       }
     }
   }
 }
 ```
+
+Replace `external-agent` with a stable, distinct identity for each Agent client.
 
 ```powershell
 webfa doctor
@@ -81,14 +91,20 @@ $env:WEBFA_AGENT_ID="opencode"
 $env:WEBFA_HOME="$env:APPDATA\WebFA"
 $env:WEBFA_BROWSER_DRIVER="managed-chromium"
 $env:WEBFA_BROWSER_HEADLESS="0"
-$env:WEBFA_AUTH_TAKEOVER="auto"
+$env:WEBFA_AUTH_TAKEOVER="auto"  # legacy visible-host compatibility only
 ```
 
-`WEBFA_HOME` is optional. If unset on Windows, WebFA uses:
+`WEBFA_HOME` is optional for source runs and standalone Python/CLI entry points.
+If unset on Windows, those entry points use:
 
 ```text
 %APPDATA%\WebFA
 ```
+
+Packaged Desktop does not inherit an arbitrary parent `WEBFA_HOME`. It forces
+the bundled Runtime's `WEBFA_HOME` to Electron `app.getPath("userData")`, so
+Profile, Session, lock, and Runtime state stay beneath the Desktop-owned
+application-data root rather than an inherited path or the program directory.
 
 The default persistent BrowserProfile is stored at:
 
@@ -108,7 +124,9 @@ concurrently. Attempts to write through another connection return a structured
 Session/Profile busy error. `webfa.get_tabs` lists only Sessions authorized for
 the current connection.
 
-The default lease is 10 minutes and renews on each browser-changing action:
+The default lease is 10 minutes. Every successful five-tool call renews a
+still-active connection and Session lease; an expired lease is never
+resurrected by read activity:
 
 ```powershell
 $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
@@ -117,18 +135,28 @@ $env:WEBFA_AGENT_LEASE_TTL_SECONDS="600"
 Use `webfa login github` to put a GitHub login session into this profile before
 asking an agent to work on logged-in GitHub pages.
 
-Developer preview uses the WebFA-owned Auth Surface for authentication
-takeover. If an agent opens a login, QR-code, verification-code, 2FA, or
-authorization page, the user completes the credential step in the WebFA UI
-takeover area. The agent does not receive passwords, verification codes,
-cookies, storage values, or tokens. After the user finishes, the agent
-continues with `webfa.observe`.
+Developer preview uses Session Monitor's projection of the same BrowserHost
+page for authentication takeover. If an agent opens a login, QR-code,
+verification-code, 2FA, or authorization page, the user opens that Session's
+Monitor and acquires a time-bounded `HumanControlLease`. Local mouse, keyboard,
+wheel, paste, and composition input is forwarded to the existing page target;
+no duplicate page, second BrowserHost, or DOM bridge is created. The agent does
+not receive passwords, verification codes, cookies, storage values, or tokens.
+When page keyboard capture has focus, Escape returns to the visible Page
+Keyboard control without releasing the lease. Enter resumes page capture, while
+Tab reaches Return to Agent. Lease release remains available while connected
+even if the latest visual frame is temporarily unavailable.
 
-The takeover area shares the same default profile as the Runtime host. WebFA
-temporarily closes the hidden host while the takeover area is active, then
-restarts it with the same profile after takeover is completed.
+HumanControl authority is bound to the authenticated Monitor connection,
+Profile, Session, active tab, and Runtime generation. Agent writes pause only in
+that Session while the lease is active. Release, expiry, revocation, disconnect,
+or Monitor closure restores Runtime control, after which the agent performs a
+fresh `webfa.observe`. The former duplicate-page Electron AuthSurface is
+permanently retired and does not close or restart BrowserHost.
 
-Disable this behavior only for tests or fully unattended local smoke runs:
+The legacy visible-host compatibility path can disable automatic relaunch for
+tests or fully unattended local smoke runs. This variable does not enable,
+disable, or authorize Session Monitor HumanControl:
 
 ```powershell
 $env:WEBFA_AUTH_TAKEOVER="off"
@@ -157,8 +185,9 @@ cookies, storage, or tokens as agent-facing capabilities.
 
 ## Manual Validation
 
-The implementation tests cover local packaging and smoke behavior. External
-agent validation is intentionally manual for P8:
+Automated tests cover installed-wheel behavior, frozen sidecar MCP, release
+inputs, unpacked integrity, and packaged lifecycle smoke. A real external Agent
+workflow against the exact release candidate remains an explicit candidate gate:
 
 1. Install WebFA in a clean environment.
 2. Add `webfa mcp-config` output to the agent's MCP configuration.

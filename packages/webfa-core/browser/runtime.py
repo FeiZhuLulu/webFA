@@ -758,6 +758,9 @@ class BrowserSessionRuntime:
     def register_payment_instrument(self, instrument: PaymentInstrumentRef) -> PaymentInstrumentState:
         return self._payments.register_instrument(instrument)
 
+    def validate_payment_instrument(self, instrument: PaymentInstrumentRef) -> PaymentInstrumentRef:
+        return self._payments.validate_instrument(instrument)
+
     def list_payment_instruments(self) -> list[PaymentInstrumentState]:
         return self._payments.list_instruments()
 
@@ -2347,8 +2350,9 @@ class BrowserSessionRuntime:
         with self._web_operation_lock:
             if self._closed:
                 return
-            self._transition_session(lifecycle="stopping")
+            failure: Exception | None = None
             try:
+                self._transition_session(lifecycle="stopping")
                 self._reconcile_human_control_expiry()
                 active_human = self._human_control.active()
                 if active_human is not None:
@@ -2367,22 +2371,44 @@ class BrowserSessionRuntime:
                             )
                         except HumanControlError:
                             pass
-                if self._thread is None:
-                    return
-                result: queue.Queue = queue.Queue(maxsize=1)
-                self._jobs.put(("close", (), result))
-                ok, value = result.get(timeout=30)
-                self._thread.join(timeout=30)
-                if not ok:
-                    raise value
-            finally:
-                self._closed = True
+                if self._thread is not None:
+                    result: queue.Queue = queue.Queue(maxsize=1)
+                    self._jobs.put(("close", (), result))
+                    ok, value = result.get(timeout=30)
+                    self._thread.join(timeout=30)
+                    if not ok:
+                        raise value
+            except Exception as exc:
+                failure = exc
+
+            self._closed = True
+            try:
                 self._local_resources.close()
+            except Exception as exc:
+                if failure is None:
+                    failure = exc
+            try:
                 self._session_events.close()
-                if not self._session_terminal_recorded:
+            except Exception as exc:
+                if failure is None:
+                    failure = exc
+            if not self._session_terminal_recorded:
+                if failure is None:
                     self._transition_session(lifecycle="closed", close_reason="runtime closed")
-                    self._session_terminal_recorded = True
-                    self._notify_terminal("closed", "runtime closed")
+                    lifecycle = "closed"
+                    reason = "runtime closed"
+                else:
+                    reason = f"runtime close failed: {failure}"[:500]
+                    self._transition_session(
+                        lifecycle="crashed",
+                        health="failed",
+                        close_reason=reason,
+                    )
+                    lifecycle = "crashed"
+                self._session_terminal_recorded = True
+                self._notify_terminal(lifecycle, reason)
+            if failure is not None:
+                raise failure
 
     def _call(self, name: str, *args: Any) -> Any:
         if self._closed:
@@ -2602,11 +2628,12 @@ class SessionWorker:
             try:
                 value = handlers[name](*args)
                 result.put((True, value))
-                if name == "close":
-                    return
             except Exception as exc:
                 self._publish_job_failure(name, args, exc)
                 result.put((False, exc))
+            finally:
+                if name == "close":
+                    return
 
     def open(self, url: str) -> BrowserActionResult:
         operation_id = f"nav_{uuid4().hex}"

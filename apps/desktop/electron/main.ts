@@ -14,36 +14,59 @@ import { createReadStream, createWriteStream, promises as fs } from "fs";
 import path from "path";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
-import { McpProcessManager, McpStatus } from "./mcpProcess";
+import { RendererAssetServer } from "./rendererServer";
 import { RuntimeProcessManager, RuntimeStatus } from "./runtimeProcess";
 
-const API_HOST = process.env.WEBFA_API_HOST ?? "127.0.0.1";
-const API_PORT = Number(process.env.WEBFA_API_PORT ?? "8787");
-const CONSOLE_URL = process.env.WEBFA_DEV_RENDERER_URL ?? "http://127.0.0.1:8788";
-const CONSOLE_LOCATION = new URL(CONSOLE_URL);
-const MONITOR_URL =
-  process.env.WEBFA_MONITOR_RENDERER_URL ??
-  (CONSOLE_LOCATION.protocol === "file:"
-    ? new URL("monitor/index.html", CONSOLE_LOCATION).href
-    : new URL("/monitor", CONSOLE_LOCATION).href);
-const CONSOLE_ORIGIN = CONSOLE_LOCATION.origin;
-const CONSOLE_FILE_BASE =
-  CONSOLE_LOCATION.protocol === "file:" ? new URL(".", CONSOLE_LOCATION).href : null;
-const APP_ROOT = process.env.WEBFA_ROOT ?? path.resolve(__dirname, "../../../..");
-const VISUALIZER_CONTROL_TOKEN =
-  process.env.WEBFA_VISUALIZER_CONTROL_TOKEN ?? randomBytes(32).toString("base64url");
+function resolveApiHost(value: string | undefined): string {
+  const host = (value ?? "127.0.0.1").trim().toLowerCase();
+  if (!new Set(["127.0.0.1", "localhost"]).has(host)) {
+    throw new Error("WEBFA_API_HOST must be 127.0.0.1 or localhost");
+  }
+  return host;
+}
+
+function resolveApiPort(value: string | undefined): number {
+  const port = Number(value ?? "8787");
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("WEBFA_API_PORT must be an integer between 1 and 65535");
+  }
+  return port;
+}
+
+const API_HOST = resolveApiHost(process.env.WEBFA_API_HOST);
+const API_PORT = resolveApiPort(process.env.WEBFA_API_PORT);
+const API_URL = `http://${API_HOST}:${API_PORT}`;
+const SOURCE_CONSOLE_URL = process.env.WEBFA_DEV_RENDERER_URL ?? "http://127.0.0.1:8788";
+let CONSOLE_URL = SOURCE_CONSOLE_URL;
+let CONSOLE_LOCATION = new URL(CONSOLE_URL);
+let MONITOR_URL = new URL("/monitor/", CONSOLE_LOCATION).href;
+let CONSOLE_ORIGIN = CONSOLE_LOCATION.origin;
+const APP_ROOT = app.isPackaged
+  ? app.getAppPath()
+  : process.env.WEBFA_ROOT ?? path.resolve(__dirname, "../../../..");
+const CONFIGURED_DEV_CONTROL_TOKEN = app.isPackaged
+  ? undefined
+  : process.env.WEBFA_VISUALIZER_CONTROL_TOKEN;
 const PROFILE_BUNDLE_CONTENT_TYPE = "application/vnd.webfa.profile-bundle";
 const PROFILE_BUNDLE_EXTENSION = "webfa-profile";
+const RELEASE_SMOKE_FLAG = "--webfa-release-smoke";
+const RELEASE_SMOKE_RESULT_NAME = "release-smoke-result.json";
+const RELEASE_SMOKE_REQUESTED = process.argv.includes(RELEASE_SMOKE_FLAG);
 
 let mainWindow: BrowserWindow | null = null;
+let mainWindowLoadPromise: Promise<void> | null = null;
 let monitorWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let runtimeManager: RuntimeProcessManager;
-let mcpManager: McpProcessManager;
+let rendererServer: RendererAssetServer | null = null;
 let isQuitting = false;
+let shutdownStarted = false;
+let shutdownComplete = false;
+let applicationIconLoaded = false;
+let releaseSmokeExitCode = 0;
+let releaseSmokeEvidence: Record<string, unknown> | null = null;
 
 function isAllowedConsoleLocation(location: URL): boolean {
-  if (location.protocol === "file:") return true;
   return (
     location.protocol === "http:" &&
     ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname)
@@ -51,19 +74,48 @@ function isAllowedConsoleLocation(location: URL): boolean {
 }
 
 if (!isAllowedConsoleLocation(CONSOLE_LOCATION)) {
-  throw new Error("WEBFA console must use a local loopback or file URL");
+  throw new Error("WEBFA console must use a local loopback HTTP URL");
+}
+
+function createVisualizerControlToken(): string {
+  return CONFIGURED_DEV_CONTROL_TOKEN ?? randomBytes(32).toString("base64url");
+}
+
+function loadApplicationIcon() {
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, "assets", "webfa.ico")
+    : path.join(APP_ROOT, "packaging", "webfa.ico");
+  const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) throw new Error(`WebFA application icon is missing or invalid: ${iconPath}`);
+  return icon;
+}
+
+function requireOwnedRuntimeControl(): string {
+  const token = runtimeManager?.getControlToken();
+  if (!token) {
+    throw new Error("Desktop control authority is unavailable until its owned Runtime is verified");
+  }
+  return token;
 }
 
 function isTrustedConsoleUrl(value: string): boolean {
   try {
     const candidate = new URL(value);
-    if (CONSOLE_FILE_BASE) {
-      return candidate.protocol === "file:" && candidate.href.startsWith(CONSOLE_FILE_BASE);
-    }
     return candidate.origin === CONSOLE_ORIGIN;
   } catch {
     return false;
   }
+}
+
+function configureConsoleLocation(value: string): void {
+  const location = new URL(value);
+  if (!isAllowedConsoleLocation(location)) {
+    throw new Error("WEBFA console must use a local loopback HTTP URL");
+  }
+  CONSOLE_URL = location.href;
+  CONSOLE_LOCATION = location;
+  CONSOLE_ORIGIN = location.origin;
+  MONITOR_URL = new URL("/monitor/", location).href;
 }
 
 function requireTrustedMainRenderer(event: IpcMainInvokeEvent): void {
@@ -92,12 +144,6 @@ function broadcastRuntimeStatus(status: RuntimeStatus): void {
   });
 }
 
-function broadcastMcpStatus(status: McpStatus): void {
-  BrowserWindow.getAllWindows().forEach((window) => {
-    window.webContents.send("mcp-status", status);
-  });
-}
-
 function secureLocalWindow(window: BrowserWindow): void {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
@@ -108,13 +154,15 @@ function secureLocalWindow(window: BrowserWindow): void {
   });
 }
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 780,
-    minWidth: 960,
+    minWidth: 720,
     minHeight: 640,
     title: "WebFA Desktop",
+    icon: loadApplicationIcon(),
+    show: !RELEASE_SMOKE_REQUESTED,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -124,7 +172,11 @@ function createWindow(): void {
   });
 
   secureLocalWindow(mainWindow);
-  void mainWindow.loadURL(CONSOLE_URL);
+  const loadPromise = mainWindow.loadURL(CONSOLE_URL);
+  mainWindowLoadPromise = loadPromise;
+  void loadPromise.catch((error) => {
+    console.error("WebFA Control Center failed to load", error);
+  });
 
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
@@ -132,6 +184,115 @@ function createWindow(): void {
       mainWindow?.hide();
     }
   });
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+    mainWindowLoadPromise = null;
+  });
+  return mainWindow;
+}
+
+async function waitForMainWindowLoad(timeoutMs = 20_000): Promise<BrowserWindow> {
+  const window = mainWindow;
+  const loadPromise = mainWindowLoadPromise;
+  if (!window || window.isDestroyed() || !loadPromise) {
+    throw new Error("Control Center window was not created for the release smoke");
+  }
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      loadPromise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Control Center did not load within ${timeoutMs} ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  if (window.isDestroyed()) throw new Error("Control Center window was destroyed during loading");
+  if (!isTrustedConsoleUrl(window.webContents.getURL())) {
+    throw new Error("Control Center finished at an untrusted location");
+  }
+  return window;
+}
+
+async function writeReleaseSmokeResult(payload: Record<string, unknown>): Promise<void> {
+  if (!RELEASE_SMOKE_REQUESTED || !app.isReady()) return;
+  const resultPath = path.join(app.getPath("userData"), RELEASE_SMOKE_RESULT_NAME);
+  const temporaryPath = `${resultPath}.tmp`;
+  await fs.mkdir(path.dirname(resultPath), { recursive: true });
+  await fs.writeFile(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  await fs.rename(temporaryPath, resultPath);
+}
+
+async function collectReleaseSmokeEvidence(status: RuntimeStatus): Promise<Record<string, unknown>> {
+  if (!app.isPackaged) throw new Error(`${RELEASE_SMOKE_FLAG} is available only in packaged builds`);
+  if (
+    status.state !== "running" ||
+    status.ownership !== "desktop" ||
+    status.releaseVersion !== app.getVersion() ||
+    status.protocolVersion !== 1 ||
+    !status.instanceId ||
+    !status.pid
+  ) {
+    throw new Error(`Packaged Runtime did not reach verified desktop ownership: ${JSON.stringify(status)}`);
+  }
+
+  const window = await waitForMainWindowLoad();
+  const renderer = (await window.webContents.executeJavaScript(`(() => ({
+    readyState: document.readyState,
+    title: document.title,
+    hasMain: Boolean(document.querySelector("main")),
+    hasWebfaBrand: document.body?.innerText.includes("WebFA") ?? false
+  }))()`, true)) as {
+    readyState?: unknown;
+    title?: unknown;
+    hasMain?: unknown;
+    hasWebfaBrand?: unknown;
+  };
+  if (
+    renderer.readyState !== "complete" ||
+    renderer.title !== "WebFA Control Center" ||
+    renderer.hasMain !== true ||
+    renderer.hasWebfaBrand !== true
+  ) {
+    throw new Error(`Packaged Control Center did not expose the expected shell: ${JSON.stringify(renderer)}`);
+  }
+
+  const response = await fetch(`${API_URL}/health`, {
+    cache: "no-store",
+    headers: { Connection: "close" },
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!response.ok) throw new Error(`Packaged Runtime health returned HTTP ${response.status}`);
+  const health = (await response.json()) as Record<string, unknown>;
+  if (
+    health.product !== "webfa" ||
+    health.release_version !== status.releaseVersion ||
+    health.protocol_version !== status.protocolVersion ||
+    health.instance_id !== status.instanceId
+  ) {
+    throw new Error(`Packaged Runtime health identity changed after startup: ${JSON.stringify(health)}`);
+  }
+
+  return {
+    product: "webfa",
+    releaseVersion: status.releaseVersion,
+    protocolVersion: status.protocolVersion,
+    runtimeInstanceId: status.instanceId,
+    runtimePid: status.pid,
+    runtimeOwnership: status.ownership,
+    applicationIconLoaded,
+    apiUrl: API_URL,
+    userDataPath: app.getPath("userData"),
+    consoleUrl: window.webContents.getURL(),
+    renderer,
+  };
 }
 
 function createMonitorWindow(): BrowserWindow {
@@ -146,6 +307,7 @@ function createMonitorWindow(): BrowserWindow {
     minWidth: 980,
     minHeight: 640,
     title: "WebFA 会话监控",
+    icon: loadApplicationIcon(),
     webPreferences: {
       preload: path.join(__dirname, "monitorPreload.js"),
       contextIsolation: true,
@@ -162,50 +324,136 @@ function createMonitorWindow(): BrowserWindow {
   return monitorWindow;
 }
 
-async function issueMonitorConfig(): Promise<{
-  websocketUrl: string;
-  token: string;
-  sessionId: string;
-  expiresAt: string;
-}> {
-  const response = await fetch(`http://${API_HOST}:${API_PORT}/v1/visualizer/monitor-grants`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-WebFA-Visualizer-Token": VISUALIZER_CONTROL_TOKEN
-    },
-    body: JSON.stringify({
-      session_id: "default",
-      permissions: ["events", "frames", "takeover"],
-      ttl_seconds: 300
-    })
-  });
+type MonitorConfig =
+  | {
+      status: "ready";
+      websocketUrl: string;
+      token: string;
+      sessionId: string;
+      expiresAt: string;
+    }
+  | {
+      status: "waiting";
+      reason: "no_active_session";
+      sessionId: string;
+      retryAfterMs: number;
+    }
+  | {
+      status: "unavailable";
+      reason: "runtime_unavailable" | "monitor_config_failed";
+      retryAfterMs: number;
+    };
+
+async function issueMonitorConfig(): Promise<MonitorConfig> {
+  const status = runtimeManager?.getStatus();
+  const controlToken = runtimeManager?.getControlToken();
+  if (status?.state !== "running" || status.ownership !== "desktop" || !controlToken) {
+    return unavailableMonitorConfig("runtime_unavailable");
+  }
+  const controlHeaders = { "X-WebFA-Visualizer-Token": controlToken };
+  let sessionsResponse: Response;
+  try {
+    sessionsResponse = await fetch(`${API_URL}/v1/visualizer/sessions`, {
+      cache: "no-store",
+      headers: controlHeaders,
+    });
+  } catch {
+    return unavailableMonitorConfig("runtime_unavailable");
+  }
+  if (!sessionsResponse.ok) {
+    return unavailableMonitorConfig("monitor_config_failed");
+  }
+  let sessionsBody: { sessions?: unknown[] };
+  try {
+    sessionsBody = (await sessionsResponse.json()) as { sessions?: unknown[] };
+  } catch {
+    return unavailableMonitorConfig("monitor_config_failed");
+  }
+  if (!Array.isArray(sessionsBody.sessions) || sessionsBody.sessions.length === 0) {
+    return waitingMonitorConfig();
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/v1/visualizer/monitor-grants`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-WebFA-Visualizer-Token": controlToken
+      },
+      body: JSON.stringify({
+        session_id: "default",
+        permissions: ["events", "frames", "takeover"],
+        ttl_seconds: 300
+      })
+    });
+  } catch {
+    return unavailableMonitorConfig("runtime_unavailable");
+  }
   if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Failed to issue Monitor grant (${response.status}): ${body}`);
+    const failure = await readControlApiFailure(response, "Monitor grant failed");
+    if (response.status === 404 && failure.code === "monitor_session_not_found") {
+      return {
+        ...waitingMonitorConfig(),
+      };
+    }
+    return unavailableMonitorConfig("monitor_config_failed");
   }
   const body = (await response.json()) as {
     grant: { token: string; session_id: string; expires_at: string };
   };
   return {
-    websocketUrl: `ws://${API_HOST}:${API_PORT}/v1/monitor/ws`,
+    status: "ready",
+    websocketUrl: `${API_URL.replace(/^http/, "ws")}/v1/monitor/ws`,
     token: body.grant.token,
     sessionId: body.grant.session_id,
     expiresAt: body.grant.expires_at
   };
 }
 
-async function readControlApiError(response: Response, fallback: string): Promise<string> {
+function unavailableMonitorConfig(
+  reason: "runtime_unavailable" | "monitor_config_failed",
+): Extract<MonitorConfig, { status: "unavailable" }> {
+  return {
+    status: "unavailable",
+    reason,
+    retryAfterMs: 2_000,
+  };
+}
+
+function waitingMonitorConfig(): Extract<MonitorConfig, { status: "waiting" }> {
+  return {
+    status: "waiting",
+    reason: "no_active_session",
+    sessionId: "default",
+    retryAfterMs: 5_000,
+  };
+}
+
+async function readControlApiFailure(
+  response: Response,
+  fallback: string,
+): Promise<{ code: string | null; message: string }> {
   try {
     const payload = (await response.json()) as {
-      detail?: { message?: string } | string;
+      detail?: { code?: string; message?: string } | string;
     };
-    if (typeof payload.detail === "string") return payload.detail;
-    if (payload.detail?.message) return payload.detail.message;
+    if (typeof payload.detail === "string") {
+      return { code: null, message: payload.detail };
+    }
+    if (payload.detail?.message) {
+      return {
+        code: typeof payload.detail.code === "string" ? payload.detail.code : null,
+        message: payload.detail.message,
+      };
+    }
   } catch {
     // Fall back to the bounded generic message below.
   }
-  return `${fallback} (${response.status})`;
+  return { code: null, message: `${fallback} (${response.status})` };
+}
+
+async function readControlApiError(response: Response, fallback: string): Promise<string> {
+  return (await readControlApiFailure(response, fallback)).message;
 }
 
 function requireBundlePassphrase(value: unknown): string {
@@ -225,6 +473,7 @@ async function saveProfileBundle(args: {
   | { status: "cancelled" }
   | { status: "saved"; fileName: string; byteCount: number; sha256: string }
 > {
+  const controlToken = requireOwnedRuntimeControl();
   if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Control Center window is unavailable");
   const passphrase = requireBundlePassphrase(args.passphrase);
   const suggestedFilename = path.basename(args.suggestedFilename || `webfa-profile.${PROFILE_BUNDLE_EXTENSION}`);
@@ -236,12 +485,12 @@ async function saveProfileBundle(args: {
   if (selection.canceled || !selection.filePath) return { status: "cancelled" };
 
   const response = await fetch(
-    `http://${API_HOST}:${API_PORT}/v1/profiles/${encodeURIComponent(args.profileId)}/bootstrap/bundle/export`,
+    `${API_URL}/v1/profiles/${encodeURIComponent(args.profileId)}/bootstrap/bundle/export`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-WebFA-Visualizer-Token": VISUALIZER_CONTROL_TOKEN,
+        "X-WebFA-Visualizer-Token": controlToken,
         "X-WebFA-Bundle-Passphrase": passphrase
       },
       body: JSON.stringify({
@@ -281,6 +530,7 @@ async function previewProfileBundleRestore(args: { passphrase: string }): Promis
   | { status: "cancelled" }
   | { status: "previewed"; fileName: string; preview: Record<string, unknown> }
 > {
+  const controlToken = requireOwnedRuntimeControl();
   if (!mainWindow || mainWindow.isDestroyed()) throw new Error("Control Center window is unavailable");
   const passphrase = requireBundlePassphrase(args.passphrase);
   const selection = await dialog.showOpenDialog(mainWindow, {
@@ -298,14 +548,14 @@ async function previewProfileBundleRestore(args: { passphrase: string }): Promis
     headers: {
       "Content-Type": "application/octet-stream",
       "Content-Length": String(fileStat.size),
-      "X-WebFA-Visualizer-Token": VISUALIZER_CONTROL_TOKEN,
+      "X-WebFA-Visualizer-Token": controlToken,
       "X-WebFA-Bundle-Passphrase": passphrase
     },
     body: createReadStream(filePath),
     duplex: "half"
   } as unknown as RequestInit & { duplex: "half" };
   const response = await fetch(
-    `http://${API_HOST}:${API_PORT}/v1/profile-bundles/restore/preview`,
+    `${API_URL}/v1/profile-bundles/restore/preview`,
     requestInit
   );
   if (!response.ok) {
@@ -317,8 +567,9 @@ async function previewProfileBundleRestore(args: { passphrase: string }): Promis
 
 function createTray(): void {
   try {
-    const icon = nativeImage.createEmpty();
+    const icon = loadApplicationIcon();
     tray = new Tray(icon);
+    applicationIconLoaded = true;
     tray.setToolTip("WebFA Desktop");
     tray.setContextMenu(Menu.buildFromTemplate([
       {
@@ -337,13 +588,9 @@ function createTray(): void {
       { label: "Start Runtime", click: () => runtimeManager.start() },
       { label: "Stop Runtime", click: () => runtimeManager.stop() },
       { type: "separator" },
-      { label: "Start MCP Server", click: () => mcpManager.start() },
-      { label: "Stop MCP Server", click: () => mcpManager.stop() },
-      { label: "Restart MCP Server", click: () => mcpManager.restart() },
-      { type: "separator" },
       {
         label: "Open REST API",
-        click: () => shell.openExternal(`http://${API_HOST}:${API_PORT}/health`)
+        click: () => shell.openExternal(`${API_URL}/health`)
       },
       { type: "separator" },
       {
@@ -359,99 +606,183 @@ function createTray(): void {
   }
 }
 
-app.whenReady().then(() => {
-  runtimeManager = new RuntimeProcessManager({
-    appRoot: APP_ROOT,
-    host: API_HOST,
-    port: API_PORT,
-    visualizerControlToken: VISUALIZER_CONTROL_TOKEN,
-    monitorAllowedOrigin: CONSOLE_LOCATION.protocol === "file:" ? "null" : CONSOLE_ORIGIN,
-    onStatus: broadcastRuntimeStatus
-  });
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-  mcpManager = new McpProcessManager({
-    appRoot: APP_ROOT,
-    runtimeUrl: `http://${API_HOST}:${API_PORT}`,
-    onStatus: broadcastMcpStatus
-  });
-
-  ipcMain.handle("runtime:getStatus", (event) => {
-    requireTrustedMainRenderer(event);
-    return runtimeManager.getStatus();
-  });
-  ipcMain.handle("runtime:start", (event) => {
-    requireTrustedMainRenderer(event);
-    return runtimeManager.start();
-  });
-  ipcMain.handle("runtime:stop", (event) => {
-    requireTrustedMainRenderer(event);
-    return runtimeManager.stop();
-  });
-  ipcMain.handle("mcp:getStatus", (event) => {
-    requireTrustedMainRenderer(event);
-    return mcpManager.getStatus();
-  });
-  ipcMain.handle("mcp:start", (event) => {
-    requireTrustedMainRenderer(event);
-    return mcpManager.start();
-  });
-  ipcMain.handle("mcp:stop", (event) => {
-    requireTrustedMainRenderer(event);
-    return mcpManager.stop();
-  });
-  ipcMain.handle("mcp:restart", (event) => {
-    requireTrustedMainRenderer(event);
-    return mcpManager.restart();
-  });
-  ipcMain.handle("desktop:getConfig", (event) => {
-    requireTrustedMainRenderer(event);
-    return {
-      apiUrl: `http://${API_HOST}:${API_PORT}`,
-      consoleUrl: CONSOLE_URL,
-      visualizerControlToken: VISUALIZER_CONTROL_TOKEN
-    };
-  });
-  ipcMain.handle("monitor:open", (event) => {
-    requireTrustedMainRenderer(event);
-    createMonitorWindow();
-    return { opened: true };
-  });
-  ipcMain.handle("profileBundle:save", (event, args) => {
-    requireTrustedMainRenderer(event);
-    return saveProfileBundle(args);
-  });
-  ipcMain.handle("profileBundle:previewRestore", (event, args) => {
-    requireTrustedMainRenderer(event);
-    return previewProfileBundleRestore(args);
-  });
-  ipcMain.handle("monitor:getConfig", async (event) => {
-    requireTrustedMonitorRenderer(event);
-    return issueMonitorConfig();
-  });
-  ipcMain.handle("monitor:openControlCenter", (event) => {
-    requireTrustedMonitorRenderer(event);
-    if (!mainWindow) createWindow();
+if (!hasSingleInstanceLock) {
+  isQuitting = true;
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow && app.isReady()) createWindow();
     mainWindow?.show();
     mainWindow?.focus();
-    return { opened: true };
   });
 
-  createWindow();
-  createTray();
-  runtimeManager.start();
-  mcpManager.start();
+  void app.whenReady().then(async () => {
+    if (RELEASE_SMOKE_REQUESTED && !app.isPackaged) {
+      throw new Error(`${RELEASE_SMOKE_FLAG} is available only in packaged builds`);
+    }
+    let sidecarExecutable: string | undefined;
+    if (app.isPackaged) {
+      const appArchive = app.getAppPath();
+      const rendererRoot = path.join(appArchive, "apps", "desktop", "renderer", "out");
+      rendererServer = new RendererAssetServer(rendererRoot, {
+        integrityProtectedArchive: appArchive,
+      });
+      const rendererOrigin = await rendererServer.start();
+      configureConsoleLocation(`${rendererOrigin}/`);
+      sidecarExecutable = path.join(
+        process.resourcesPath,
+        "sidecar",
+        process.platform === "win32" ? "webfa.exe" : "webfa",
+      );
+    }
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    mainWindow?.show();
+    runtimeManager = new RuntimeProcessManager({
+      appRoot: APP_ROOT,
+      expectedReleaseVersion: app.getVersion(),
+      workingDirectory: app.isPackaged ? app.getPath("userData") : APP_ROOT,
+      dataDirectory: app.isPackaged ? app.getPath("userData") : undefined,
+      sidecarExecutable,
+      host: API_HOST,
+      port: API_PORT,
+      controlTokenFactory: createVisualizerControlToken,
+      monitorAllowedOrigin: CONSOLE_ORIGIN,
+      onStatus: broadcastRuntimeStatus
+    });
+
+    ipcMain.handle("runtime:getStatus", (event) => {
+      requireTrustedMainRenderer(event);
+      return runtimeManager.getStatus();
+    });
+    ipcMain.handle("runtime:start", (event) => {
+      requireTrustedMainRenderer(event);
+      return runtimeManager.start();
+    });
+    ipcMain.handle("runtime:stop", (event) => {
+      requireTrustedMainRenderer(event);
+      return runtimeManager.stop();
+    });
+    ipcMain.handle("desktop:getConfig", (event) => {
+      requireTrustedMainRenderer(event);
+      return {
+        apiUrl: API_URL,
+        consoleUrl: CONSOLE_URL,
+        ...(runtimeManager.getControlToken()
+          ? { visualizerControlToken: runtimeManager.getControlToken() }
+          : {}),
+      };
+    });
+    ipcMain.handle("monitor:open", (event) => {
+      requireTrustedMainRenderer(event);
+      createMonitorWindow();
+      return { opened: true };
+    });
+    ipcMain.handle("profileBundle:save", (event, args) => {
+      requireTrustedMainRenderer(event);
+      return saveProfileBundle(args);
+    });
+    ipcMain.handle("profileBundle:previewRestore", (event, args) => {
+      requireTrustedMainRenderer(event);
+      return previewProfileBundleRestore(args);
+    });
+    ipcMain.handle("monitor:getConfig", async (event) => {
+      requireTrustedMonitorRenderer(event);
+      return issueMonitorConfig();
+    });
+    ipcMain.handle("monitor:openControlCenter", (event) => {
+      requireTrustedMonitorRenderer(event);
+      if (!mainWindow) createWindow();
+      mainWindow?.show();
+      mainWindow?.focus();
+      return { opened: true };
+    });
+
+    createWindow();
+    createTray();
+    runtimeManager.start();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      mainWindow?.show();
+    });
+
+    if (RELEASE_SMOKE_REQUESTED) {
+      const status = await runtimeManager.waitForStartup();
+      releaseSmokeEvidence = await collectReleaseSmokeEvidence(status);
+      isQuitting = true;
+      app.quit();
+    }
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("WebFA Desktop failed to initialize", error);
+    if (RELEASE_SMOKE_REQUESTED) {
+      releaseSmokeExitCode = 1;
+      releaseSmokeEvidence = { error: message };
+    } else {
+      dialog.showErrorBox("WebFA Desktop failed to initialize", message);
+    }
+    isQuitting = true;
+    app.quit();
   });
-});
+}
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (shutdownComplete) return;
+  event.preventDefault();
+  if (shutdownStarted) return;
+  shutdownStarted = true;
   isQuitting = true;
-  monitorWindow?.destroy();
-  mcpManager?.stop();
-  runtimeManager?.stop();
+  void (async () => {
+    try {
+      if (runtimeManager) await runtimeManager.stop();
+      if (rendererServer) await rendererServer.stop();
+      monitorWindow?.destroy();
+      if (RELEASE_SMOKE_REQUESTED) {
+        try {
+          await writeReleaseSmokeResult({
+            status: releaseSmokeExitCode === 0 ? "pass" : "fail",
+            ...releaseSmokeEvidence,
+            cleanup: {
+              runtimeState: runtimeManager ? runtimeManager.getStatus().state : "uninitialized",
+              rendererServerStopped: true,
+            },
+          });
+        } catch (error) {
+          releaseSmokeExitCode = 1;
+          console.error("WebFA Desktop could not write release smoke evidence", error);
+        }
+        shutdownComplete = true;
+        app.exit(releaseSmokeExitCode);
+      } else {
+        shutdownComplete = true;
+        app.quit();
+      }
+    } catch (error) {
+      shutdownStarted = false;
+      isQuitting = false;
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("WebFA Desktop refused to quit because owned processes remain", error);
+      if (RELEASE_SMOKE_REQUESTED) {
+        releaseSmokeExitCode = 1;
+        await writeReleaseSmokeResult({
+          status: "fail",
+          ...releaseSmokeEvidence,
+          error: message,
+          cleanup: {
+            runtimeState: runtimeManager ? runtimeManager.getStatus().state : "uninitialized",
+            rendererServerStopped: false,
+          },
+        }).catch((writeError) => {
+          console.error("WebFA Desktop could not write release smoke failure evidence", writeError);
+        });
+      } else {
+        dialog.showErrorBox("WebFA Desktop could not shut down safely", message);
+        mainWindow?.show();
+        mainWindow?.focus();
+      }
+    }
+  })();
 });
 
 app.on("window-all-closed", () => {

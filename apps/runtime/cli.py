@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 import tempfile
 from contextlib import suppress
@@ -11,8 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from apps.runtime.login import resolve_login_target, run_login_window
-from apps.runtime.mcp.config_generator import generate_config
+from apps.runtime.mcp.config_generator import DEFAULT_EXTERNAL_AGENT_ID, generate_config
+from apps.runtime.mcp.runtime_client import WebFARuntimeClient
 from apps.runtime.process import ensure_runtime, get_runtime_url, runtime_health, runtime_http_options, wait_for_runtime
+from apps.runtime.version import __version__
 from storage.file_store import ensure_webfa_data_dir
 
 
@@ -23,8 +24,12 @@ def main_runtime(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=int(os.getenv("WEBFA_API_PORT", "8787")))
     args = parser.parse_args(argv)
 
-    runtime_url = f"http://{args.host}:{args.port}"
-    if args.command == "status":
+    return _run_runtime(args.command, args.host, args.port)
+
+
+def _run_runtime(command: str, host: str, port: int) -> int:
+    runtime_url = f"http://{host}:{port}"
+    if command == "status":
         health = runtime_health(runtime_url)
         if health is None:
             print(json.dumps({"status": "unreachable", "runtime_url": runtime_url}, indent=2))
@@ -33,9 +38,12 @@ def main_runtime(argv: list[str] | None = None) -> int:
         return 0
 
     os.environ.setdefault("WEBFA_BROWSER_DRIVER", "managed-chromium")
+    os.environ["WEBFA_API_HOST"] = host
+    os.environ["WEBFA_API_PORT"] = str(port)
+    os.environ["WEBFA_RUNTIME_URL"] = runtime_url
     import uvicorn
 
-    uvicorn.run("apps.runtime.main:app", host=args.host, port=args.port, log_level="info")
+    uvicorn.run("apps.runtime.main:app", host=host, port=port, log_level="info")
     return 0
 
 
@@ -45,25 +53,29 @@ def main_mcp(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-auto-start", action="store_true")
     args = parser.parse_args(argv)
 
-    runtime_url = get_runtime_url(args.runtime_url)
+    return _run_mcp(args.runtime_url, no_auto_start=args.no_auto_start)
+
+
+def _run_mcp(runtime_url_arg: str | None, *, no_auto_start: bool) -> int:
+    runtime_url = get_runtime_url(runtime_url_arg)
     os.environ["WEBFA_RUNTIME_URL"] = runtime_url
-    runtime_process = ensure_runtime(runtime_url, auto_start=not args.no_auto_start)
+    runtime_process = ensure_runtime(runtime_url, auto_start=not no_auto_start)
+
     try:
         from apps.runtime.mcp.server import main
 
         main()
         return 0
     finally:
-        if runtime_process.process is not None and runtime_process.process.poll() is None:
-            runtime_process.process.terminate()
-            try:
-                runtime_process.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                runtime_process.process.kill()
+        runtime_process.close()
 
 
 def main_webfa(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="webfa", description="WebFA local agent runtime helper.")
+    parser = argparse.ArgumentParser(
+        prog="webfa",
+        description="WebFA internet Runtime helper for independent external Agents.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     status_parser = subparsers.add_parser("status", help="Print Runtime health.")
@@ -73,7 +85,11 @@ def main_webfa(argv: list[str] | None = None) -> int:
     config_parser.add_argument("--runtime-url", default=None)
     config_parser.add_argument("--source-mode", action="store_true", help="Use python -m apps.runtime.mcp.server style config.")
     config_parser.add_argument("--cwd", default=None)
-    config_parser.add_argument("--agent-id", default="webfa-agent")
+    config_parser.add_argument(
+        "--agent-id",
+        default=DEFAULT_EXTERNAL_AGENT_ID,
+        help="External Agent identity; use a distinct value for every Agent client.",
+    )
     config_parser.add_argument("--client", default="mcpServers", choices=["mcpServers", "opencode"])
 
     subparsers.add_parser("paths", help="Print WebFA local data paths.")
@@ -85,6 +101,15 @@ def main_webfa(argv: list[str] | None = None) -> int:
     login_parser = subparsers.add_parser("login", help="Open a manual login window for the WebFA profile.")
     login_parser.add_argument("site", nargs="?", help="Known site name, for example: github")
     login_parser.add_argument("--url", default=None, help="Login URL to open manually.")
+
+    runtime_parser = subparsers.add_parser("runtime", help="Start or inspect the local Runtime sidecar.")
+    runtime_parser.add_argument("runtime_command", nargs="?", default="start", choices=["start", "status"])
+    runtime_parser.add_argument("--host", default=os.getenv("WEBFA_API_HOST", "127.0.0.1"))
+    runtime_parser.add_argument("--port", type=int, default=int(os.getenv("WEBFA_API_PORT", "8787")))
+
+    mcp_parser = subparsers.add_parser("mcp", help="Run the Agent-owned MCP stdio bridge.")
+    mcp_parser.add_argument("--runtime-url", default=None)
+    mcp_parser.add_argument("--no-auto-start", action="store_true")
 
     args = parser.parse_args(argv)
     if args.command == "status":
@@ -107,6 +132,10 @@ def main_webfa(argv: list[str] | None = None) -> int:
         return _cmd_doctor(args.runtime_url, auto_start=not args.no_auto_start)
     if args.command == "login":
         return _cmd_login(args.site, args.url)
+    if args.command == "runtime":
+        return _run_runtime(args.runtime_command, args.host, args.port)
+    if args.command == "mcp":
+        return _run_mcp(args.runtime_url, no_auto_start=args.no_auto_start)
     raise ValueError(f"unsupported command: {args.command}")
 
 
@@ -147,12 +176,8 @@ def _cmd_doctor(runtime_url: str | None, auto_start: bool) -> int:
         print(json.dumps({"status": "fail", "checks": checks}, indent=2, ensure_ascii=False))
         return 1
     finally:
-        if runtime_process is not None and runtime_process.process is not None and runtime_process.process.poll() is None:
-            runtime_process.process.terminate()
-            try:
-                runtime_process.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                runtime_process.process.kill()
+        if runtime_process is not None:
+            runtime_process.close()
         if original_home is None:
             os.environ.pop("WEBFA_HOME", None)
         else:
@@ -191,36 +216,51 @@ def _mcp_tools_are_default(runtime_url: str) -> bool:
 
 
 def _run_browser_loop(runtime_url: str) -> bool:
-    import httpx
-
     html = """
     <!doctype html>
     <title>WebFA Doctor</title>
-    <form>
-      <label>Your name <input name="name" placeholder="Your name"></label>
-      <button type="button" onclick="result.textContent = 'Hello ' + document.querySelector('[name=name]').value">Submit</button>
+    <form onsubmit="event.preventDefault(); result.textContent = 'Hello ' + nameInput.value;">
+      <label for="nameInput">Your name</label>
+      <input id="nameInput" name="name" placeholder="Your name">
+      <button type="submit">Submit</button>
     </form>
-    <div id="result"></div>
+    <p id="result">Waiting</p>
     """
     with tempfile.TemporaryDirectory() as tmp:
         page = Path(tmp) / "doctor.html"
         page.write_text(html, encoding="utf-8")
-        with httpx.Client(timeout=20, **runtime_http_options(runtime_url)) as client:
-            opened = client.post(f"{runtime_url}/v1/browser/open", json={"url": page.as_uri()})
-            opened.raise_for_status()
-            state = opened.json()["state"]
-            form_id = state["forms"][0]["id"]
-            filled = client.post(
-                f"{runtime_url}/v1/browser/act",
-                json={"action": "fill_form", "target": form_id, "fields": {"name": "WebFA"}},
+        client = WebFARuntimeClient(base_url=runtime_url, agent_id="webfa-doctor")
+        try:
+            client.open_url(page.as_uri())
+            observed = client.observe({"mode": "page", "detail": "full", "limit": 50})
+            objects = observed["objects"]
+            field = next(item for item in objects if item.get("role") in {"textbox", "searchbox"})
+            form = next(item for item in objects if item.get("role") == "form")
+            client.browser_act(
+                {
+                    "operation": "set_value",
+                    "target": field["id"],
+                    "arguments": {"value": "WebFA"},
+                    "expected_object_version": field["version"],
+                }
             )
-            filled.raise_for_status()
-            submitted = client.post(f"{runtime_url}/v1/browser/act", json={"action": "submit_form", "target": form_id})
-            submitted.raise_for_status()
-            final_state = submitted.json()["state"]
+            client.browser_act({"operation": "submit", "target": form["id"]})
+            final_state = client.observe(
+                {
+                    "mode": "query",
+                    "query": {"text_contains": "Hello WebFA"},
+                    "detail": "full",
+                }
+            )
+        finally:
+            client.close()
     body = str(final_state).lower()
     forbidden = ("cookie", "localstorage", "sessionstorage", "token", "full_html", "full_dom")
-    return "Hello WebFA" in final_state["visible_text"] and all(term not in body for term in forbidden)
+    verified = any(
+        "Hello WebFA" in (item.get("text") or item.get("name") or "")
+        for item in final_state["objects"]
+    )
+    return verified and all(term not in body for term in forbidden)
 
 
 if __name__ == "__main__":

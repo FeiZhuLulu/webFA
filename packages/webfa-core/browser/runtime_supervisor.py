@@ -123,6 +123,47 @@ class BrowserRuntimeSupervisor:
             )
         return entry.runtime
 
+    def find_control_session_runtime(
+        self,
+        profile_ref: str | None = None,
+    ) -> BrowserSessionRuntime | None:
+        """Return an existing Session runtime without acquiring Agent authority."""
+        if profile_ref is None:
+            entry = self._session_manager.get(self._session_manager.default_session_id)
+        else:
+            profile = self._profile_repository.get_profile(profile_ref)
+            entry = self._session_manager.get_by_profile(profile.profile_id)
+        return entry.runtime if entry is not None else None
+
+    def ensure_control_session_runtime(
+        self,
+        profile_ref: str | None = None,
+    ) -> BrowserSessionRuntime:
+        """Create or resolve a Session for the protected human control plane.
+
+        This path deliberately creates no Agent connection, Profile Grant, or
+        Session write lease. It only exposes Session-scoped management state to
+        the separately authenticated local control API.
+        """
+        if profile_ref is None:
+            existing = self._session_manager.get(self._session_manager.default_session_id)
+            if existing is not None:
+                return existing.runtime
+            profile_ref = "default"
+        profile = (
+            self._profile_repository.ensure_default_profile()
+            if profile_ref == "default"
+            else self._profile_repository.get_profile(profile_ref)
+        )
+        existing = self._session_manager.get_by_profile(profile.profile_id)
+        if existing is not None:
+            return existing.runtime
+        return self._ensure_session(
+            profile,
+            created_by_agent_id=None,
+            created_by_connection_id="local-control",
+        ).runtime
+
     def get_session_binding(self, session_id: str) -> dict[str, str]:
         entry = self._session_manager.get(session_id)
         if entry is None:
@@ -162,6 +203,7 @@ class BrowserRuntimeSupervisor:
         summaries: list[dict[str, object]] = []
         for entry in entries:
             status = entry.runtime.status()
+            status = {**status, **self._session_lease_status(entry)}
             summaries.append(
                 {
                     "session_id": entry.session_id,
@@ -199,10 +241,8 @@ class BrowserRuntimeSupervisor:
                 connection_id=context.connection_id,
             )
             self._bind_tabs(entry)
-            return self._routes.project_open_result(
-                result,
-                profile_id=entry.profile.profile_id,
-                runtime_generation=entry.runtime_generation,
+            return result.model_copy(
+                update={"state": self._project_web_state(entry, result.state)}
             )
 
     def observe_web(
@@ -215,6 +255,7 @@ class BrowserRuntimeSupervisor:
         context = self._connection(agent_id=agent_id, connection_id=connection_id)
         with context.operation_lock:
             entry = self._current_entry(context, create_default=True)
+            self._renew_session_if_owned(context, entry)
             localized = self._routes.localize_observe_request(
                 request or WebObserveRequest(),
                 session_id=entry.session_id,
@@ -226,11 +267,7 @@ class BrowserRuntimeSupervisor:
                 connection_id=context.connection_id,
             )
             return WebObserveResult(
-                state=self._routes.project_web_state(
-                    result.state,
-                    profile_id=entry.profile.profile_id,
-                    runtime_generation=entry.runtime_generation,
-                ),
+                state=self._project_web_state(entry, result.state),
                 debug_provenance=result.debug_provenance,
             )
 
@@ -255,10 +292,13 @@ class BrowserRuntimeSupervisor:
                 connection_id=context.connection_id,
             )
             self._bind_tabs(entry)
-            return self._routes.project_operation_result(
+            projected = self._routes.project_operation_result(
                 result,
                 profile_id=entry.profile.profile_id,
                 runtime_generation=entry.runtime_generation,
+            )
+            return projected.model_copy(
+                update={"state": self._with_session_lease_agent(entry, projected.state)}
             )
 
     def get_tabs(
@@ -276,11 +316,8 @@ class BrowserRuntimeSupervisor:
                 entry = self._session_manager.get(session_id)
                 if entry is None:
                     continue
-                self._profile_grants.require(
-                    connection_id=context.connection_id,
-                    agent_id=context.agent_id,
-                    profile_id=entry.profile.profile_id,
-                )
+                self._require_profile_grant(context, entry)
+                self._renew_session_if_owned(context, entry)
                 local_tabs = entry.runtime.tabs()
                 for tab in local_tabs:
                     result.append(
@@ -314,6 +351,7 @@ class BrowserRuntimeSupervisor:
             route = self._routes.resolve_tab(tab_id)
             if route is None:
                 entry = self._current_entry(context, create_default=False)
+                self._require_session_write(context, entry)
                 local_tab_id = tab_id
             else:
                 entry = self._session_manager.get(route.session_id)
@@ -324,11 +362,7 @@ class BrowserRuntimeSupervisor:
                         recover_hint="Call webfa.get_tabs and choose a current tab",
                         http_status=409,
                     )
-                self._profile_grants.require(
-                    connection_id=context.connection_id,
-                    agent_id=context.agent_id,
-                    profile_id=entry.profile.profile_id,
-                )
+                self._require_profile_grant(context, entry)
                 self._acquire_session_write(context, entry)
                 self._connections.bind_session(
                     context,
@@ -342,11 +376,7 @@ class BrowserRuntimeSupervisor:
                 agent_id=context.agent_id,
                 connection_id=context.connection_id,
             ).state
-            return self._routes.project_web_state(
-                web_state,
-                profile_id=entry.profile.profile_id,
-                runtime_generation=entry.runtime_generation,
-            )
+            return self._project_web_state(entry, web_state)
 
     def release_connection(self, connection_id: str) -> None:
         context = self._connections.release(connection_id)
@@ -381,10 +411,13 @@ class BrowserRuntimeSupervisor:
         return runtime.switch_tab(tab_id, agent_id=agent_id)
 
     def monitor_snapshot(self, session_id: str | None = None) -> dict[str, Any]:
-        return self.resolve_monitor_session(session_id).runtime.monitor_snapshot()
+        entry = self.resolve_monitor_session(session_id)
+        snapshot = entry.runtime.monitor_snapshot()
+        return {**snapshot, **self._session_lease_status(entry)}
 
     def status(self, connection_id: str | None = None) -> dict[str, Any]:
         runtime: BrowserSessionRuntime | None = None
+        entry: ActiveBrowserSession | None = None
         if connection_id:
             context = self._connections.get(connection_id)
             if context is not None and context.current_session_id:
@@ -410,6 +443,7 @@ class BrowserRuntimeSupervisor:
         status = runtime.status()
         return {
             **status,
+            **(self._session_lease_status(entry) if entry is not None else {}),
             "runtime_instance_id": self._runtime_instance_id,
             "runtime_generation": runtime.runtime_generation,
             "supervisor_lifecycle": "active",
@@ -417,13 +451,14 @@ class BrowserRuntimeSupervisor:
         }
 
     def close_session(self, session_id: str, *, reason: str = "supervisor_close") -> None:
-        entry = self._session_manager.get(session_id)
-        if entry is None:
-            return
-        try:
-            entry.runtime.close()
-        finally:
-            self._finalize_session(entry, lifecycle="closed", reason=reason)
+        with self._lock:
+            entry = self._session_manager.get(session_id)
+            if entry is None:
+                return
+            try:
+                entry.runtime.close()
+            finally:
+                self._finalize_session(entry, lifecycle="closed", reason=reason)
 
     def close_profile_session(
         self,
@@ -446,10 +481,28 @@ class BrowserRuntimeSupervisor:
             self._closed = True
             entries = self._session_manager.values()
         for entry in entries:
+            lifecycle = "closed"
+            reason = "supervisor_close"
             try:
                 entry.runtime.close()
+            except Exception as exc:
+                lifecycle = "crashed"
+                reason = f"supervisor close failed: {exc}"[:500]
+                try:
+                    self._profile_repository.record_runtime_event(
+                        profile_id=entry.profile.profile_id,
+                        session_id=entry.session_id,
+                        event_type="session_close_failed",
+                        safe_metadata={"reason": reason},
+                    )
+                except Exception:
+                    pass
             finally:
-                self._finalize_session(entry, lifecycle="closed", reason="supervisor_close")
+                try:
+                    self._finalize_session(entry, lifecycle=lifecycle, reason=reason)
+                except Exception:
+                    # Continue closing the remaining independent Profile Sessions.
+                    pass
 
     def __getattr__(self, name: str):
         if name.startswith("__"):
@@ -483,11 +536,7 @@ class BrowserRuntimeSupervisor:
         if context.current_session_id is not None:
             entry = self._session_manager.get(context.current_session_id)
             if entry is not None:
-                self._profile_grants.require(
-                    connection_id=context.connection_id,
-                    agent_id=context.agent_id,
-                    profile_id=entry.profile.profile_id,
-                )
+                self._require_profile_grant(context, entry)
                 return entry
         if create_default:
             return self._enter_profile(
@@ -543,6 +592,32 @@ class BrowserRuntimeSupervisor:
             agent_id=context.agent_id,
             connection_id=context.connection_id,
             session_id=entry.session_id,
+            profile_id=entry.profile.profile_id,
+            runtime_generation=entry.runtime_generation,
+        )
+
+    def _require_profile_grant(
+        self,
+        context: AgentConnectionContext,
+        entry: ActiveBrowserSession,
+    ) -> None:
+        current_profile = self._profile_repository.get_profile(entry.profile.profile_id)
+        self._profile_grants.require(
+            connection_id=context.connection_id,
+            agent_id=context.agent_id,
+            profile=current_profile,
+        )
+
+    def _renew_session_if_owned(
+        self,
+        context: AgentConnectionContext,
+        entry: ActiveBrowserSession,
+    ) -> None:
+        self._session_leases.renew_if_owned(
+            agent_id=context.agent_id,
+            connection_id=context.connection_id,
+            session_id=entry.session_id,
+            profile_id=entry.profile.profile_id,
             runtime_generation=entry.runtime_generation,
         )
 
@@ -661,6 +736,39 @@ class BrowserRuntimeSupervisor:
                 local_id=tab.id,
             )
 
+    def _project_web_state(self, entry: ActiveBrowserSession, state: WebState) -> WebState:
+        projected = self._routes.project_web_state(
+            state,
+            profile_id=entry.profile.profile_id,
+            runtime_generation=entry.runtime_generation,
+        )
+        return self._with_session_lease_agent(entry, projected)
+
+    def _with_session_lease_agent(
+        self,
+        entry: ActiveBrowserSession,
+        state: WebState,
+    ) -> WebState:
+        lease_status = self._session_lease_status(entry)
+        if not lease_status:
+            return state
+        agent = state.agent.model_copy(
+            update={
+                "active_agent_id": lease_status["active_agent_id"],
+                "agent_lease_expires_at": lease_status["agent_lease_expires_at"],
+            }
+        )
+        return state.model_copy(update={"agent": agent})
+
+    def _session_lease_status(self, entry: ActiveBrowserSession) -> dict[str, str | None]:
+        lease = self._session_leases.active(entry.session_id)
+        if lease is None:
+            return {}
+        return {
+            "active_agent_id": lease.agent_id,
+            "agent_lease_expires_at": lease.expires_at.isoformat(),
+        }
+
     def _on_session_terminal(
         self,
         session_id: str,
@@ -670,13 +778,22 @@ class BrowserRuntimeSupervisor:
         entry = self._session_manager.get(session_id)
         if entry is None:
             return
-        self._profile_repository.record_runtime_event(
-            profile_id=entry.profile.profile_id,
-            session_id=session_id,
-            event_type=f"session_{lifecycle}",
-            safe_metadata={"reason": (reason or "")[:200]},
-        )
-        self._finalize_session(entry, lifecycle=lifecycle, reason=reason)
+        try:
+            self._profile_repository.record_runtime_event(
+                profile_id=entry.profile.profile_id,
+                session_id=session_id,
+                event_type=f"session_{lifecycle}",
+                safe_metadata={"reason": (reason or "")[:200]},
+            )
+        except Exception:
+            pass
+        try:
+            if lifecycle == "crashed":
+                entry.runtime.close()
+        except Exception:
+            pass
+        finally:
+            self._finalize_session(entry, lifecycle=lifecycle, reason=reason)
 
     def _finalize_session(
         self,

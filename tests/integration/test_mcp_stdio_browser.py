@@ -349,10 +349,11 @@ def _free_port() -> int:
 
 def _wait_for_runtime(port: int) -> None:
     deadline = time.time() + 20
-    url = f"http://127.0.0.1:{port}/health"
+    origin = f"http://127.0.0.1:{port}"
+    url = f"{origin}/health"
     while time.time() < deadline:
         try:
-            response = httpx.get(url, timeout=1, **runtime_http_options(url))
+            response = httpx.get(url, timeout=1, **runtime_http_options(origin))
             if response.status_code == 200:
                 return
         except httpx.HTTPError:

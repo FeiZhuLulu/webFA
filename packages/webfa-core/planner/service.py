@@ -61,6 +61,10 @@ class PlanService:
             status="active",
         )
         session.add(workspace)
+        # AuditEvent stores scalar foreign-key IDs rather than ORM relationships,
+        # so SQLite cannot rely on SQLAlchemy's dependency sorter here. Persist
+        # each parent explicitly before adding audit rows that reference it.
+        session.flush()
 
         # Determine plan status: GitHub transactions are plan-only in P3
         plan_status = "pending_preview"
@@ -80,6 +84,7 @@ class PlanService:
             status=plan_status,
         )
         session.add(plan)
+        session.flush()
 
         # Audit: workspace.created
         session.add(AuditEvent(

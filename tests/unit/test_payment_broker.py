@@ -212,3 +212,24 @@ def test_local_card_vault_is_not_enabled_and_secrets_are_not_schema_fields():
     assert "pan" not in PaymentInstrumentRef.model_fields
     assert "cvv" not in PaymentInstrumentRef.model_fields
     assert "card_number" not in PaymentInstrumentRef.model_fields
+
+
+def test_instrument_preflight_is_side_effect_free():
+    broker = _broker()
+    candidate = PaymentInstrumentRef(
+        instrument_id="pay-agent-02",
+        owner="agent",
+        profile_id="default",
+        type="merchant_saved",
+        brand="Visa",
+        last4="9912",
+        currency="CNY",
+        policy_id="policy-shopping",
+    )
+
+    validated = broker.validate_instrument(candidate)
+
+    assert validated == candidate
+    assert [item.instrument.instrument_id for item in broker.list_instruments()] == [
+        "pay-agent-01"
+    ]

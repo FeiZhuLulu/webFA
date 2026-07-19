@@ -11,11 +11,15 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from apps.runtime.api.routes.monitor import _ConnectionBridge
+from apps.runtime.api.routes.monitor import (
+    _ConnectionBridge,
+    _bounded_human_control_ttl,
+    _grant_watch_loop,
+)
 from apps.runtime.main import create_app
 from browser.human_control import HumanControlLeaseState, HumanInputEvent
 from browser.managed_chromium_host import _find_chromium_executable
-from browser.monitor_gateway import decode_visual_frame_packet
+from browser.monitor_gateway import MonitorAccessManager, MonitorGatewayRouter, decode_visual_frame_packet
 from browser.session_events import SessionEvent
 from browser.visual_surface import VisualFrame, VisualStreamState, VisualSurfaceBinding
 from storage.db import reset_engine_for_tests
@@ -225,6 +229,72 @@ def test_monitor_control_messages_are_not_displaced_by_event_backlog() -> None:
     asyncio.run(scenario())
 
 
+def test_active_monitor_connection_closes_when_session_generation_changes() -> None:
+    async def scenario() -> None:
+        binding = {
+            "session_id": "session-a",
+            "profile_id": "profile-a",
+            "runtime_generation": "generation-a",
+        }
+        manager = MonitorAccessManager()
+        router = MonitorGatewayRouter(manager, lambda _session_id: dict(binding))
+        issued = router.issue(
+            session_id="session-a",
+            permissions=("events",),
+            ttl_seconds=60,
+        )
+        grant = manager.consume(issued.token)
+
+        class RecordingWebSocket:
+            def __init__(self) -> None:
+                self.closed: tuple[int, str] | None = None
+
+            async def close(self, *, code: int, reason: str) -> None:
+                self.closed = (code, reason)
+
+        websocket = RecordingWebSocket()
+        watcher = asyncio.create_task(
+            _grant_watch_loop(
+                websocket,  # type: ignore[arg-type]
+                manager,
+                grant.grant_id,
+                grant.expires_at,
+                binding_validator=lambda: router.validate(grant),
+            )
+        )
+        await asyncio.sleep(0.05)
+        binding["runtime_generation"] = "generation-b"
+        await asyncio.wait_for(watcher, timeout=1.5)
+
+        assert websocket.closed is not None
+        assert websocket.closed[0] == 4409
+        assert "Session generation" in websocket.closed[1]
+
+    asyncio.run(scenario())
+
+
+def test_human_control_lease_cannot_outlive_monitor_grant() -> None:
+    now = datetime(2026, 7, 16, tzinfo=timezone.utc)
+
+    assert _bounded_human_control_ttl(
+        300,
+        now + timedelta(seconds=90),
+        now=now,
+    ) == 90
+    assert _bounded_human_control_ttl(
+        3600,
+        now + timedelta(seconds=3600),
+        now=now,
+    ) == 1800
+
+    with pytest.raises(ValueError, match="at least 30 seconds remaining"):
+        _bounded_human_control_ttl(
+            300,
+            now + timedelta(seconds=29),
+            now=now,
+        )
+
+
 def test_monitor_grant_requires_control_token(monkeypatch, tmp_path) -> None:
     app, _runtime = _create_test_app(monkeypatch, tmp_path)
     with TestClient(app) as client:
@@ -243,6 +313,29 @@ def test_monitor_grant_requires_control_token(monkeypatch, tmp_path) -> None:
     assert "token" in listed
 
 
+def test_monitor_grant_without_active_session_returns_structured_not_found(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", CONTROL_TOKEN)
+    app = create_app()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/visualizer/monitor-grants",
+            headers=CONTROL_HEADERS,
+            json={"session_id": "default"},
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "monitor_session_not_found",
+        "message": "The requested Browser Session is not active",
+        "recover_hint": "Refresh the Control Center Session list and open an active Session",
+    }
+
+
 def test_monitor_websocket_rejects_untrusted_origin(monkeypatch, tmp_path) -> None:
     app, _runtime = _create_test_app(monkeypatch, tmp_path)
     with TestClient(app) as client:
@@ -252,6 +345,21 @@ def test_monitor_websocket_rejects_untrusted_origin(monkeypatch, tmp_path) -> No
                 headers={"origin": "https://evil.example"},
             ):
                 pass
+
+
+def test_invalid_monitor_token_does_not_initialize_runtime(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", CONTROL_TOKEN)
+    app = create_app()
+
+    with TestClient(app) as client:
+        assert getattr(app.state, "browser_runtime", None) is None
+        with pytest.raises(WebSocketDisconnect) as disconnected:
+            with client.websocket_connect("/v1/monitor/ws", headers=ORIGIN_HEADERS) as websocket:
+                websocket.send_json({"type": "authenticate", "token": "invalid-monitor-token"})
+                websocket.receive_json()
+        assert disconnected.value.code == 4401
+        assert getattr(app.state, "browser_runtime", None) is None
 
 
 def test_invalid_monitor_stream_config_does_not_consume_one_time_token(monkeypatch, tmp_path) -> None:

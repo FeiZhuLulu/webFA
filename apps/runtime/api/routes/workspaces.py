@@ -100,6 +100,10 @@ def import_github_workspace(body: GitHubWorkspaceImportRequest):
                 context_summary=f"Issue #{body.issue_number}: {issue.title}. {len(comments)} comments, {len(read_files)} files read.",
             )
             session.add(workspace)
+            # Snapshots and AuditEvent carry scalar workspace_id foreign keys;
+            # persist the parent before adding those rows so SQLite FK ordering
+            # does not depend on undeclared ORM relationships.
+            session.flush()
 
             # Snapshot: repo metadata
             create_snapshot(

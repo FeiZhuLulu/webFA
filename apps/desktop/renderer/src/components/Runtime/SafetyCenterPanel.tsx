@@ -109,9 +109,9 @@ export function SafetyCenterPanel({
       await updateProfilePolicy(apiUrl, {
         profile_id: profile.profile_id,
         owner,
-        bound_agent_ids: activeAgentId ? [activeAgentId] : [],
+        bound_agent_ids: profile.bound_agent_ids,
         allowed_origins: splitValues(allowedOrigins),
-        safety_policy_id: null,
+        safety_policy_id: profile.safety_policy_id,
         financial_policy_id: financialPolicyId || null,
         trust_mode: trustMode,
         unknown_external_effect_policy: unknownPolicy,
@@ -169,8 +169,8 @@ export function SafetyCenterPanel({
   }
 
   return (
-    <div className="viz-column-content" style={{ paddingTop: 0 }}>
-      <Section title={`Step-up Requests (${pendingStepUps.length})`}>
+    <div className="viz-column-content viz-column-content-tight-top">
+      <Section id="safety-step-ups" title={`Step-up 请求 (${pendingStepUps.length})`}>
         {pendingStepUps.length === 0 ? (
           <Hint>当前没有需要扩大授权范围的操作。</Hint>
         ) : (
@@ -183,14 +183,14 @@ export function SafetyCenterPanel({
               <Scope title="请求范围" value={item.request.requested_scope} />
               <Small>有效至 {new Date(item.request.expires_at).toLocaleTimeString()}</Small>
               {item.status === "pending" ? (
-                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                <div className="viz-management-actions">
                   <button
                     type="button"
                     className="viz-btn viz-btn-primary"
                     disabled={busy || disabled}
                     onClick={() => void run(async () => {
                       await approveStepUp(apiUrl, item.request.step_up_id, "Approved in WebFA Safety Center");
-                      onMessage("已批准本次范围升级；Agent 可使用同一 step_up_id 重试");
+                      onMessage("已批准本次范围升级；外部 Agent 可使用同一 step_up_id 重试");
                     })}
                   >
                     仅批准本次
@@ -208,82 +208,118 @@ export function SafetyCenterPanel({
                   </button>
                 </div>
               ) : (
-                <Small>已批准，等待 Agent 重试后自动消费。</Small>
+                <Small>已批准，等待外部 Agent 重试后自动消费。</Small>
               )}
             </Card>
           ))
         )}
       </Section>
 
-      <Section title="Profile Policy">
+      <Section id="safety-profile-policy" title="Profile 策略">
         <div className="viz-control-stack">
-          <select className="viz-input" value={owner} onChange={(event) => setOwner(event.target.value as AccountOwner)} disabled={busy || disabled}>
-            <option value="agent_owned">Agent 自有</option>
-            <option value="user_owned">用户所有</option>
-            <option value="shared">共享</option>
-            <option value="unknown">未知</option>
-          </select>
-          <select className="viz-input" value={trustMode} onChange={(event) => setTrustMode(event.target.value as TrustMode)} disabled={busy || disabled}>
-            <option value="trusted_agent">trusted_agent</option>
-            <option value="host_attested">host_attested</option>
-            <option value="guarded">guarded</option>
-          </select>
-          <select className="viz-input" value={unknownPolicy} onChange={(event) => setUnknownPolicy(event.target.value as UnknownEffectPolicy)} disabled={busy || disabled}>
-            <option value="allow_with_audit">未知效果：允许并审计</option>
-            <option value="require_assertion">未知效果：Agent 声明</option>
-            <option value="require_step_up">未知效果：范围升级</option>
-            <option value="deny">未知效果：拒绝</option>
-          </select>
-          <input className="viz-input" value={allowedOrigins} onChange={(event) => setAllowedOrigins(event.target.value)} placeholder="允许 Origins，逗号分隔；留空表示不限制" disabled={busy || disabled} />
-          <select className="viz-input" value={financialPolicyId} onChange={(event) => setFinancialPolicyId(event.target.value)} disabled={busy || disabled}>
-            <option value="">不绑定金融策略</option>
-            {financialPolicies.map((item) => <option key={item.policy_id} value={item.policy_id}>{item.policy_id}</option>)}
-          </select>
+          <div
+            className="viz-management-hint"
+            data-ui="profile-policy-effect"
+          >
+            保存后立即作用于当前 Profile。收紧 Agent binding 或 Origin 范围会使不再符合策略的活动授权在下次操作时失败；Cookie、克隆和 Bundle 等身份存储维护仍要求先关闭 Session。
+          </div>
+          <Field label="Profile 所有者">
+            <select className="viz-input" aria-label="Profile 所有者" value={owner} onChange={(event) => setOwner(event.target.value as AccountOwner)} disabled={busy || disabled}>
+              <option value="agent_owned">外部 Agent 自有</option>
+              <option value="user_owned">用户所有</option>
+              <option value="shared">共享</option>
+              <option value="unknown">未知</option>
+            </select>
+          </Field>
+          <Field label="信任模式">
+            <select className="viz-input" aria-label="Profile 信任模式" value={trustMode} onChange={(event) => setTrustMode(event.target.value as TrustMode)} disabled={busy || disabled}>
+              <option value="trusted_agent">trusted_agent</option>
+              <option value="host_attested">host_attested</option>
+              <option value="guarded">guarded</option>
+            </select>
+          </Field>
+          <Field label="未知外部效果">
+            <select className="viz-input" aria-label="未知外部效果策略" value={unknownPolicy} onChange={(event) => setUnknownPolicy(event.target.value as UnknownEffectPolicy)} disabled={busy || disabled}>
+              <option value="allow_with_audit">允许并审计</option>
+              <option value="require_assertion">要求外部 Agent 声明</option>
+              <option value="require_step_up">要求范围升级</option>
+              <option value="deny">拒绝</option>
+            </select>
+          </Field>
+          <Field label="允许的 Origins">
+            <input className="viz-input" aria-label="Profile 允许的 Origins" value={allowedOrigins} onChange={(event) => setAllowedOrigins(event.target.value)} placeholder="逗号分隔；留空表示不限制" disabled={busy || disabled} />
+          </Field>
+          <Field label="绑定的金融策略">
+            <select className="viz-input" aria-label="Profile 绑定的金融策略" value={financialPolicyId} onChange={(event) => setFinancialPolicyId(event.target.value)} disabled={busy || disabled}>
+              <option value="">不绑定金融策略</option>
+              {financialPolicies.map((item) => <option key={item.policy_id} value={item.policy_id}>{item.policy_id}</option>)}
+            </select>
+          </Field>
           <button type="button" className="viz-btn viz-btn-primary" disabled={busy || disabled} onClick={() => void saveProfile()}>保存 Profile 策略</button>
         </div>
       </Section>
 
-      <Section title="Financial Policy">
+      <Section id="safety-financial-policy" title="金融策略">
         <div className="viz-control-stack">
-          <input className="viz-input" value={newPolicyId} onChange={(event) => setNewPolicyId(event.target.value)} placeholder="policy_id" disabled={busy || disabled} />
-          <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 6 }}>
-            <input className="viz-input" value={currency} onChange={(event) => setCurrency(event.target.value)} placeholder="CNY" disabled={busy || disabled} />
-            <select className="viz-input" value={minimumAssurance} onChange={(event) => setMinimumAssurance(event.target.value as FinancialPolicy["minimum_assurance"])} disabled={busy || disabled}>
-              <option value="agent_asserted">agent_asserted</option>
-              <option value="runtime_observed">runtime_observed</option>
-              <option value="provider_verified">provider_verified</option>
-              <option value="user_confirmed">user_confirmed</option>
-            </select>
+          <Field label="策略 ID">
+            <input className="viz-input" aria-label="金融策略 ID" value={newPolicyId} onChange={(event) => setNewPolicyId(event.target.value)} placeholder="policy_id" disabled={busy || disabled} />
+          </Field>
+          <div className="viz-management-grid viz-management-grid-policy">
+            <Field label="币种">
+              <input className="viz-input" aria-label="金融策略币种" value={currency} onChange={(event) => setCurrency(event.target.value)} placeholder="CNY" disabled={busy || disabled} />
+            </Field>
+            <Field label="最低保证级别">
+              <select className="viz-input" aria-label="金融策略最低保证级别" value={minimumAssurance} onChange={(event) => setMinimumAssurance(event.target.value as FinancialPolicy["minimum_assurance"])} disabled={busy || disabled}>
+                <option value="agent_asserted">agent_asserted</option>
+                <option value="runtime_observed">runtime_observed</option>
+                <option value="provider_verified">provider_verified</option>
+                <option value="user_confirmed">user_confirmed</option>
+              </select>
+            </Field>
           </div>
-          <LimitGrid label="自主 / Step-up / 绝对" values={[autonomyLimit, stepUpLimit, absoluteLimit]} setters={[setAutonomyLimit, setStepUpLimit, setAbsoluteLimit]} disabled={busy || disabled} />
-          <LimitGrid label="每日 / 每月" values={[dailyLimit, monthlyLimit]} setters={[setDailyLimit, setMonthlyLimit]} disabled={busy || disabled} />
+          <LimitGrid label="自主 / Step-up / 绝对" fieldLabels={["自主额度", "Step-up 额度", "绝对额度"]} values={[autonomyLimit, stepUpLimit, absoluteLimit]} setters={[setAutonomyLimit, setStepUpLimit, setAbsoluteLimit]} disabled={busy || disabled} />
+          <LimitGrid label="每日 / 每月" fieldLabels={["每日额度", "每月额度"]} values={[dailyLimit, monthlyLimit]} setters={[setDailyLimit, setMonthlyLimit]} disabled={busy || disabled} />
           <Hint>订阅、转账和现金等价物默认关闭。大额标准完全由这些额度决定。</Hint>
           <button type="button" className="viz-btn viz-btn-primary" disabled={busy || disabled || !newPolicyId.trim()} onClick={() => void addPolicy()}>注册金融策略</button>
         </div>
       </Section>
 
-      <Section title="Payment Instruments">
+      <Section id="safety-payment-instruments" title="支付工具引用">
         <div className="viz-control-stack">
-          <input className="viz-input" value={instrumentId} onChange={(event) => setInstrumentId(event.target.value)} placeholder="instrument_id" disabled={busy || disabled} />
-          <select className="viz-input" value={instrumentType} onChange={(event) => setInstrumentType(event.target.value as PaymentInstrumentState["instrument"]["type"])} disabled={busy || disabled}>
-            <option value="merchant_saved">商户已保存方式</option>
-            <option value="system_wallet">系统钱包</option>
-            <option value="tokenized_wallet">令牌化钱包</option>
-          </select>
-          <select className="viz-input" value={instrumentOwner} onChange={(event) => setInstrumentOwner(event.target.value as "agent" | "user" | "shared")} disabled={busy || disabled}>
-            <option value="agent">Agent 专用</option>
-            <option value="user">用户所有</option>
-            <option value="shared">共享</option>
-          </select>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 6 }}>
-            <input className="viz-input" value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Visa" disabled={busy || disabled} />
-            <input className="viz-input" value={last4} onChange={(event) => setLast4(event.target.value)} placeholder="尾号" maxLength={4} disabled={busy || disabled} />
+          <Field label="引用 ID">
+            <input className="viz-input" aria-label="支付工具引用 ID" value={instrumentId} onChange={(event) => setInstrumentId(event.target.value)} placeholder="instrument_id" disabled={busy || disabled} />
+          </Field>
+          <Field label="工具类型">
+            <select className="viz-input" aria-label="支付工具类型" value={instrumentType} onChange={(event) => setInstrumentType(event.target.value as PaymentInstrumentState["instrument"]["type"])} disabled={busy || disabled}>
+              <option value="merchant_saved">商户已保存方式</option>
+              <option value="system_wallet">系统钱包</option>
+              <option value="tokenized_wallet">令牌化钱包</option>
+            </select>
+          </Field>
+          <Field label="所有者">
+            <select className="viz-input" aria-label="支付工具所有者" value={instrumentOwner} onChange={(event) => setInstrumentOwner(event.target.value as "agent" | "user" | "shared")} disabled={busy || disabled}>
+              <option value="agent">外部 Agent 专用</option>
+              <option value="user">用户所有</option>
+              <option value="shared">共享</option>
+            </select>
+          </Field>
+          <div className="viz-management-grid viz-management-grid-instrument">
+            <Field label="品牌">
+              <input className="viz-input" aria-label="支付工具品牌" value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Visa" disabled={busy || disabled} />
+            </Field>
+            <Field label="尾号">
+              <input className="viz-input" aria-label="支付工具尾号" value={last4} onChange={(event) => setLast4(event.target.value)} placeholder="4 位数字" maxLength={4} disabled={busy || disabled} />
+            </Field>
           </div>
-          <input className="viz-input" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="安全显示名称" disabled={busy || disabled} />
-          <select className="viz-input" value={instrumentPolicyId} onChange={(event) => setInstrumentPolicyId(event.target.value)} disabled={busy || disabled}>
-            <option value="">选择金融策略</option>
-            {financialPolicies.map((item) => <option key={item.policy_id} value={item.policy_id}>{item.policy_id}</option>)}
-          </select>
+          <Field label="安全显示名称">
+            <input className="viz-input" aria-label="支付工具安全显示名称" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="不会显示完整支付信息" disabled={busy || disabled} />
+          </Field>
+          <Field label="绑定的金融策略">
+            <select className="viz-input" aria-label="支付工具绑定的金融策略" value={instrumentPolicyId} onChange={(event) => setInstrumentPolicyId(event.target.value)} disabled={busy || disabled}>
+              <option value="">选择金融策略</option>
+              {financialPolicies.map((item) => <option key={item.policy_id} value={item.policy_id}>{item.policy_id}</option>)}
+            </select>
+          </Field>
           <Hint>仅保存支付工具引用、品牌和尾号。完整卡号、CVV、支付密码和钱包 Token 不进入 WebFA Agent 协议。</Hint>
           <button type="button" className="viz-btn viz-btn-primary" disabled={busy || disabled || !instrumentId.trim()} onClick={() => void addInstrument()}>注册支付工具引用</button>
         </div>
@@ -300,7 +336,7 @@ export function SafetyCenterPanel({
         ))}
       </Section>
 
-      <Section title={`Safety Receipts (${receipts.length})`}>
+      <Section id="safety-receipts" title={`安全回执 (${receipts.length})`}>
         {receipts.length === 0 ? <Hint>尚无安全回执。</Hint> : receipts.slice(0, 20).map((receipt) => (
           <Card key={receipt.receipt_id}>
             <strong>{receipt.final_decision} · {receipt.result}</strong>
@@ -308,7 +344,7 @@ export function SafetyCenterPanel({
             <Small>{receipt.agent_id} · {new Date(receipt.timestamp).toLocaleString()}</Small>
             {receipt.message && <Small>{receipt.message}</Small>}
             {receipt.step_up_id && <Small>step-up: {receipt.step_up_id}</Small>}
-            <Small style={{ overflowWrap: "anywhere" }}>{receipt.receipt_id}</Small>
+            <Small breakable>{receipt.receipt_id}</Small>
           </Card>
         ))}
       </Section>
@@ -316,28 +352,32 @@ export function SafetyCenterPanel({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 16 }}><div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{title}</div>{children}</div>;
+function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  return <section className="viz-management-section" aria-labelledby={id}><h3 id={id} className="viz-management-heading">{title}</h3>{children}</section>;
 }
 
 function Card({ children, accent = false }: { children: React.ReactNode; accent?: boolean }) {
-  return <div style={{ border: `1px solid ${accent ? "rgba(238,165,52,.7)" : "rgba(127,127,127,.25)"}`, borderRadius: 8, padding: 8, fontSize: 11, lineHeight: 1.45, marginBottom: 8 }}>{children}</div>;
+  return <div className={`viz-management-card${accent ? " viz-management-card-accent" : ""}`}>{children}</div>;
 }
 
 function Hint({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11, opacity: 0.72, lineHeight: 1.45 }}>{children}</div>;
+  return <div className="viz-management-hint">{children}</div>;
 }
 
-function Small({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <div style={{ fontSize: 10, opacity: 0.72, ...style }}>{children}</div>;
+function Small({ children, breakable = false }: { children: React.ReactNode; breakable?: boolean }) {
+  return <div className={`viz-management-small${breakable ? " viz-management-breakable" : ""}`}>{children}</div>;
 }
 
 function Scope({ title, value }: { title: string; value: Record<string, string | number | boolean> }) {
-  return <div style={{ marginTop: 4 }}><Small>{title}</Small><code style={{ fontSize: 10, overflowWrap: "anywhere" }}>{JSON.stringify(value)}</code></div>;
+  return <div className="viz-management-scope"><Small>{title}</Small><code>{JSON.stringify(value)}</code></div>;
 }
 
-function LimitGrid({ label, values, setters, disabled }: { label: string; values: string[]; setters: Array<(value: string) => void>; disabled: boolean }) {
-  return <div><Small>{label}</Small><div style={{ display: "grid", gridTemplateColumns: `repeat(${values.length}, 1fr)`, gap: 6 }}>{values.map((value, index) => <input key={index} className="viz-input" value={value} onChange={(event) => setters[index](event.target.value)} disabled={disabled} />)}</div></div>;
+function LimitGrid({ label, fieldLabels, values, setters, disabled }: { label: string; fieldLabels: string[]; values: string[]; setters: Array<(value: string) => void>; disabled: boolean }) {
+  return <div className="viz-limit-group"><Small>{label}</Small><div className="viz-limit-grid">{values.map((value, index) => <Field key={fieldLabels[index]} label={fieldLabels[index]} compact><input className="viz-input" aria-label={fieldLabels[index]} value={value} onChange={(event) => setters[index](event.target.value)} inputMode="decimal" disabled={disabled} /></Field>)}</div></div>;
+}
+
+function Field({ label, children, compact = false }: { label: string; children: React.ReactNode; compact?: boolean }) {
+  return <label className={`viz-management-field${compact ? " viz-management-field-compact" : ""}`}><span>{label}</span>{children}</label>;
 }
 
 function splitValues(value: string): string[] {

@@ -13,7 +13,15 @@ import httpx
 
 API = "http://127.0.0.1:8787"
 DB = os.path.join(os.environ["APPDATA"], "WebFA", "webfa.db")
+CONTROL_HEADERS = {
+    "X-WebFA-Visualizer-Token": os.getenv("WEBFA_VISUALIZER_CONTROL_TOKEN", "").strip()
+}
 results = []
+
+if not CONTROL_HEADERS["X-WebFA-Visualizer-Token"]:
+    raise RuntimeError(
+        "WEBFA_VISUALIZER_CONTROL_TOKEN must match the live Runtime for Provider credential controls"
+    )
 
 
 def ok(r):
@@ -167,12 +175,12 @@ def test_mcp_discover_write():
 # === G21: Disconnect then read denied ===
 def test_disconnect_then_read():
     # This test requires a real GitHub connection, skip if not connected
-    resp = httpx.get(f"{API}/v1/providers/github")
+    resp = httpx.get(f"{API}/v1/providers/github", headers=CONTROL_HEADERS)
     if resp.json().get("status") != "connected":
         return True, "skipped (not connected)"
 
     # Disconnect
-    httpx.delete(f"{API}/v1/providers/github/disconnect")
+    httpx.delete(f"{API}/v1/providers/github/disconnect", headers=CONTROL_HEADERS)
 
     # Try read
     read_resp = httpx.get(f"{API}/v1/github/repos/owner/repo")

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from browser.local_resource_broker import LocalResourceBroker, LocalResourceError
+from browser.local_resource_broker import LocalResourceBroker, LocalResourceError, _process_is_alive
 
 
 def test_resource_grant_is_opaque_and_scoped(tmp_path) -> None:
@@ -197,6 +199,23 @@ def test_second_resource_broker_does_not_delete_active_first_session(tmp_path) -
     assert authorization.path.is_file()
     first.close()
     assert not authorization.path.exists()
+
+
+def test_process_liveness_probe_distinguishes_live_and_exited_processes() -> None:
+    creation_flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creation_flags,
+    )
+    try:
+        assert _process_is_alive(process.pid)
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+
+    assert not _process_is_alive(process.pid)
 
 
 def test_resource_broker_rejects_invalid_base64_and_empty_content(tmp_path) -> None:

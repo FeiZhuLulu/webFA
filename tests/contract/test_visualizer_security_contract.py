@@ -95,6 +95,29 @@ def test_visualizer_resource_grant_exposes_only_opaque_reference(monkeypatch, tm
     assert "content_base64" not in serialized
 
 
+def test_resource_grant_rejects_ambiguous_cross_session_profile_scope(monkeypatch, tmp_path: Path):
+    import base64
+
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    reset_engine_for_tests()
+
+    with TestClient(create_app()) as client:
+        rejected = client.post(
+            "/v1/visualizer/resources",
+            json={
+                "display_name": "safe.txt",
+                "content_base64": base64.b64encode(b"safe").decode("ascii"),
+                "owner": "user",
+                "purpose": "contract_test",
+                "allowed_origins": ["https://example.com"],
+                "bound_profile_ids": ["profile-a", "profile-b"],
+            },
+        )
+
+    assert rejected.status_code == 400, rejected.text
+    assert rejected.json()["detail"]["code"] == "resource_profile_scope_ambiguous"
+
+
 def test_payment_instrument_api_exposes_safe_metadata_only(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
     reset_engine_for_tests()
@@ -125,6 +148,9 @@ def test_payment_instrument_api_exposes_safe_metadata_only(monkeypatch, tmp_path
             },
         )
         assert created.status_code == 200, created.text
+        bound_profile = client.get("/v1/visualizer/profile-policy/default")
+        assert bound_profile.status_code == 200, bound_profile.text
+        assert bound_profile.json()["profile"]["financial_policy_id"] == "policy-safe"
         rejected = client.post(
             "/v1/visualizer/payment-instruments",
             json={
@@ -149,6 +175,58 @@ def test_payment_instrument_api_exposes_safe_metadata_only(monkeypatch, tmp_path
     assert "wallet_token" not in serialized
     assert "payment_password" not in serialized
     assert "4821" in serialized
+
+
+def test_missing_financial_policy_cannot_leave_partial_payment_binding(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    reset_engine_for_tests()
+
+    with TestClient(create_app()) as client:
+        rejected = client.post(
+            "/v1/visualizer/payment-instruments",
+            json={
+                "instrument_id": "pay-missing-policy",
+                "owner": "agent",
+                "profile_id": "default",
+                "type": "merchant_saved",
+                "brand": "Visa",
+                "last4": "4821",
+                "currency": "USD",
+                "policy_id": "missing-policy",
+            },
+        )
+        profile = client.get("/v1/visualizer/profile-policy/default")
+        instruments = client.get("/v1/visualizer/payment-instruments")
+
+    assert rejected.status_code == 400, rejected.text
+    assert rejected.json()["detail"]["code"] == "financial_policy_missing"
+    assert profile.json()["profile"]["financial_policy_id"] is None
+    assert instruments.json()["instruments"] == []
+
+
+def test_unknown_payment_profile_fails_without_starting_a_session(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    reset_engine_for_tests()
+    app = create_app()
+
+    with TestClient(app) as client:
+        rejected = client.post(
+            "/v1/visualizer/payment-instruments",
+            json={
+                "instrument_id": "pay-unknown-profile",
+                "owner": "agent",
+                "profile_id": "missing-profile",
+                "type": "merchant_saved",
+                "brand": "Visa",
+                "last4": "4821",
+                "currency": "USD",
+                "policy_id": "missing-policy",
+            },
+        )
+        assert getattr(app.state, "browser_runtime_supervisor", None) is None
+
+    assert rejected.status_code == 404, rejected.text
+    assert rejected.json()["detail"]["code"] == "profile_not_found"
 
 
 def test_mcp_tool_count_unchanged_after_visualizer_route(monkeypatch, tmp_path: Path):

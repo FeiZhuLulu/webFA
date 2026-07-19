@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 from apps.runtime.main import create_app
 from storage.db import reset_engine_for_tests
 
+TOKEN = "execution-human-control-token"
+CONTROL_HEADERS = {"X-WebFA-Visualizer-Token": TOKEN}
+
 
 def _full_flow(client):
     """Helper: create plan -> preview -> approve -> return (plan_id, approval_token)."""
@@ -22,7 +25,10 @@ def _full_flow(client):
     approval_id = preview_resp.json()["approval_id"]
 
     # Approve
-    approve_resp = client.post(f"/v1/approvals/{approval_id}/approve")
+    approve_resp = client.post(
+        f"/v1/approvals/{approval_id}/approve",
+        headers=CONTROL_HEADERS,
+    )
     approval_token = approve_resp.json()["approval_token"]
 
     return plan_id, approval_token
@@ -51,6 +57,7 @@ def test_execute_without_approval_fails(monkeypatch, tmp_path: Path):
 
 def test_execute_with_approval_succeeds(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
@@ -72,6 +79,7 @@ def test_execute_with_approval_succeeds(monkeypatch, tmp_path: Path):
 
 def test_get_execution(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
@@ -102,6 +110,7 @@ def test_get_execution_not_found(monkeypatch, tmp_path: Path):
 
 def test_idempotency_key(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
@@ -123,6 +132,7 @@ def test_idempotency_key(monkeypatch, tmp_path: Path):
 
 def test_execution_generates_proof(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:

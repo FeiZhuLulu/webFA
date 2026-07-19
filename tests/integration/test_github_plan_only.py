@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 from apps.runtime.main import create_app
 from storage.db import reset_engine_for_tests
 
+TOKEN = "github-plan-human-control-token"
+CONTROL_HEADERS = {"X-WebFA-Visualizer-Token": TOKEN}
+
 
 def test_github_plan_creates_plan_only(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
@@ -67,6 +70,7 @@ def test_github_plan_only_execute_denied(monkeypatch, tmp_path: Path):
 def test_mock_transaction_still_works(monkeypatch, tmp_path: Path):
     """Verify mock transactions still work normally after P3 changes."""
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
@@ -87,7 +91,10 @@ def test_mock_transaction_still_works(monkeypatch, tmp_path: Path):
         approval_id = preview_resp.json()["approval_id"]
 
         # Approve
-        approve_resp = client.post(f"/v1/approvals/{approval_id}/approve")
+        approve_resp = client.post(
+            f"/v1/approvals/{approval_id}/approve",
+            headers=CONTROL_HEADERS,
+        )
         assert approve_resp.status_code == 200
         token = approve_resp.json()["approval_token"]
 

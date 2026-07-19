@@ -463,29 +463,37 @@ export function ProfileBootstrapPanel({
   }
 
   return (
-    <div className="viz-column-content" style={{ paddingTop: 0 }}>
+    <div className="viz-column-content" data-ui="profile-bootstrap-panel" style={{ paddingTop: 0 }}>
       <div className="viz-control-stack">
-        <select
-          className="viz-input"
-          value={selectedProfileId}
-          disabled={disabled || busy || availableProfiles.length === 0}
-          onChange={(event) => void selectProfile(event.target.value)}
-        >
-          {availableProfiles.map((profile) => (
-            <option key={profile.profile_id} value={profile.profile_id}>
-              {profile.display_name} · {profile.agent_alias} · {profile.bootstrap_source} · v{profile.version}
-            </option>
-          ))}
-        </select>
+        <label className="viz-management-field">
+          <span>维护 Profile</span>
+          <select
+            className="viz-input"
+            aria-label="选择 Profile"
+            value={selectedProfileId}
+            disabled={disabled || busy || availableProfiles.length === 0}
+            onChange={(event) => void selectProfile(event.target.value)}
+          >
+            {availableProfiles.map((profile) => (
+              <option key={profile.profile_id} value={profile.profile_id}>
+                {profile.display_name} · {profile.agent_alias} · {profile.bootstrap_source} · v{profile.version}
+              </option>
+            ))}
+          </select>
+        </label>
 
-        <input
-          id="webfa-cookie-import-file"
-          type="file"
-          accept=".json,.txt,.cookies"
-          disabled={disabled || busy || !selectedProfile}
-          onChange={(event) => void selectFile(event.target.files?.[0] ?? null)}
-          style={{ width: "100%", fontSize: 12 }}
-        />
+        <label className="viz-management-field">
+          <span>Cookie 文件</span>
+          <input
+            id="webfa-cookie-import-file"
+            type="file"
+            aria-label="选择 Cookie 导入文件"
+            accept=".json,.txt,.cookies"
+            disabled={disabled || busy || !selectedProfile}
+            onChange={(event) => void selectFile(event.target.files?.[0] ?? null)}
+            style={{ width: "100%", fontSize: 12 }}
+          />
+        </label>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <button
@@ -568,20 +576,28 @@ export function ProfileBootstrapPanel({
       <div style={{ borderTop: "1px solid rgba(127,127,127,.22)", marginTop: 14, paddingTop: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8 }}>Clone Profile</div>
         <div className="viz-control-stack">
-          <input
-            className="viz-input"
-            value={cloneAlias}
-            onChange={(event) => setCloneAlias(event.target.value)}
-            placeholder="新 Profile 别名，例如 work-copy"
-            disabled={disabled || busy || clonePreview === null}
-          />
-          <input
-            className="viz-input"
-            value={cloneDisplayName}
-            onChange={(event) => setCloneDisplayName(event.target.value)}
-            placeholder="新 Profile 显示名称"
-            disabled={disabled || busy || clonePreview === null}
-          />
+          <label className="viz-management-field">
+            <span>新 Profile 别名</span>
+            <input
+              className="viz-input"
+              aria-label="新 Profile 别名"
+              value={cloneAlias}
+              onChange={(event) => setCloneAlias(event.target.value)}
+              placeholder="例如 work-copy"
+              disabled={disabled || busy || clonePreview === null}
+            />
+          </label>
+          <label className="viz-management-field">
+            <span>显示名称</span>
+            <input
+              className="viz-input"
+              aria-label="新 Profile 显示名称"
+              value={cloneDisplayName}
+              onChange={(event) => setCloneDisplayName(event.target.value)}
+              placeholder="用于本地识别，不暴露给 Agent"
+              disabled={disabled || busy || clonePreview === null}
+            />
+          </label>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <button
               type="button"
@@ -646,7 +662,7 @@ export function ProfileBootstrapPanel({
       <div style={{ borderTop: "1px solid rgba(127,127,127,.22)", marginTop: 14, paddingTop: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8 }}>Encrypted Profile Bundle</div>
         <div style={{ fontSize: 11, opacity: 0.72, lineHeight: 1.45, marginBottom: 9 }}>
-          `.webfa-profile` 使用 Scrypt + AES-256-GCM 加密完整浏览器身份。口令无法找回；恢复只会创建新 Profile，不覆盖现有身份，也不恢复 Agent 或 Safety/Financial policy 绑定。
+          `.webfa-profile` 使用 Scrypt + AES-256-GCM 加密经筛选的网站身份状态。它不包含密码、自动填充、历史、书签、标签页或扩展；恢复只创建新 Profile，也不恢复 Agent 或 Safety/Financial policy 绑定。
         </div>
 
         <div className="viz-control-stack">
@@ -694,26 +710,32 @@ export function ProfileBootstrapPanel({
               {bundleExportPreview.source_display_name} · {bundleExportPreview.file_count} 个文件 · {formatBytes(bundleExportPreview.total_bytes)}
             </div>
             <div>排除运行时项 {bundleExportPreview.excluded_count} · {bundleExportPreview.suggested_filename}</div>
-            <input
-              className="viz-input"
-              type="password"
-              autoComplete="new-password"
-              value={bundleExportPassphrase}
-              onChange={(event) => setBundleExportPassphrase(event.target.value)}
-              placeholder="加密口令，至少 12 个字符"
-              disabled={busy}
-              style={{ marginTop: 7 }}
-            />
-            <input
-              className="viz-input"
-              type="password"
-              autoComplete="new-password"
-              value={bundleExportConfirm}
-              onChange={(event) => setBundleExportConfirm(event.target.value)}
-              placeholder="再次输入加密口令"
-              disabled={busy}
-              style={{ marginTop: 6 }}
-            />
+            <label className="viz-management-field" style={{ marginTop: 8 }}>
+              <span>Bundle 加密口令</span>
+              <input
+                className="viz-input"
+                type="password"
+                aria-label="Profile Bundle 加密口令"
+                autoComplete="new-password"
+                value={bundleExportPassphrase}
+                onChange={(event) => setBundleExportPassphrase(event.target.value)}
+                placeholder="至少 12 个字符"
+                disabled={busy}
+              />
+            </label>
+            <label className="viz-management-field" style={{ marginTop: 7 }}>
+              <span>确认加密口令</span>
+              <input
+                className="viz-input"
+                type="password"
+                aria-label="确认 Profile Bundle 加密口令"
+                autoComplete="new-password"
+                value={bundleExportConfirm}
+                onChange={(event) => setBundleExportConfirm(event.target.value)}
+                placeholder="再次输入"
+                disabled={busy}
+              />
+            </label>
             <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
               <button
                 type="button"
@@ -742,28 +764,36 @@ export function ProfileBootstrapPanel({
         <div style={{ borderTop: "1px solid rgba(127,127,127,.16)", marginTop: 12, paddingTop: 10 }}>
           <div style={{ fontSize: 11, fontWeight: 650, marginBottom: 7 }}>Restore encrypted Bundle</div>
           {!desktopBundleAvailable && (
-            <input
-              id="webfa-profile-bundle-file"
-              type="file"
-              accept=".webfa-profile"
-              disabled={disabled || busy || bundleRestorePreview !== null}
-              onChange={(event) => {
-                const selected = event.target.files?.[0] ?? null;
-                setBundleRestoreFile(selected);
-                setBundleRestoreFileName(selected?.name ?? "");
-              }}
-              style={{ width: "100%", fontSize: 12, marginBottom: 7 }}
-            />
+            <label className="viz-management-field" style={{ marginBottom: 8 }}>
+              <span>加密 Bundle 文件</span>
+              <input
+                id="webfa-profile-bundle-file"
+                type="file"
+                aria-label="选择加密的 Profile Bundle"
+                accept=".webfa-profile"
+                disabled={disabled || busy || bundleRestorePreview !== null}
+                onChange={(event) => {
+                  const selected = event.target.files?.[0] ?? null;
+                  setBundleRestoreFile(selected);
+                  setBundleRestoreFileName(selected?.name ?? "");
+                }}
+                style={{ width: "100%", fontSize: 12 }}
+              />
+            </label>
           )}
-          <input
-            className="viz-input"
-            type="password"
-            autoComplete="current-password"
-            value={bundleRestorePassphrase}
-            onChange={(event) => setBundleRestorePassphrase(event.target.value)}
-            placeholder="Bundle 解密口令"
-            disabled={disabled || busy || bundleRestorePreview !== null}
-          />
+          <label className="viz-management-field">
+            <span>Bundle 解密口令</span>
+            <input
+              className="viz-input"
+              type="password"
+              aria-label="Profile Bundle 解密口令"
+              autoComplete="current-password"
+              value={bundleRestorePassphrase}
+              onChange={(event) => setBundleRestorePassphrase(event.target.value)}
+              placeholder="输入口令以认证文件"
+              disabled={disabled || busy || bundleRestorePreview !== null}
+            />
+          </label>
           <button
             type="button"
             className="viz-btn viz-btn-primary"
@@ -806,32 +836,41 @@ export function ProfileBootstrapPanel({
             <div style={{ marginTop: 5, opacity: 0.82 }}>
               {bundleRestorePreview.compatibility_warning}
             </div>
-            <input
-              className="viz-input"
-              value={bundleRestoreAlias}
-              onChange={(event) => setBundleRestoreAlias(event.target.value)}
-              placeholder="恢复后的新 Profile 别名"
-              disabled={busy}
-              style={{ marginTop: 7 }}
-            />
-            <input
-              className="viz-input"
-              value={bundleRestoreDisplayName}
-              onChange={(event) => setBundleRestoreDisplayName(event.target.value)}
-              placeholder="恢复后的显示名称"
-              disabled={busy}
-              style={{ marginTop: 6 }}
-            />
-            <input
-              className="viz-input"
-              type="password"
-              autoComplete="current-password"
-              value={bundleRestoreCommitPassphrase}
-              onChange={(event) => setBundleRestoreCommitPassphrase(event.target.value)}
-              placeholder="重新输入 Bundle 口令以确认恢复"
-              disabled={busy}
-              style={{ marginTop: 6 }}
-            />
+            <label className="viz-management-field" style={{ marginTop: 8 }}>
+              <span>新 Profile 别名</span>
+              <input
+                className="viz-input"
+                aria-label="恢复后的 Profile 别名"
+                value={bundleRestoreAlias}
+                onChange={(event) => setBundleRestoreAlias(event.target.value)}
+                placeholder="恢复后的新别名"
+                disabled={busy}
+              />
+            </label>
+            <label className="viz-management-field" style={{ marginTop: 7 }}>
+              <span>显示名称</span>
+              <input
+                className="viz-input"
+                aria-label="恢复后的 Profile 显示名称"
+                value={bundleRestoreDisplayName}
+                onChange={(event) => setBundleRestoreDisplayName(event.target.value)}
+                placeholder="用于本地识别"
+                disabled={busy}
+              />
+            </label>
+            <label className="viz-management-field" style={{ marginTop: 7 }}>
+              <span>再次确认 Bundle 口令</span>
+              <input
+                className="viz-input"
+                type="password"
+                aria-label="确认恢复的 Profile Bundle 口令"
+                autoComplete="current-password"
+                value={bundleRestoreCommitPassphrase}
+                onChange={(event) => setBundleRestoreCommitPassphrase(event.target.value)}
+                placeholder="重新输入以确认恢复"
+                disabled={busy}
+              />
+            </label>
             <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
               <button
                 type="button"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 import threading
 from dataclasses import dataclass, field
@@ -8,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 from uuid import uuid4
 
+from browser.agent_lease import DEFAULT_LEASE_TTL_SECONDS
 from browser.runtime_errors import BrowserRuntimeError
 from schemas.browser import BrowserTab
 from schemas.profile import BrowserProfile
@@ -149,6 +151,7 @@ class AgentProfileGrant:
     agent_id: str
     connection_id: str
     profile_id: str
+    profile_version: int
     issued_at: datetime
     expires_at: datetime
 
@@ -172,6 +175,78 @@ class AgentProfileGrantManager:
         agent_id: str,
         connection_id: str,
     ) -> AgentProfileGrant:
+        self._validate_profile_access(profile, agent_id=agent_id)
+        key = (connection_id, profile.profile_id)
+        with self._lock:
+            now = self._now()
+            existing = self._grants.get(key)
+            if existing is not None and existing.expires_at > now and existing.agent_id == agent_id:
+                renewed = AgentProfileGrant(
+                    grant_id=existing.grant_id,
+                    agent_id=agent_id,
+                    connection_id=connection_id,
+                    profile_id=profile.profile_id,
+                    profile_version=profile.version,
+                    issued_at=existing.issued_at,
+                    expires_at=now + self._ttl,
+                )
+                self._grants[key] = renewed
+                return renewed
+            grant = AgentProfileGrant(
+                grant_id=f"pgrant_{uuid4().hex}",
+                agent_id=agent_id,
+                connection_id=connection_id,
+                profile_id=profile.profile_id,
+                profile_version=profile.version,
+                issued_at=now,
+                expires_at=now + self._ttl,
+            )
+            self._grants[key] = grant
+            return grant
+
+    def require(
+        self,
+        *,
+        connection_id: str,
+        agent_id: str,
+        profile: BrowserProfile,
+    ) -> AgentProfileGrant:
+        self._validate_profile_access(profile, agent_id=agent_id)
+        with self._lock:
+            now = self._now()
+            key = (connection_id, profile.profile_id)
+            grant = self._grants.get(key)
+            if grant is None or grant.expires_at <= now or grant.agent_id != agent_id:
+                raise BrowserRuntimeError(
+                    code="profile_grant_required",
+                    message="The current Agent connection is not authorized for this Browser Profile",
+                    recover_hint="Open a URL with the target profile_ref to establish an authorized Profile context",
+                    http_status=403,
+                )
+            renewed = AgentProfileGrant(
+                grant_id=grant.grant_id,
+                agent_id=grant.agent_id,
+                connection_id=grant.connection_id,
+                profile_id=grant.profile_id,
+                profile_version=profile.version,
+                issued_at=grant.issued_at,
+                expires_at=now + self._ttl,
+            )
+            self._grants[key] = renewed
+            return renewed
+
+    def revoke_connection(self, connection_id: str) -> None:
+        with self._lock:
+            for key in tuple(self._grants):
+                if key[0] == connection_id:
+                    self._grants.pop(key, None)
+
+    def _now(self) -> datetime:
+        value = self._clock()
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def _validate_profile_access(profile: BrowserProfile, *, agent_id: str) -> None:
         if profile.catalog_state != "ready":
             raise BrowserRuntimeError(
                 code="profile_unavailable",
@@ -186,54 +261,6 @@ class AgentProfileGrantManager:
                 recover_hint="Bind this Agent to the Profile in the local Control Center",
                 http_status=403,
             )
-        key = (connection_id, profile.profile_id)
-        with self._lock:
-            now = self._now()
-            existing = self._grants.get(key)
-            if existing is not None and existing.expires_at > now and existing.agent_id == agent_id:
-                renewed = AgentProfileGrant(
-                    grant_id=existing.grant_id,
-                    agent_id=agent_id,
-                    connection_id=connection_id,
-                    profile_id=profile.profile_id,
-                    issued_at=existing.issued_at,
-                    expires_at=now + self._ttl,
-                )
-                self._grants[key] = renewed
-                return renewed
-            grant = AgentProfileGrant(
-                grant_id=f"pgrant_{uuid4().hex}",
-                agent_id=agent_id,
-                connection_id=connection_id,
-                profile_id=profile.profile_id,
-                issued_at=now,
-                expires_at=now + self._ttl,
-            )
-            self._grants[key] = grant
-            return grant
-
-    def require(self, *, connection_id: str, agent_id: str, profile_id: str) -> AgentProfileGrant:
-        with self._lock:
-            now = self._now()
-            grant = self._grants.get((connection_id, profile_id))
-            if grant is None or grant.expires_at <= now or grant.agent_id != agent_id:
-                raise BrowserRuntimeError(
-                    code="profile_grant_required",
-                    message="The current Agent connection is not authorized for this Browser Profile",
-                    recover_hint="Open a URL with the target profile_ref to establish an authorized Profile context",
-                    http_status=403,
-                )
-            return grant
-
-    def revoke_connection(self, connection_id: str) -> None:
-        with self._lock:
-            for key in tuple(self._grants):
-                if key[0] == connection_id:
-                    self._grants.pop(key, None)
-
-    def _now(self) -> datetime:
-        value = self._clock()
-        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -252,10 +279,13 @@ class AgentSessionLeaseManager:
     def __init__(
         self,
         *,
-        ttl_seconds: int = 600,
+        ttl_seconds: int | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
-        self._ttl = timedelta(seconds=max(30, ttl_seconds))
+        if ttl_seconds is None:
+            raw = os.getenv("WEBFA_AGENT_LEASE_TTL_SECONDS")
+            ttl_seconds = int(raw) if raw else DEFAULT_LEASE_TTL_SECONDS
+        self._ttl = timedelta(seconds=max(1, ttl_seconds))
         self._clock = clock or _utc_now
         self._leases: dict[str, AgentSessionLease] = {}
         self._lock = threading.RLock()
@@ -286,16 +316,20 @@ class AgentSessionLeaseManager:
                     recover_hint="Create a separate Agent connection",
                     http_status=409,
                 )
-            lease = AgentSessionLease(
-                lease_id=existing.lease_id if existing is not None else f"slease_{uuid4().hex}",
-                agent_id=agent_id,
-                connection_id=connection_id,
-                session_id=session_id,
-                profile_id=profile_id,
-                runtime_generation=runtime_generation,
-                issued_at=existing.issued_at if existing is not None else now,
-                expires_at=now + self._ttl,
-            )
+            if existing is not None:
+                self._require_binding(existing, profile_id=profile_id, runtime_generation=runtime_generation)
+                lease = self._renewed(existing, now=now)
+            else:
+                lease = AgentSessionLease(
+                    lease_id=f"slease_{uuid4().hex}",
+                    agent_id=agent_id,
+                    connection_id=connection_id,
+                    session_id=session_id,
+                    profile_id=profile_id,
+                    runtime_generation=runtime_generation,
+                    issued_at=now,
+                    expires_at=now + self._ttl,
+                )
             self._leases[session_id] = lease
             return lease
 
@@ -305,10 +339,12 @@ class AgentSessionLeaseManager:
         agent_id: str,
         connection_id: str,
         session_id: str,
+        profile_id: str,
         runtime_generation: str,
     ) -> AgentSessionLease:
         with self._lock:
-            lease = self._active_locked(session_id, self._now())
+            now = self._now()
+            lease = self._active_locked(session_id, now)
             if lease is None:
                 raise BrowserRuntimeError(
                     code="session_lease_required",
@@ -323,14 +359,33 @@ class AgentSessionLeaseManager:
                     recover_hint="Use another Profile or wait for the active Session lease to expire",
                     http_status=409,
                 )
-            if lease.runtime_generation != runtime_generation:
-                raise BrowserRuntimeError(
-                    code="session_generation_mismatch",
-                    message="The Session was replaced and the previous lease is no longer valid",
-                    recover_hint="Call webfa.open_url to enter the current Session generation",
-                    http_status=409,
-                )
-            return lease
+            self._require_binding(lease, profile_id=profile_id, runtime_generation=runtime_generation)
+            renewed = self._renewed(lease, now=now)
+            self._leases[session_id] = renewed
+            return renewed
+
+    def renew_if_owned(
+        self,
+        *,
+        agent_id: str,
+        connection_id: str,
+        session_id: str,
+        profile_id: str,
+        runtime_generation: str,
+    ) -> AgentSessionLease | None:
+        """Renew an active owned lease for read activity without acquiring a free lease."""
+
+        with self._lock:
+            now = self._now()
+            lease = self._active_locked(session_id, now)
+            if lease is None:
+                return None
+            if lease.agent_id != agent_id or lease.connection_id != connection_id:
+                return None
+            self._require_binding(lease, profile_id=profile_id, runtime_generation=runtime_generation)
+            renewed = self._renewed(lease, now=now)
+            self._leases[session_id] = renewed
+            return renewed
 
     def active(self, session_id: str) -> AgentSessionLease | None:
         with self._lock:
@@ -354,6 +409,45 @@ class AgentSessionLeaseManager:
             self._leases.pop(session_id, None)
             return None
         return lease
+
+    def _require_binding(
+        self,
+        lease: AgentSessionLease,
+        *,
+        profile_id: str,
+        runtime_generation: str,
+    ) -> None:
+        if lease.profile_id != profile_id:
+            raise BrowserRuntimeError(
+                code="session_profile_mismatch",
+                message="The Session lease belongs to another Browser Profile",
+                recover_hint="Refresh the current Session and Profile binding",
+                http_status=409,
+            )
+        if lease.runtime_generation != runtime_generation:
+            raise BrowserRuntimeError(
+                code="session_generation_mismatch",
+                message="The Session was replaced and the previous lease is no longer valid",
+                recover_hint="Call webfa.open_url to enter the current Session generation",
+                http_status=409,
+            )
+
+    def _renewed(
+        self,
+        lease: AgentSessionLease,
+        *,
+        now: datetime,
+    ) -> AgentSessionLease:
+        return AgentSessionLease(
+            lease_id=lease.lease_id,
+            agent_id=lease.agent_id,
+            connection_id=lease.connection_id,
+            session_id=lease.session_id,
+            profile_id=lease.profile_id,
+            runtime_generation=lease.runtime_generation,
+            issued_at=lease.issued_at,
+            expires_at=now + self._ttl,
+        )
 
     def _now(self) -> datetime:
         value = self._clock()

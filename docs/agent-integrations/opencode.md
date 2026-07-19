@@ -12,9 +12,7 @@ Use opencode's local MCP config shape, not `mcpServers`.
       "command": ["webfa-mcp"],
       "environment": {
         "WEBFA_RUNTIME_URL": "http://127.0.0.1:8787",
-        "WEBFA_AGENT_ID": "opencode",
-        "WEBFA_BROWSER_DRIVER": "managed-chromium",
-        "WEBFA_AUTH_TAKEOVER": "auto"
+        "WEBFA_AGENT_ID": "opencode"
       }
     }
   }
@@ -41,7 +39,11 @@ Notes:
 
 - Default tools should be exactly `webfa.open_url`, `webfa.observe`,
   `webfa.act`, `webfa.get_tabs`, `webfa.switch_tab`.
-- WebFA uses the shared default profile. opencode sees the same logged-in
-  website accounts as other agents connected to the same Runtime.
-- If Runtime returns `409 agent_busy`, another agent currently owns the browser
-  lease. Wait for the lease to expire or stop using the other agent.
+- Use a distinct stable `WEBFA_AGENT_ID` for each external Agent client.
+- Omitting `profile_ref` uses the configured default Profile. Pass an authorized
+  Profile alias to `webfa.open_url` to select another internet identity.
+- One persistent Profile has at most one writable Session; different Profile
+  Sessions can run concurrently. `session_busy` or legacy `agent_busy` means
+  another connection owns the relevant lease.
+- Browser mode and HumanControl policy belong to the Runtime host, not to the
+  opencode MCP configuration.

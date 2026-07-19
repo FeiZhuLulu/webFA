@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,8 +8,14 @@ from apps.runtime.api.action_log import get_action_log
 from apps.runtime.api.preview_cache import get_cached_preview, store_preview_cache
 from apps.runtime.api.visualizer_control import require_visualizer_control
 from apps.runtime.api.routes.browser import get_browser_runtime
+from apps.runtime.api.routes.profiles import (
+    get_profile_repository,
+)
 from browser.local_resource_broker import LocalResourceError
+from browser.managed_chromium_host import chromium_executable_status
 from browser.payment_broker import PaymentInstrumentError
+from browser.profile_repository import ProfileNotFoundError, ProfileRepositoryError
+from browser.profile_storage import ProfileLockBusyError
 from browser.runtime_errors import BrowserRuntimeError
 from browser.runtime_supervisor import BrowserRuntimeSupervisor
 from browser.step_up import StepUpError
@@ -82,6 +87,44 @@ def _record_action(
     )
 
 
+def _profile_policy_http_error(
+    exc: ProfileRepositoryError,
+) -> HTTPException:
+    status_code = 404 if isinstance(exc, ProfileNotFoundError) else 409
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": exc.code, "message": str(exc)},
+    )
+
+
+def _find_control_session_runtime(
+    request: Request,
+    profile_ref: str | None = None,
+):
+    runtime = get_browser_runtime(request)
+    if isinstance(runtime, BrowserRuntimeSupervisor):
+        return runtime.find_control_session_runtime(profile_ref)
+    return runtime
+
+
+def _ensure_control_session_runtime(
+    request: Request,
+    profile_ref: str | None = None,
+):
+    runtime = get_browser_runtime(request)
+    if isinstance(runtime, BrowserRuntimeSupervisor):
+        try:
+            return runtime.ensure_control_session_runtime(profile_ref)
+        except ProfileLockBusyError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": exc.code, "message": str(exc)},
+            ) from exc
+        except ProfileRepositoryError as exc:
+            raise _profile_policy_http_error(exc) from exc
+    return runtime
+
+
 def _auth_surface_payload(request: Request, browser_state_url: str | None = None) -> dict[str, object]:
     _ = request, browser_state_url
     return {
@@ -124,6 +167,13 @@ def build_visualizer_state(request: Request) -> VisualizerState:
     preview_captured_at: str | None = None
 
     browser_status = runtime.status()
+    executable_found = browser_status.get("executable_found")
+    executable_name = browser_status.get("executable_name")
+    if (
+        browser_status.get("selected_driver", "managed-chromium") == "managed-chromium"
+        and not isinstance(executable_found, bool)
+    ):
+        executable_found, executable_name = chromium_executable_status()
     supervisor_inactive = (
         isinstance(runtime, BrowserRuntimeSupervisor)
         and browser_status.get("supervisor_lifecycle") == "inactive"
@@ -226,6 +276,9 @@ def build_visualizer_state(request: Request) -> VisualizerState:
                 "headless": bool(browser_status.get("headless")),
                 "host_status": browser_status.get("host_status", "not_started"),
                 "visible_window": bool(browser_status.get("visible_window")),
+                "executable_found": executable_found,
+                "executable_name": executable_name,
+                "last_error": browser_status.get("last_error"),
             },
             "agent": {
                 "active_agent_id": browser_status.get("active_agent_id"),
@@ -276,19 +329,31 @@ def visualizer_state(request: Request) -> dict:
     return build_visualizer_state(request).model_dump()
 
 
-@router.post("/visualizer/open-auth-surface", dependencies=_CONTROL_DEPENDENCIES)
+@router.post(
+    "/visualizer/open-auth-surface",
+    dependencies=_CONTROL_DEPENDENCIES,
+    deprecated=True,
+)
 def open_auth_surface(request: Request) -> dict:
     _ = request
     _require_legacy_auth_surface()
 
 
-@router.post("/visualizer/open-host", dependencies=_CONTROL_DEPENDENCIES)
+@router.post(
+    "/visualizer/open-host",
+    dependencies=_CONTROL_DEPENDENCIES,
+    deprecated=True,
+)
 def open_host(request: Request) -> dict:
     _ = request
     _require_legacy_auth_surface()
 
 
-@router.post("/visualizer/close-auth-surface", dependencies=_CONTROL_DEPENDENCIES)
+@router.post(
+    "/visualizer/close-auth-surface",
+    dependencies=_CONTROL_DEPENDENCIES,
+    deprecated=True,
+)
 def close_auth_surface(request: Request) -> dict:
     _ = request
     _require_legacy_auth_surface()
@@ -296,8 +361,11 @@ def close_auth_surface(request: Request) -> dict:
 
 @router.get("/visualizer/profile-policy/{profile_id}")
 def get_profile_policy(profile_id: str, request: Request) -> dict:
-    runtime = get_browser_runtime(request)
-    return {"profile": runtime.get_profile_policy(profile_id).model_dump()}
+    try:
+        metadata = get_profile_repository(request).get_policy(profile_id)
+        return {"profile": metadata.model_dump()}
+    except ProfileRepositoryError as exc:
+        raise _profile_policy_http_error(exc) from exc
 
 
 @router.put("/visualizer/profile-policy/{profile_id}", dependencies=_CONTROL_DEPENDENCIES)
@@ -311,25 +379,29 @@ def set_profile_policy(
             status_code=400,
             detail={"code": "profile_id_mismatch", "message": "profile_id in path and body must match"},
         )
-    runtime = get_browser_runtime(request)
-    metadata = runtime.set_profile_policy(payload)
-    _record_action(
-        request,
-        tool="visualizer.set_profile_policy",
-        message=f"profile policy updated: {profile_id}",
-    )
-    return {"profile": metadata.model_dump()}
+    try:
+        metadata = get_profile_repository(request).upsert_policy(payload)
+        _record_action(
+            request,
+            tool="visualizer.set_profile_policy",
+            message=f"profile policy updated: {profile_id}",
+        )
+        return {"profile": metadata.model_dump()}
+    except ProfileRepositoryError as exc:
+        raise _profile_policy_http_error(exc) from exc
 
 
 @router.get("/visualizer/financial-policies")
 def list_financial_policies(request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        return {"policies": []}
     return {"policies": [item.model_dump() for item in runtime.list_financial_policies()]}
 
 
 @router.post("/visualizer/financial-policies", dependencies=_CONTROL_DEPENDENCIES)
 def create_financial_policy(payload: FinancialPolicy, request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _ensure_control_session_runtime(request)
     policy = runtime.register_financial_policy(payload)
     _record_action(
         request,
@@ -341,7 +413,12 @@ def create_financial_policy(payload: FinancialPolicy, request: Request) -> dict:
 
 @router.get("/visualizer/financial-policies/{policy_id}/usage")
 def get_financial_usage(policy_id: str, request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "financial_policy_missing", "message": "financial policy was not found"},
+        )
     try:
         return {"usage": runtime.financial_usage(policy_id).model_dump()}
     except PaymentInstrumentError as exc:
@@ -353,7 +430,9 @@ def get_financial_usage(policy_id: str, request: Request) -> dict:
 
 @router.get("/visualizer/payment-instruments")
 def list_payment_instruments(request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        return {"instruments": []}
     return {
         "instruments": [item.model_dump() for item in runtime.list_payment_instruments()]
     }
@@ -361,22 +440,27 @@ def list_payment_instruments(request: Request) -> dict:
 
 @router.post("/visualizer/payment-instruments", dependencies=_CONTROL_DEPENDENCIES)
 def create_payment_instrument(payload: PaymentInstrumentRef, request: Request) -> dict:
-    runtime = get_browser_runtime(request)
-    profile = runtime.get_profile_policy(payload.profile_id)
-    if profile.financial_policy_id is not None and profile.financial_policy_id != payload.policy_id:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "profile_financial_policy_mismatch",
-                "message": "payment instrument policy must match the active Profile financial policy",
-            },
-        )
+    repository = get_profile_repository(request)
     try:
-        state = runtime.register_payment_instrument(payload)
+        profile = repository.get_policy(payload.profile_id)
+        runtime = _ensure_control_session_runtime(request, payload.profile_id)
+        if profile.financial_policy_id is not None and profile.financial_policy_id != payload.policy_id:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "profile_financial_policy_mismatch",
+                    "message": "payment instrument policy must match the active Profile financial policy",
+                },
+            )
+        # Validate the complete Session-scoped reference before changing
+        # persistent Profile metadata. This means a catalog failure cannot leave
+        # behind a usable in-memory payment reference with no matching policy.
+        runtime.validate_payment_instrument(payload)
         if profile.financial_policy_id is None:
-            runtime.set_profile_policy(
+            repository.upsert_policy(
                 profile.model_copy(update={"financial_policy_id": payload.policy_id}, deep=True)
             )
+        state = runtime.register_payment_instrument(payload)
         _record_action(
             request,
             tool="visualizer.create_payment_instrument",
@@ -388,11 +472,18 @@ def create_payment_instrument(payload: PaymentInstrumentRef, request: Request) -
             status_code=400,
             detail={"code": exc.code, "message": str(exc)},
         ) from exc
+    except ProfileRepositoryError as exc:
+        raise _profile_policy_http_error(exc) from exc
 
 
 @router.delete("/visualizer/payment-instruments/{instrument_id}", dependencies=_CONTROL_DEPENDENCIES)
 def revoke_payment_instrument(instrument_id: str, request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "payment_instrument_missing", "message": "payment instrument was not found"},
+        )
     try:
         state = runtime.revoke_payment_instrument(instrument_id)
         _record_action(
@@ -410,7 +501,9 @@ def revoke_payment_instrument(instrument_id: str, request: Request) -> dict:
 
 @router.get("/visualizer/step-ups")
 def list_step_ups(request: Request, include_terminal: bool = True) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        return {"step_ups": []}
     return {
         "step_ups": [
             item.model_dump()
@@ -425,7 +518,12 @@ def approve_step_up(
     payload: StepUpDecisionRequest,
     request: Request,
 ) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "step_up_not_found", "message": "step-up request was not found"},
+        )
     try:
         state = runtime.approve_step_up(
             step_up_id,
@@ -452,7 +550,12 @@ def reject_step_up(
     payload: StepUpDecisionRequest,
     request: Request,
 ) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "step_up_not_found", "message": "step-up request was not found"},
+        )
     try:
         state = runtime.reject_step_up(
             step_up_id,
@@ -474,7 +577,9 @@ def reject_step_up(
 
 @router.get("/visualizer/safety-receipts")
 def list_safety_receipts(request: Request, limit: int = 100) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        return {"receipts": []}
     return {
         "receipts": [
             item.model_dump()
@@ -485,7 +590,12 @@ def list_safety_receipts(request: Request, limit: int = 100) -> dict:
 
 @router.get("/visualizer/safety-receipts/{receipt_id}")
 def get_safety_receipt(receipt_id: str, request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "safety_receipt_not_found", "message": "safety receipt was not found"},
+        )
     receipt = runtime.get_safety_receipt(receipt_id)
     if receipt is None:
         raise HTTPException(
@@ -497,7 +607,9 @@ def get_safety_receipt(receipt_id: str, request: Request) -> dict:
 
 @router.get("/visualizer/resources")
 def list_local_resources(request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        return {"resources": []}
     return {
         "resources": [item.model_dump() for item in runtime.list_local_resources()]
     }
@@ -505,8 +617,21 @@ def list_local_resources(request: Request) -> dict:
 
 @router.post("/visualizer/resources", dependencies=_CONTROL_DEPENDENCIES)
 def create_local_resource(payload: LocalResourceGrantRequest, request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    if len(payload.bound_profile_ids) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "resource_profile_scope_ambiguous",
+                "message": "a Session-scoped resource grant can target at most one Browser Profile",
+            },
+        )
+    target_profile = (
+        payload.bound_profile_ids[0]
+        if len(payload.bound_profile_ids) == 1
+        else None
+    )
     try:
+        runtime = _ensure_control_session_runtime(request, target_profile)
         state = runtime.register_local_resource(
             display_name=payload.display_name,
             content_base64=payload.content_base64,
@@ -536,11 +661,18 @@ def create_local_resource(payload: LocalResourceGrantRequest, request: Request) 
             status_code=400,
             detail={"code": exc.code, "message": str(exc)},
         ) from exc
+    except ProfileRepositoryError as exc:
+        raise _profile_policy_http_error(exc) from exc
 
 
 @router.delete("/visualizer/resources/{resource_ref}", dependencies=_CONTROL_DEPENDENCIES)
 def revoke_local_resource(resource_ref: str, request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "resource_not_found", "message": "resource grant was not found"},
+        )
     try:
         state = runtime.revoke_local_resource(resource_ref)
         _record_action(
@@ -565,7 +697,15 @@ def revoke_local_resource(resource_ref: str, request: Request) -> dict:
 
 @router.post("/visualizer/restart-host", dependencies=_CONTROL_DEPENDENCIES)
 def restart_host(request: Request) -> dict:
-    runtime = get_browser_runtime(request)
+    runtime = _find_control_session_runtime(request)
+    if runtime is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "session_context_required",
+                "message": "no active Browser Session is available to restart",
+            },
+        )
     try:
         state = runtime.restart_host()
         store_preview_cache(request, None, None)

@@ -1,5 +1,7 @@
 """Unit tests for MCP config generator."""
 
+import pytest
+
 from apps.runtime.mcp.config_generator import generate_config, generate_config_json
 
 
@@ -27,7 +29,7 @@ def test_generate_config_has_env():
     config = generate_config(runtime_url="http://127.0.0.1:8787")
     env = config["mcpServers"]["webfa"]["env"]
     assert env["WEBFA_RUNTIME_URL"] == "http://127.0.0.1:8787"
-    assert env["WEBFA_AGENT_ID"] == "webfa-agent"
+    assert env["WEBFA_AGENT_ID"] == "external-agent"
 
 
 def test_generate_config_accepts_agent_id():
@@ -55,3 +57,34 @@ def test_generate_config_json():
 def test_generate_config_with_cwd():
     config = generate_config(runtime_url="http://127.0.0.1:8787", cwd="/path/to/webfa")
     assert config["mcpServers"]["webfa"]["cwd"] == "/path/to/webfa"
+
+
+def test_generate_config_uses_packaged_multicall_sidecar(monkeypatch):
+    monkeypatch.setenv("WEBFA_MCP_COMMAND", "C:/Program Files/WebFA/webfa.exe")
+    monkeypatch.setenv("WEBFA_MCP_ARGS_JSON", '["mcp"]')
+
+    config = generate_config(runtime_url="http://127.0.0.1:8787")
+
+    entry = config["mcpServers"]["webfa"]
+    assert entry["command"] == "C:/Program Files/WebFA/webfa.exe"
+    assert entry["args"] == ["mcp"]
+
+
+def test_generate_config_detects_frozen_multicall_sidecar(monkeypatch):
+    monkeypatch.delenv("WEBFA_MCP_COMMAND", raising=False)
+    monkeypatch.setattr("apps.runtime.mcp.config_generator.sys.frozen", True, raising=False)
+    monkeypatch.setattr("apps.runtime.mcp.config_generator.sys.executable", "C:/WebFA/webfa.exe")
+
+    config = generate_config(runtime_url="http://127.0.0.1:9123")
+
+    entry = config["mcpServers"]["webfa"]
+    assert entry["command"] == "C:/WebFA/webfa.exe"
+    assert entry["args"] == ["mcp"]
+
+
+def test_generate_config_rejects_invalid_packaged_sidecar_args(monkeypatch):
+    monkeypatch.setenv("WEBFA_MCP_COMMAND", "C:/Program Files/WebFA/webfa.exe")
+    monkeypatch.setenv("WEBFA_MCP_ARGS_JSON", '{"not": "an array"}')
+
+    with pytest.raises(ValueError, match="JSON string array"):
+        generate_config()

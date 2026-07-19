@@ -78,7 +78,7 @@ class GitHubRateLimit(BaseModel):
 
 
 class GitHubConnectionRequest(BaseModel):
-    token: str
+    token: str = Field(min_length=1, max_length=16 * 1024)
     resource_scope: dict[str, Any] = Field(default_factory=dict)
 
 

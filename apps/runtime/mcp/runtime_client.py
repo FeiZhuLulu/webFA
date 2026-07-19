@@ -98,6 +98,9 @@ class WebFARuntimeClient:
     def switch_tab(self, tab_id: str) -> dict[str, Any]:
         return self._post("/v1/browser/web/tabs/switch", tool="webfa.switch_tab", json={"tab_id": tab_id})
 
+    def close(self) -> None:
+        self._client.close()
+
     def list_providers(self) -> dict[str, Any]:
         return self._get("/v1/providers", tool="webfa.discover")
 

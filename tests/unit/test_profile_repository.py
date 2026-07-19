@@ -9,6 +9,7 @@ from browser.profile_repository import (
     BrowserSessionRepository,
     ProfileConflictError,
     ProfileRepository,
+    ProfileStateError,
     ProfileVersionConflictError,
 )
 from schemas.profile import BrowserProfileCreate, BrowserProfileUpdate
@@ -132,3 +133,55 @@ def test_session_metadata_lifecycle_and_interruption(monkeypatch, tmp_path: Path
             profile_id="missing-profile",
             runtime_generation="generation_invalid",
         )
+
+
+def test_profile_archive_rejects_default_and_active_session(monkeypatch, tmp_path: Path):
+    repository = _repository(monkeypatch, tmp_path)
+    default = repository.ensure_default_profile()
+    with pytest.raises(ProfileStateError, match="default profile"):
+        repository.archive_profile(default.profile_id, expected_version=default.version)
+
+    profile = repository.create_profile(
+        BrowserProfileCreate(agent_alias="active", display_name="Active")
+    )
+    sessions = BrowserSessionRepository()
+    sessions.create_session(
+        session_id="session_active_profile",
+        profile_id=profile.profile_id,
+        runtime_generation="generation_active",
+    )
+    sessions.transition("session_active_profile", lifecycle="running")
+
+    with pytest.raises(ProfileStateError, match="active session"):
+        repository.archive_profile(profile.profile_id, expected_version=profile.version)
+
+    unchanged = repository.get_profile(profile.profile_id)
+    assert unchanged.catalog_state == "ready"
+    assert unchanged.version == profile.version
+
+
+def test_profile_policy_update_remains_available_for_active_session_revocation(monkeypatch, tmp_path: Path):
+    repository = _repository(monkeypatch, tmp_path)
+    profile = repository.create_profile(
+        BrowserProfileCreate(agent_alias="immutable", display_name="Immutable")
+    )
+    sessions = BrowserSessionRepository()
+    sessions.create_session(
+        session_id="session_immutable_profile",
+        profile_id=profile.profile_id,
+        runtime_generation="generation_immutable",
+    )
+    sessions.transition("session_immutable_profile", lifecycle="running")
+
+    updated = repository.update_profile(
+        profile.profile_id,
+        BrowserProfileUpdate(
+            expected_version=profile.version,
+            owner="agent_owned",
+            bound_agent_ids=["different-agent"],
+        ),
+    )
+
+    assert updated.owner == "agent_owned"
+    assert updated.bound_agent_ids == ["different-agent"]
+    assert updated.version == profile.version + 1

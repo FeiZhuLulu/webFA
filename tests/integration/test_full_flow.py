@@ -5,12 +5,16 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from apps.runtime.main import create_app
-from storage.db import reset_engine_for_tests
+from storage.db import get_engine, reset_engine_for_tests
+
+TOKEN = "full-flow-human-control-token"
+CONTROL_HEADERS = {"X-WebFA-Visualizer-Token": TOKEN}
 
 
 def test_full_mock_transaction_flow(monkeypatch, tmp_path: Path):
     """Complete flow: create plan -> preview -> approve -> execute -> verify -> proof -> audit."""
     monkeypatch.setenv("WEBFA_HOME", str(tmp_path / "WebFA"))
+    monkeypatch.setenv("WEBFA_VISUALIZER_CONTROL_TOKEN", TOKEN)
     reset_engine_for_tests()
 
     with TestClient(create_app()) as client:
@@ -47,7 +51,10 @@ def test_full_mock_transaction_flow(monkeypatch, tmp_path: Path):
         assert exec_fail_resp.status_code == 403
 
         # 4. Approve
-        approve_resp = client.post(f"/v1/approvals/{approval_id}/approve")
+        approve_resp = client.post(
+            f"/v1/approvals/{approval_id}/approve",
+            headers=CONTROL_HEADERS,
+        )
         assert approve_resp.status_code == 200
         approval_token = approve_resp.json()["approval_token"]
         assert approve_resp.json()["status"] == "approved"
@@ -109,3 +116,6 @@ def test_full_mock_transaction_flow(monkeypatch, tmp_path: Path):
             payload = event["event_payload"]
             payload_str = str(payload).lower()
             assert "approval_token" not in payload_str or "[REDACTED]" in payload_str
+
+    with get_engine().connect() as connection:
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []

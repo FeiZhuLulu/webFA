@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "webfa-desktop-runtime"
-version = "0.2.0"
-description = "WebFA developer preview: local agent-native browser runtime over MCP"
+dynamic = ["version"]
+description = "WebFA developer preview: local internet Runtime for external Agents over MCP"
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -21,6 +21,11 @@ dependencies = [
   "websockets>=12",
   "cryptography>=46.0"
 ]
+
+[project.urls]
+Homepage = "https://github.com/FeiZhuLulu/webFA"
+Repository = "https://github.com/FeiZhuLulu/webFA.git"
+Issues = "https://github.com/FeiZhuLulu/webFA/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -57,7 +62,11 @@ packages = [
   "proof",
   "audit",
   "workspace",
-  "browser"
+  "browser",
+  "webfa_resources",
+  "webfa_resources.blocked_paths",
+  "webfa_resources.policies",
+  "webfa_resources.transactions"
 ]
 
 [tool.setuptools.package-dir]
@@ -77,6 +86,15 @@ packages = [
 "audit" = "packages/webfa-core/audit"
 "workspace" = "packages/webfa-core/workspace"
 "browser" = "packages/webfa-core/browser"
+"webfa_resources" = "resources"
+
+[tool.setuptools.package-data]
+"webfa_resources.blocked_paths" = ["*.yaml"]
+"webfa_resources.policies" = ["*.yaml"]
+"webfa_resources.transactions" = ["*.yaml"]
+
+[tool.setuptools.dynamic]
+version = {attr = "apps.runtime.version.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

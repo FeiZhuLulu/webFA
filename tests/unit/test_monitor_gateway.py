@@ -120,3 +120,10 @@ def test_monitor_gateway_router_rejects_replaced_session_generation() -> None:
     with pytest.raises(MonitorAccessError) as excinfo:
         router.validate(consumed)
     assert excinfo.value.code == "monitor_generation_mismatch"
+
+    binding["runtime_generation"] = "generation-a"
+    binding["session_id"] = "session-b"
+    router = MonitorGatewayRouter(manager, lambda _session_id: dict(binding))
+    with pytest.raises(MonitorAccessError) as session_excinfo:
+        router.validate(consumed)
+    assert session_excinfo.value.code == "monitor_generation_mismatch"

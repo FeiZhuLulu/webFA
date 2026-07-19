@@ -1,0 +1,61 @@
+appId: com.webfa.desktop
+productName: WebFA
+artifactName: ${productName}-Setup-${version}-${arch}.${ext}
+asar: true
+compression: maximum
+publish: null
+toolsets:
+  nsis: "0.0.0"
+electronDownload:
+  mirrorOptions: {}
+  checksums:
+    electron-v42.7.0-win32-x64.zip: 56ef74c90fd8d145a5b41a7d3be6e2207fcc838538f8e92a713cecce54a7d667
+electronDist: .release/electron-dist
+directories:
+  output: .release/electron
+  buildResources: packaging
+files:
+  - package.json
+  - apps/desktop/electron/dist/**/*
+  - apps/desktop/renderer/out/**/*
+  - "!**/*.map"
+  - "!**/*.ts"
+extraResources:
+  - from: .release/sidecar
+    to: sidecar
+  - from: packaging/webfa.ico
+    to: assets/webfa.ico
+  - from: LICENSE
+    to: legal/LICENSE.txt
+  - from: .release/metadata
+    to: legal
+win:
+  executableName: WebFA
+  icon: webfa.ico
+  requestedExecutionLevel: asInvoker
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  packElevateHelper: false
+  differentialPackage: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: WebFA
+  installerIcon: webfa.ico
+  uninstallerIcon: webfa.ico
+  include: installer.nsh
+  deleteAppDataOnUninstall: false
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false

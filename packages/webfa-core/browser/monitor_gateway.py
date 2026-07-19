@@ -265,18 +265,22 @@ class MonitorGatewayRouter:
     def validate(self, grant: MonitorConnectionGrant) -> dict[str, str]:
         try:
             binding = self._binding_resolver(grant.session_id)
+            session_id = binding["session_id"]
+            profile_id = binding["profile_id"]
+            runtime_generation = binding["runtime_generation"]
         except Exception as exc:
             raise MonitorAccessError(
                 "monitor_session_unavailable",
                 "Monitor Session is no longer active",
             ) from exc
         if (
-            binding["profile_id"] != grant.profile_id
-            or binding["runtime_generation"] != grant.runtime_generation
+            session_id != grant.session_id
+            or profile_id != grant.profile_id
+            or runtime_generation != grant.runtime_generation
         ):
             raise MonitorAccessError(
                 "monitor_generation_mismatch",
-                "Monitor grant belongs to a replaced Session generation",
+                "Monitor grant belongs to a replaced Session, Profile, or generation",
             )
         return binding
 

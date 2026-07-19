@@ -24,6 +24,7 @@ from schemas.safety import SafetyOperationEnvelope
 from schemas.web import ObserveDetail, ObserveMode, SemanticOperationName
 
 from apps.runtime.mcp.tools import (
+    close_client,
     tool_act,
     tool_discover,
     tool_execute,
@@ -163,7 +164,10 @@ if os.getenv("WEBFA_ENABLE_LEGACY_TRANSACTION") == "1":
 
 
 def main() -> None:
-    mcp.run(transport="stdio")
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        close_client()
 
 
 if __name__ == "__main__":
