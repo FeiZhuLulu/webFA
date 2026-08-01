@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VisualizerShell } from "../components/Layout/VisualizerShell";
+import { BrandMark } from "../components/Layout/BrandMark";
 import { ActionLogger } from "../components/Inspector/ActionLogger";
 import { AgentStateInspector } from "../components/Inspector/AgentStateInspector";
 import { ContentBlocksList } from "../components/Inspector/ContentBlocksList";
@@ -341,10 +342,7 @@ export default function VisualizerPage() {
     () => (
       <header className="viz-app-header">
         <div className="viz-brand">
-          <span className="viz-brand-mark" aria-hidden="true">
-            <span />
-            <span />
-          </span>
+          <BrandMark className="viz-brand-mark" />
           <span className="viz-brand-copy">
             <span className="viz-brand-name">WebFA</span>
             <span className="viz-brand-subtitle">Runtime manager</span>
@@ -422,7 +420,7 @@ export default function VisualizerPage() {
             <div className="viz-sidebar-scroll">
               {controlSection === "overview" && <section className="viz-sidebar-pane">
                 <div className="viz-column-header">
-                  <span className="viz-column-title">Runtime status</span>
+                  <span className="viz-column-title">Runtime 状态</span>
                 </div>
                 <StatusPanel
                   state={visualizerState}
@@ -440,7 +438,7 @@ export default function VisualizerPage() {
                   leaseExpiresAt={visualizerState?.agent.lease_expires_at ?? null}
                 />
                 <div className="viz-column-header">
-                  <span className="viz-column-title">Runtime controls</span>
+                  <span className="viz-column-title">Runtime 控制</span>
                 </div>
                 <ControlPanel
                   busy={busy}
@@ -460,7 +458,7 @@ export default function VisualizerPage() {
               </section>}
               {controlSection === "identity" && <section className="viz-sidebar-pane">
                 <div className="viz-column-header">
-                  <span className="viz-column-title">Profile bootstrap</span>
+                  <span className="viz-column-title">Profile 身份</span>
                 </div>
                 <ProfileBootstrapPanel
                   apiUrl={apiUrl}
@@ -473,7 +471,7 @@ export default function VisualizerPage() {
               </section>}
               {controlSection === "safety" && <section className="viz-sidebar-pane">
                 <div className="viz-column-header">
-                  <span className="viz-column-title">Local resource grants</span>
+                  <span className="viz-column-title">本地资源授权</span>
                 </div>
                 <ResourceGrantPanel
                   apiUrl={apiUrl}
@@ -487,7 +485,7 @@ export default function VisualizerPage() {
                   onError={handleUiError}
                 />
                 <div className="viz-column-header">
-                  <span className="viz-column-title">Safety center</span>
+                  <span className="viz-column-title">安全中心</span>
                 </div>
                 <SafetyCenterPanel
                   apiUrl={apiUrl}
@@ -529,7 +527,7 @@ export default function VisualizerPage() {
           <>
             <div className="viz-panel-section">
               <div className="viz-column-header viz-right-heading">
-                <span className="viz-column-title">Runtime Projection</span>
+                <span className="viz-column-title">Runtime 投影</span>
                 <button
                   type="button"
                   className="viz-sidebar-toggle-arrow"
@@ -548,7 +546,7 @@ export default function VisualizerPage() {
             </div>
             <div className="viz-panel-section blocks">
               <div className="viz-column-header">
-                <span className="viz-column-title">Content Blocks</span>
+                <span className="viz-column-title">内容块</span>
               </div>
               <div className="viz-column-content compact">
                 <ContentBlocksList blocks={browserState?.content_blocks ?? []} />
@@ -556,11 +554,11 @@ export default function VisualizerPage() {
             </div>
             <div className="viz-panel-section console">
               <div className="viz-column-header">
-                <span className="viz-column-title">Action Log</span>
+                <span className="viz-column-title">操作日志</span>
               </div>
               <ActionLogger entries={visualizerState?.recent_actions ?? []} />
             </div>
-            <div className="viz-panel-section json">
+            <div className="viz-panel-section">
               <AgentStateInspector browserState={browserState} expanded={jsonExpanded} onToggle={() => setJsonExpanded((value) => !value)} />
             </div>
           </>

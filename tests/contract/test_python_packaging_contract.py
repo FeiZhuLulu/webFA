@@ -54,8 +54,8 @@ def test_external_agent_configs_do_not_take_over_runtime_host_policy():
 
 def test_source_install_does_not_require_optional_desktop_dependencies():
     for filename, desktop_marker in (
-        ("README.md", "如需开发可选的人类控制面"),
-        ("README.en.md", "To develop the optional human control surface"),
+        ("README.md", "## 开发"),
+        ("README.en.md", "## Development"),
     ):
         readme = (ROOT / filename).read_text(encoding="utf-8")
         source_install = readme.split(desktop_marker, 1)[0]

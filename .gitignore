@@ -9,6 +9,7 @@ apps/desktop/renderer/out/
 *.egg-info/
 __pycache__/
 .pytest_cache/
+.progress/
 *.pyc
 .DS_Store
 webfa.db

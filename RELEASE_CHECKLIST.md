@@ -28,6 +28,9 @@ a new candidate passed.
   authority. Stale active Session records become `interrupted`.
 - [x] P13 Durable Trace / Resume is deferred; no release material promises task
   replay, page restoration, or resumable execution.
+- [x] The pre-P13 UI/brand baseline and source/wheel re-verification are
+  recorded in `docs/reports/PRE_P13_BASELINE_FREEZE_24.md`; this does not mark a
+  formal Windows Desktop release.
 - [ ] Before a formal Windows Desktop release only, close its distribution
   blockers: stable public `appId`, true
   upgrade from a real previous supported installer, clean standard-user and

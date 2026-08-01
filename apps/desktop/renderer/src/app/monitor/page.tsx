@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { BrandMark } from "../../components/Layout/BrandMark";
 import styles from "./monitor.module.css";
 
 type MonitorSnapshot = {
@@ -704,7 +705,7 @@ export default function MonitorPage() {
       <a className={styles.skipLink} href="#webfa-monitor-surface">跳至页面表面</a>
       <header className={styles.header} ref={headerRef}>
         <div className={styles.brand}>
-          <div className={styles.logo} aria-hidden="true"><span /><span /></div>
+          <BrandMark className={styles.logo} />
           <div>
             <h1 className={styles.brandTitle}>WebFA 会话监控</h1>
             <div className={styles.brandMeta}>{snapshot?.active_agent_id || "等待外部 Agent"} · {snapshot?.session_id || "default"}</div>
@@ -930,15 +931,17 @@ export default function MonitorPage() {
             </InfoCard>
             <div className={styles.card}>
               <div className={styles.cardTitle}>实时活动</div>
-              {activity.length === 0 ? <div className={styles.activityEmpty}><span aria-hidden="true" />Runtime 事件会按发生顺序显示在这里</div> : activity.map((event) => (
-                <div className={styles.event} key={event.event_id}>
-                  <span className={`${styles.eventDot} ${event.data.requires_user_attention ? styles.eventAttention : ""}`} />
-                  <div>
-                    <div className={styles.eventTitle}>{eventLabel(event)}</div>
-                    <div className={styles.eventMeta}>{new Date(event.timestamp).toLocaleTimeString()} · seq {event.sequence}</div>
+              <div role="log" aria-live="polite" aria-label="实时活动事件流">
+                {activity.length === 0 ? <div className={styles.activityEmpty}><span aria-hidden="true" />Runtime 事件会按发生顺序显示在这里</div> : activity.map((event) => (
+                  <div className={styles.event} key={event.event_id}>
+                    <span className={`${styles.eventDot} ${event.data.requires_user_attention ? styles.eventAttention : ""}`} />
+                    <div>
+                      <div className={styles.eventTitle}>{eventLabel(event)}</div>
+                      <div className={styles.eventMeta}>{new Date(event.timestamp).toLocaleTimeString()} · seq {event.sequence}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </aside>

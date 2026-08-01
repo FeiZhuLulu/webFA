@@ -104,7 +104,7 @@ export function ResourceGrantPanel({
   }
 
   return (
-    <div className="viz-column-content" style={{ paddingTop: 0 }}>
+    <div className="viz-column-content viz-column-content-tight-top">
       <div className="viz-control-stack">
         <input
           id="webfa-resource-file"
@@ -112,7 +112,7 @@ export function ResourceGrantPanel({
           aria-label="选择需要授权的本地文件"
           disabled={disabled || busy}
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-          style={{ width: "100%", fontSize: 12 }}
+          className="viz-file-input"
         />
         <input
           className="viz-input"
@@ -130,7 +130,7 @@ export function ResourceGrantPanel({
           placeholder="允许的 Origin，例如 https://example.com"
           disabled={disabled || busy}
         />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div className="viz-grid-2col">
           <select
             className="viz-input"
             aria-label="资源所有者"
@@ -166,7 +166,7 @@ export function ResourceGrantPanel({
           <option value={21600}>6 小时有效</option>
           <option value={86400}>24 小时有效</option>
         </select>
-        <div style={{ fontSize: 11, opacity: 0.72, lineHeight: 1.45 }}>
+        <div className="viz-field-note">
           文件会复制到 WebFA 管理目录。Agent 只能获得 resource_ref，不能读取本地绝对路径。
           {activeAgentId ? ` 绑定 Agent：${activeAgentId}。` : " 当前未绑定具体 Agent。"}
         </div>
@@ -181,22 +181,16 @@ export function ResourceGrantPanel({
       </div>
 
       {activeResources.length > 0 && (
-        <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+        <div className="viz-grant-list">
           {activeResources.map((item) => (
             <div
               key={item.grant.resource_ref}
-              style={{
-                border: "1px solid rgba(127,127,127,.25)",
-                borderRadius: 8,
-                padding: 8,
-                fontSize: 11,
-                lineHeight: 1.45,
-              }}
+              className="viz-grant-card"
             >
-              <div style={{ fontWeight: 600 }}>{item.grant.display_name}</div>
+              <div className="viz-grant-card-name">{item.grant.display_name}</div>
               <div>{item.status} · 剩余 {item.remaining_uses}/{item.grant.max_uses}</div>
-              <div style={{ overflowWrap: "anywhere", opacity: 0.75 }}>{item.grant.resource_ref}</div>
-              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+              <div className="viz-grant-card-ref">{item.grant.resource_ref}</div>
+              <div className="viz-grant-card-actions">
                 <button
                   type="button"
                   className="viz-btn"

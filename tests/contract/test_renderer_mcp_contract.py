@@ -61,7 +61,7 @@ def test_desktop_copy_presents_external_agents_as_runtime_clients():
 
     assert "Runtime manager" in page
     assert "外部 Agent 接入" in page
-    assert "Runtime Projection" in page
+    assert "Runtime 投影" in page
     assert "Runtime 投影" in shell
     assert "外部 Agent 控制" in monitor
     assert "External Agent" in status
@@ -138,7 +138,8 @@ def test_profile_bootstrap_fields_keep_visible_labels_and_visual_audit_coverage(
     audit = (ROOT / "scripts/audit-source-ui.cjs").read_text(encoding="utf-8")
 
     assert 'data-ui="profile-bootstrap-panel"' in panel
-    assert panel.count('className="viz-management-field"') >= 10
+    # 字段必须保留可见 label 容器类；允许并列工具类（如 viz-field-mt），按子串统计。
+    assert panel.count("viz-management-field") >= 10
     for label in (
         "维护 Profile",
         "Cookie 文件",
@@ -152,3 +153,23 @@ def test_profile_bootstrap_fields_keep_visible_labels_and_visual_audit_coverage(
     assert "controlIdentityMobile" in audit
     assert "controlSafetyDesktop" in audit
     assert "controlSafetyMobile" in audit
+
+
+def test_source_ui_audit_waits_for_runtime_state_before_control_capture():
+    audit = (ROOT / "scripts/audit-source-ui.cjs").read_text(encoding="utf-8")
+
+    assert 'document.querySelector(".viz-header-pill")' in audit
+    assert 'runtimeState !== "starting"' in audit
+    assert "Runtime state did not settle before source UI capture" in audit
+
+
+def test_brand_mark_geometry_is_consistent_across_public_assets():
+    sources = (
+        (ROOT / "packaging/webfa-mark.svg").read_text(encoding="utf-8"),
+        (ROOT / "apps/desktop/renderer/src/components/Layout/BrandMark.tsx").read_text(
+            encoding="utf-8"
+        ),
+        (ROOT / "scripts/generate-brand-assets.cjs").read_text(encoding="utf-8"),
+    )
+    for fragment in ("19.05", "9.43", "15.17", "5.20", "19.34", "5.25", "2.6"):
+        assert all(fragment in source for source in sources), fragment

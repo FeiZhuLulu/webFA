@@ -318,11 +318,13 @@ P13
   takeover and approval events, and bounded artifacts so interrupted agent tasks
   can be inspected and resumed.
 
-Current sequencing note (2026-07-16)
-  P13 remains defined future scope, but implementation is deferred while P1-P12,
-  Post-Core Profile Bootstrap, release maintenance, adversarial review, and the
-  Control Center / Session Monitor experience are brought to a stable closure
-  baseline.
+Current sequencing note (2026-08-02)
+  The pre-P13 source/UI/brand baseline is frozen and re-verified in
+  `docs/reports/PRE_P13_BASELINE_FREEZE_24.md`. P13 remains defined future
+  scope, but implementation must wait for a complete Durable Trace / Resume
+  target architecture covering durable objects, lifecycle, authority
+  reacquisition, uncertain web effects, retention, migration, and acceptance
+  criteria.
 
 Long term
   Keep mature web engines such as Chromium/Blink/V8 as implementation details.

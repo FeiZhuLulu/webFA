@@ -1,9 +1,12 @@
 # Open Source Readiness
 
 Status: P1-P12 and Post-Core Profile Bootstrap are implemented; the pre-P13
-open-source Runtime baseline passed independent Grok acceptance against the
-current worktree on 2026-07-19. This is not a commit, release, or immutable-
-candidate certificate. The optional lightweight Desktop remains a developer
+open-source Runtime baseline passed independent Grok acceptance on 2026-07-19,
+and the post-acceptance UI/brand changes were re-verified with source-external
+wheel and 12-state UI evidence on 2026-08-02. The evidence is recorded in
+`docs/reports/PRE_P13_BASELINE_FREEZE_24.md`; it becomes an immutable repository
+baseline only when the containing commit is reviewed. This is not a public
+release certificate. The optional lightweight Desktop remains a developer
 preview and further distribution work is paused. P13 Durable Trace / Resume is
 explicitly deferred.
 

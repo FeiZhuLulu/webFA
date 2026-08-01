@@ -30,6 +30,15 @@ if (!chromeExecutable || !fs.existsSync(chromeExecutable)) {
 assertInside(outputRoot, path.join(root, ".release", "ui-audit"));
 fs.mkdirSync(outputRoot, { recursive: true });
 
+// 视觉回归 baseline：tests/ui-baseline/ 内的 PNG 与 capture 一一对应。
+// WEBFA_UI_AUDIT_UPDATE_BASELINE=1 时刷新 baseline 并跳过 diff 判定；
+// diffRatio 阈值可用 WEBFA_UI_AUDIT_DIFF_TOLERANCE 调整（默认 0.2%）。
+const baselineRoot = path.join(root, "tests", "ui-baseline");
+assertInside(baselineRoot, path.join(root, "tests"));
+const updateBaseline = process.env.WEBFA_UI_AUDIT_UPDATE_BASELINE === "1";
+const diffTolerance = Number(process.env.WEBFA_UI_AUDIT_DIFF_TOLERANCE || "0.002");
+const PIXEL_CHANNEL_TOLERANCE = 16;
+
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -125,9 +134,20 @@ function serveRenderer() {
     try {
       const url = new URL(request.url || "/", "http://127.0.0.1");
       const decoded = decodeURIComponent(url.pathname);
-      const relative = decoded.endsWith("/") ? `${decoded}index.html` : decoded;
-      const target = path.resolve(rendererRoot, `.${relative}`);
-      const relation = path.relative(rendererRoot, target);
+      // /__baseline__/ 与 /__current__/ 仅供视觉 diff 页面读取 PNG，其余路径仍只服务 Renderer 导出。
+      let parentRoot = rendererRoot;
+      let target;
+      if (decoded.startsWith("/__baseline__/")) {
+        parentRoot = baselineRoot;
+        target = path.resolve(baselineRoot, `.${decoded.slice(13)}`);
+      } else if (decoded.startsWith("/__current__/")) {
+        parentRoot = outputRoot;
+        target = path.resolve(outputRoot, `.${decoded.slice(12)}`);
+      } else {
+        const relative = decoded.endsWith("/") ? `${decoded}index.html` : decoded;
+        target = path.resolve(rendererRoot, `.${relative}`);
+      }
+      const relation = path.relative(parentRoot, target);
       if (relation.startsWith("..") || path.isAbsolute(relation) || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
         response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
         response.end("Not found");
@@ -193,6 +213,22 @@ async function settle(client, origin, route, width, height) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   await client.evaluate("new Promise((resolve) => setTimeout(resolve, 3200))", true);
+  if (route === "/") {
+    const runtimeDeadline = Date.now() + 10_000;
+    let runtimeState = null;
+    while (Date.now() < runtimeDeadline) {
+      runtimeState = await client.evaluate(`(() => {
+        const pill = document.querySelector(".viz-header-pill");
+        return pill instanceof HTMLElement ? pill.textContent?.trim().toLowerCase() || null : null;
+      })()`);
+      if (runtimeState && runtimeState !== "starting") {
+        await client.evaluate("new Promise((resolve) => setTimeout(resolve, 120))", true);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error(`Runtime state did not settle before source UI capture: ${runtimeState || "missing"}`);
+  }
 }
 
 async function capture(client, name) {
@@ -277,6 +313,73 @@ async function click(client, selector) {
   await client.evaluate("new Promise((resolve) => setTimeout(resolve, 120))", true);
 }
 
+async function diffVisualBaseline(client, origin, names) {
+  const results = {};
+  if (updateBaseline) {
+    fs.mkdirSync(baselineRoot, { recursive: true });
+    for (const name of names) {
+      fs.copyFileSync(path.join(outputRoot, name), path.join(baselineRoot, name));
+      results[name] = { baseline: "updated" };
+    }
+    return results;
+  }
+  const missing = names.filter((name) => !fs.existsSync(path.join(baselineRoot, name)));
+  if (missing.length) {
+    for (const name of missing) results[name] = { error: "baseline missing; run npm run audit:source:ui:update" };
+    return results;
+  }
+  // 不跳转 about:blank（opaque origin 会拦截回环图片请求），直接在当前同源页面上下文里比较。
+  for (const name of names) {
+    const result = await client.evaluate(`(async () => {
+      const load = (url) => new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("image load failed: " + url));
+        image.src = url;
+      });
+      const [base, current] = await Promise.all([
+        load(${JSON.stringify(`${origin}/__baseline__/`)} + ${JSON.stringify(name)}),
+        load(${JSON.stringify(`${origin}/__current__/`)} + ${JSON.stringify(name)}),
+      ]);
+      if (base.width !== current.width || base.height !== current.height) {
+        return { sizeMismatch: { baseline: [base.width, base.height], current: [current.width, current.height] }, diffRatio: 1 };
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = base.width;
+      canvas.height = base.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(base, 0, 0);
+      const baseData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(current, 0, 0);
+      const currentData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const heat = ctx.createImageData(canvas.width, canvas.height);
+      let diff = 0;
+      for (let i = 0; i < currentData.length; i += 4) {
+        const delta = Math.max(
+          Math.abs(currentData[i] - baseData[i]),
+          Math.abs(currentData[i + 1] - baseData[i + 1]),
+          Math.abs(currentData[i + 2] - baseData[i + 2]),
+        );
+        if (delta > ${PIXEL_CHANNEL_TOLERANCE}) {
+          diff += 1;
+          heat.data[i] = 255; heat.data[i + 1] = 0; heat.data[i + 2] = 0; heat.data[i + 3] = 255;
+        } else {
+          heat.data[i] = currentData[i]; heat.data[i + 1] = currentData[i + 1]; heat.data[i + 2] = currentData[i + 2]; heat.data[i + 3] = 90;
+        }
+      }
+      ctx.putImageData(heat, 0, 0);
+      return { diffRatio: diff / (canvas.width * canvas.height), diffPixels: diff, heatmap: canvas.toDataURL("image/png") };
+    })()`, true);
+    if (result.heatmap) {
+      fs.writeFileSync(path.join(outputRoot, `diff-${name}`), Buffer.from(result.heatmap.split(",")[1], "base64"));
+      delete result.heatmap;
+    }
+    results[name] = result;
+  }
+  return results;
+}
+
 async function run() {
   const { server, origin } = await serveRenderer();
   const profileRoot = path.join(outputRoot, ".chrome-profile");
@@ -328,6 +431,15 @@ async function run() {
     await click(client, 'button[aria-label="展开右栏"]');
     evidence.captures.monitorMobileRight = await capture(client, "monitor-mobile-right.png");
 
+    const captureNames = fs.readdirSync(outputRoot).filter((file) => file.endsWith(".png") && !file.startsWith("diff-"));
+    const visualDiff = await diffVisualBaseline(client, origin, captureNames);
+    evidence.visualDiff = {
+      baseline: path.relative(root, baselineRoot),
+      tolerance: diffTolerance,
+      updateBaseline,
+      captures: visualDiff,
+    };
+
     fs.writeFileSync(path.join(outputRoot, "evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
     const failures = Object.entries(evidence.captures).filter(([, item]) => (
       item.horizontalOverflow
@@ -338,8 +450,18 @@ async function run() {
       || (item.monitorEmptyCenterOffset && (Math.abs(item.monitorEmptyCenterOffset.x) > 2 || Math.abs(item.monitorEmptyCenterOffset.y) > 2))
       || (item.actionLogEmptyCenterOffset && (Math.abs(item.actionLogEmptyCenterOffset.x) > 2 || Math.abs(item.actionLogEmptyCenterOffset.y) > 2))
     ));
-    if (failures.length) throw new Error(`Source UI audit failed: ${failures.map(([name]) => name).join(", ")}`);
-    process.stdout.write(`${JSON.stringify({ status: "pass", outputRoot, captures: Object.keys(evidence.captures).length })}\n`);
+    const diffFailures = Object.entries(visualDiff).filter(([, item]) => (
+      item.error || item.sizeMismatch || (typeof item.diffRatio === "number" && item.diffRatio > diffTolerance)
+    ));
+    if (failures.length || diffFailures.length) {
+      const parts = [];
+      if (failures.length) parts.push(`layout: ${failures.map(([name]) => name).join(", ")}`);
+      if (diffFailures.length) {
+        parts.push(`visual diff: ${diffFailures.map(([name, item]) => `${name}(${item.error || (item.sizeMismatch ? "size mismatch" : `${(item.diffRatio * 100).toFixed(2)}%`)})`).join(", ")}`);
+      }
+      throw new Error(`Source UI audit failed: ${parts.join("; ")}`);
+    }
+    process.stdout.write(`${JSON.stringify({ status: "pass", outputRoot, captures: Object.keys(evidence.captures).length, baselineUpdated: updateBaseline })}\n`);
   } finally {
     client?.close();
     chrome.kill();

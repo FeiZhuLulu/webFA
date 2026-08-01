@@ -1,5 +1,6 @@
 :root {
   color-scheme: light;
+  /* 颜色 */
   --viz-bg: #f1efe8;
   --viz-bg-deep: #e8e5dc;
   --viz-card: #fbfaf6;
@@ -17,7 +18,58 @@
   --viz-amber: #a86416;
   --viz-blue: #315e78;
   --viz-danger: #a13d38;
+  /* 深色表面（Monitor 投影区与终端日志） */
+  --viz-surface-dark: #1d2523;
+  --viz-surface-dark-card: rgba(28, 39, 36, 0.66);
+  --viz-on-dark: #edf3f0;
+  --viz-on-dark-soft: #c4cfcb;
+  --viz-on-dark-muted: #aebcb7;
+  --viz-terminal-bg: #111827;
+  --viz-terminal-text: #d1d5db;
+  --viz-terminal-title: #c3ccd8;
+  --viz-terminal-dim: #8d99aa;
+  --viz-terminal-muted: #6b7280;
+  --viz-terminal-mark: #5f7188;
+  --viz-terminal-ok: #34d399;
+  --viz-terminal-warn: #fbbf24;
+  --viz-terminal-info: #60a5fa;
+  /* 字号阶梯（小字不低于 2xs；行高按上下文局部声明） */
+  --viz-text-2xs: 11px;
+  --viz-text-xs: 12px;
+  --viz-text-sm: 13px;
+  --viz-text-base: 14px;
+  --viz-text-md: 15px;
+  --viz-text-lg: 16px;
+  --viz-text-xl: 18px;
+  --viz-text-2xl: 20px;
+  /* 间距阶梯（4px 基网） */
+  --viz-space-1: 4px;
+  --viz-space-2: 8px;
+  --viz-space-3: 12px;
+  --viz-space-4: 16px;
+  --viz-space-5: 20px;
+  --viz-space-6: 24px;
+  --viz-space-7: 32px;
+  --viz-space-8: 40px;
+  /* 圆角 */
+  --viz-radius-xs: 6px;
+  --viz-radius-sm: 7px;
+  --viz-radius-md: 8px;
+  --viz-radius-lg: 10px;
+  --viz-radius-xl: 14px;
+  --viz-radius-2xl: 16px;
+  /* 阴影 */
+  --viz-shadow-sm: 0 2px 9px rgba(61, 59, 49, 0.08);
   --viz-shadow: 0 18px 42px rgba(56, 53, 43, 0.09);
+  --viz-shadow-accent: 0 7px 18px rgba(14, 95, 88, 0.13);
+  /* 层级 */
+  --viz-z-overlay: 2;
+  --viz-z-header: 10;
+  --viz-z-backdrop: 20;
+  --viz-z-drawer: 30;
+  --viz-z-toast: 50;
+  --viz-z-skip: 100;
+  /* 字体 */
   --viz-font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --viz-font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --viz-font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
@@ -34,7 +86,7 @@ body {
     var(--viz-bg);
   color: var(--viz-text);
   font-family: var(--viz-font);
-  font-size: 14px;
+  font-size: var(--viz-text-base);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -48,15 +100,15 @@ body {
 
 .viz-skip-link {
   position: fixed;
-  z-index: 100;
+  z-index: var(--viz-z-skip);
   top: 8px;
   left: 10px;
   padding: 8px 11px;
   border: 1px solid var(--viz-border-active);
-  border-radius: 7px;
+  border-radius: var(--viz-radius-sm);
   background: var(--viz-card-strong);
   color: var(--viz-text);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   font-weight: 650;
   box-shadow: var(--viz-shadow);
   transform: translateY(calc(-100% - 16px));
@@ -78,7 +130,7 @@ body {
   background: rgba(247, 245, 238, 0.88);
   backdrop-filter: blur(18px) saturate(120%);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.66) inset;
-  z-index: 10;
+  z-index: var(--viz-z-header);
 }
 
 .viz-brand {
@@ -89,37 +141,10 @@ body {
 }
 
 .viz-brand-mark {
-  position: relative;
   width: 29px;
   height: 29px;
   flex: 0 0 29px;
-  border: 1px solid rgba(14, 95, 88, 0.32);
-  border-radius: 9px;
-  background: var(--viz-accent);
-  box-shadow: 0 7px 18px rgba(14, 95, 88, 0.19);
-  overflow: hidden;
-}
-
-.viz-brand-mark span {
-  position: absolute;
-  display: block;
-  border: 1px solid rgba(255, 255, 255, 0.92);
-  border-radius: 50%;
-}
-
-.viz-brand-mark span:first-child {
-  width: 15px;
-  height: 15px;
-  left: 5px;
-  top: 5px;
-}
-
-.viz-brand-mark span:last-child {
-  width: 10px;
-  height: 10px;
-  right: -2px;
-  bottom: -2px;
-  background: rgba(255, 255, 255, 0.94);
+  color: var(--viz-accent);
 }
 
 .viz-brand-copy {
@@ -131,13 +156,13 @@ body {
 
 .viz-brand-name {
   font-family: var(--viz-font-display);
-  font-size: 18px;
+  font-size: var(--viz-text-xl);
   font-weight: 650;
   letter-spacing: -0.035em;
 }
 
 .viz-brand-subtitle {
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   font-weight: 500;
   color: var(--viz-muted);
   white-space: nowrap;
@@ -156,12 +181,12 @@ body {
   align-items: center;
   gap: 6px;
   min-height: 28px;
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   font-family: var(--viz-font-mono);
   font-weight: 650;
   letter-spacing: 0.055em;
   padding: 4px 9px;
-  border-radius: 7px;
+  border-radius: var(--viz-radius-sm);
   border: 1px solid var(--viz-border);
   background: rgba(255, 255, 255, 0.62);
   text-transform: uppercase;
@@ -201,7 +226,7 @@ body {
   width: auto;
   height: 32px;
   padding: 0 13px;
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
 }
 
 .viz-dashboard {
@@ -288,8 +313,8 @@ body {
   border: 1px solid var(--viz-border);
   background: var(--viz-card);
   color: var(--viz-muted);
-  border-radius: 7px;
-  font-size: 11px;
+  border-radius: var(--viz-radius-sm);
+  font-size: var(--viz-text-2xs);
   padding: 6px 10px;
   cursor: pointer;
   transition: 160ms ease;
@@ -311,7 +336,7 @@ body {
 }
 
 .viz-column-title {
-  font-size: 11px;
+  font-size: var(--viz-text-2xs);
   font-weight: 650;
   letter-spacing: 0.055em;
   color: var(--viz-muted);
@@ -331,8 +356,8 @@ body {
 
 .viz-column-eyebrow {
   font-family: var(--viz-font-mono);
-  color: var(--viz-subtle);
-  font-size: 9px;
+  color: var(--viz-muted);
+  font-size: var(--viz-text-2xs);
   font-weight: 650;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -341,7 +366,7 @@ body {
 .viz-column-heading {
   margin-top: 2px;
   font-family: var(--viz-font-display);
-  font-size: 16px;
+  font-size: var(--viz-text-lg);
   font-weight: 650;
   letter-spacing: -0.02em;
 }
@@ -353,7 +378,7 @@ body {
   margin: 0 14px 12px;
   padding: 4px;
   border: 1px solid var(--viz-border);
-  border-radius: 10px;
+  border-radius: var(--viz-radius-lg);
   background: rgba(225, 223, 214, 0.56);
 }
 
@@ -361,10 +386,10 @@ body {
   min-width: 0;
   height: 32px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--viz-radius-sm);
   background: transparent;
   color: var(--viz-muted);
-  font: 600 12px/1 var(--viz-font);
+  font: 600 var(--viz-text-xs)/1 var(--viz-font);
   cursor: pointer;
   transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
@@ -376,7 +401,7 @@ body {
 .viz-sidebar-nav-item.active {
   color: var(--viz-accent-strong);
   background: var(--viz-card-strong);
-  box-shadow: 0 2px 9px rgba(61, 59, 49, 0.08);
+  box-shadow: var(--viz-shadow-sm);
 }
 
 .viz-sidebar-scroll {
@@ -426,7 +451,7 @@ body {
 .viz-status-card {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--viz-border);
-  border-radius: 10px;
+  border-radius: var(--viz-radius-lg);
   padding: 12px 13px;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.82) inset;
 }
@@ -438,7 +463,7 @@ body {
 
 .viz-status-label {
   font-family: var(--viz-font-mono);
-  font-size: 9px;
+  font-size: var(--viz-text-2xs);
   font-weight: 650;
   color: var(--viz-muted);
   text-transform: uppercase;
@@ -447,7 +472,7 @@ body {
 
 .viz-status-value {
   margin-top: 4px;
-  font-size: 15px;
+  font-size: var(--viz-text-md);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -457,8 +482,8 @@ body {
 .viz-status-subtext {
   margin-top: 4px;
   font-family: var(--viz-font-mono);
-  font-size: 11px;
-  color: var(--viz-subtle);
+  font-size: var(--viz-text-2xs);
+  color: var(--viz-muted);
   word-break: break-all;
 }
 
@@ -474,7 +499,7 @@ body {
   padding: 3px 6px;
   overflow: hidden;
   color: var(--viz-accent-strong);
-  font: 9px/1.35 var(--viz-font-mono);
+  font: var(--viz-text-2xs)/1.35 var(--viz-font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
   border: 1px solid rgba(22, 117, 109, 0.14);
@@ -486,7 +511,7 @@ body {
   margin-top: 7px;
   overflow-wrap: anywhere;
   color: var(--viz-text);
-  font: 10px/1.5 var(--viz-font-mono);
+  font: var(--viz-text-2xs)/1.5 var(--viz-font-mono);
 }
 
 .viz-mcp-copy-btn {
@@ -497,7 +522,7 @@ body {
 .viz-mcp-copy-status {
   margin-top: 8px;
   color: var(--viz-muted);
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   line-height: 1.5;
 }
 
@@ -558,11 +583,11 @@ body {
   width: 100%;
   min-height: 36px;
   border: 1px solid var(--viz-border);
-  border-radius: 8px;
+  border-radius: var(--viz-radius-md);
   background: var(--viz-card);
   color: var(--viz-text);
   font-family: var(--viz-font);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   font-weight: 600;
   cursor: pointer;
   transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 120ms ease, box-shadow 160ms ease;
@@ -582,7 +607,7 @@ body {
   background: var(--viz-accent);
   color: white;
   border-color: var(--viz-accent);
-  box-shadow: 0 7px 18px rgba(14, 95, 88, 0.13);
+  box-shadow: var(--viz-shadow-accent);
 }
 
 .viz-btn-primary:hover:not(:disabled) {
@@ -605,11 +630,11 @@ body {
   min-width: 0;
   min-height: 36px;
   border: 1px solid var(--viz-border);
-  border-radius: 8px;
+  border-radius: var(--viz-radius-md);
   background: rgba(255, 255, 255, 0.78);
   color: var(--viz-text);
   padding: 7px 10px;
-  font: 12px/1.35 var(--viz-font);
+  font: var(--viz-text-xs)/1.35 var(--viz-font);
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
@@ -633,10 +658,10 @@ input[type="file"]::file-selector-button {
   min-height: 30px;
   margin-right: 8px;
   border: 1px solid var(--viz-border);
-  border-radius: 7px;
+  border-radius: var(--viz-radius-sm);
   background: var(--viz-card);
   color: var(--viz-text);
-  font: 600 11px var(--viz-font);
+  font: 600 var(--viz-text-2xs) var(--viz-font);
   cursor: pointer;
 }
 
@@ -652,7 +677,7 @@ input[type="file"]::file-selector-button {
 .viz-management-heading {
   margin: 0 0 10px;
   color: var(--viz-text);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   font-weight: 700;
   line-height: 1.35;
   letter-spacing: 0.01em;
@@ -667,13 +692,13 @@ input[type="file"]::file-selector-button {
 
 .viz-management-field > span {
   color: var(--viz-muted);
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   font-weight: 650;
   line-height: 1.3;
 }
 
 .viz-management-field-compact > span {
-  font-size: 9px;
+  font-size: var(--viz-text-2xs);
 }
 
 .viz-management-grid,
@@ -710,9 +735,9 @@ input[type="file"]::file-selector-button {
   margin-bottom: 8px;
   padding: 9px;
   border: 1px solid var(--viz-border);
-  border-radius: 8px;
+  border-radius: var(--viz-radius-md);
   background: rgba(255, 255, 255, 0.5);
-  font-size: 11px;
+  font-size: var(--viz-text-2xs);
   line-height: 1.5;
 }
 
@@ -736,15 +761,130 @@ input[type="file"]::file-selector-button {
 }
 
 .viz-management-hint {
-  font-size: 11px;
+  font-size: var(--viz-text-2xs);
 }
 
 .viz-management-small {
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
 }
 
 .viz-management-breakable {
   overflow-wrap: anywhere;
+}
+
+/* 表单与预览工具类（替代组件内联样式） */
+.viz-file-input {
+  width: 100%;
+  font-size: var(--viz-text-xs);
+}
+
+.viz-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--viz-space-2);
+}
+
+.viz-field-note {
+  font-size: var(--viz-text-2xs);
+  line-height: 1.45;
+  opacity: 0.72;
+}
+
+.viz-field-note-spaced {
+  margin-bottom: 9px;
+}
+
+.viz-field-mt {
+  margin-top: var(--viz-space-2);
+}
+
+.viz-field-mt-sm {
+  margin-top: 7px;
+}
+
+.viz-field-mb {
+  margin-bottom: var(--viz-space-2);
+}
+
+.viz-preview-card {
+  margin-top: 10px;
+  padding: 9px;
+  border: 1px solid var(--viz-border-active);
+  border-radius: var(--viz-radius-md);
+  background: rgba(255, 255, 255, 0.5);
+  font-size: var(--viz-text-2xs);
+  line-height: 1.5;
+}
+
+.viz-preview-card-title {
+  margin-bottom: 4px;
+  font-weight: 650;
+}
+
+.viz-preview-card-meta {
+  margin-top: 5px;
+  opacity: 0.78;
+  overflow-wrap: anywhere;
+}
+
+.viz-preview-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: var(--viz-space-2);
+}
+
+.viz-subsection {
+  margin-top: 14px;
+  padding-top: var(--viz-space-3);
+  border-top: 1px solid var(--viz-border-active);
+}
+
+.viz-subsection-title {
+  margin-bottom: var(--viz-space-2);
+  font-size: var(--viz-text-xs);
+  font-weight: 650;
+}
+
+.viz-subsection-compact {
+  margin-top: var(--viz-space-3);
+  padding-top: 10px;
+  border-top: 1px solid var(--viz-border);
+}
+
+.viz-subsection-compact-title {
+  margin-bottom: 7px;
+  font-size: var(--viz-text-2xs);
+  font-weight: 650;
+}
+
+.viz-grant-list {
+  display: grid;
+  gap: var(--viz-space-2);
+  margin-top: var(--viz-space-3);
+}
+
+.viz-grant-card {
+  padding: var(--viz-space-2);
+  border: 1px solid var(--viz-border-active);
+  border-radius: var(--viz-radius-md);
+  background: rgba(255, 255, 255, 0.5);
+  font-size: var(--viz-text-2xs);
+  line-height: 1.45;
+}
+
+.viz-grant-card-name {
+  font-weight: 600;
+}
+
+.viz-grant-card-ref {
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+
+.viz-grant-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .viz-management-scope {
@@ -755,8 +895,8 @@ input[type="file"]::file-selector-button {
   display: block;
   margin-top: 2px;
   overflow-wrap: anywhere;
-  color: var(--viz-subtle);
-  font: 9px/1.5 var(--viz-font-mono);
+  color: var(--viz-muted);
+  font: var(--viz-text-2xs)/1.5 var(--viz-font-mono);
 }
 
 .viz-preview-panel {
@@ -784,7 +924,7 @@ input[type="file"]::file-selector-button {
 .viz-preview-title {
   overflow: hidden;
   font-family: var(--viz-font-display);
-  font-size: 16px;
+  font-size: var(--viz-text-lg);
   font-weight: 650;
   letter-spacing: -0.02em;
   text-overflow: ellipsis;
@@ -795,7 +935,7 @@ input[type="file"]::file-selector-button {
   margin-top: 4px;
   overflow: hidden;
   font-family: var(--viz-font-mono);
-  font-size: 11px;
+  font-size: var(--viz-text-2xs);
   color: var(--viz-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -807,7 +947,7 @@ input[type="file"]::file-selector-button {
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--viz-text-2xs);
   color: var(--viz-muted);
 }
 
@@ -837,15 +977,15 @@ input[type="file"]::file-selector-button {
 
 .viz-tab-bar.empty {
   color: var(--viz-muted);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
 }
 
 .viz-tab-item {
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--viz-radius-xs);
   border: 1px solid var(--viz-border);
   background: var(--viz-card);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   max-width: 180px;
   white-space: nowrap;
   overflow: hidden;
@@ -877,8 +1017,8 @@ input[type="file"]::file-selector-button {
   border: 1px solid rgba(13, 148, 136, 0.25);
   background: rgba(13, 148, 136, 0.08);
   color: var(--viz-emerald);
-  border-radius: 6px;
-  font-size: 11px;
+  border-radius: var(--viz-radius-xs);
+  font-size: var(--viz-text-2xs);
   padding: 4px 8px;
   white-space: nowrap;
   cursor: pointer;
@@ -891,7 +1031,7 @@ input[type="file"]::file-selector-button {
 
 .viz-preview-image {
   max-width: 100%;
-  border-radius: 10px;
+  border-radius: var(--viz-radius-lg);
   border: 1px solid var(--viz-border);
   box-shadow: var(--viz-shadow);
 }
@@ -903,7 +1043,7 @@ input[type="file"]::file-selector-button {
   padding: 36px 30px 40px;
   text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 16px;
+  border-radius: var(--viz-radius-2xl);
   background: rgba(248, 247, 242, 0.7);
   box-shadow: 0 16px 42px rgba(61, 59, 49, 0.06), 0 1px 0 rgba(255, 255, 255, 0.72) inset;
   backdrop-filter: blur(8px);
@@ -918,7 +1058,7 @@ input[type="file"]::file-selector-button {
   height: 50px;
   margin: 0 auto 18px;
   border: 1px solid rgba(22, 117, 109, 0.18);
-  border-radius: 14px;
+  border-radius: var(--viz-radius-xl);
   background: var(--viz-accent-soft);
 }
 
@@ -940,7 +1080,7 @@ input[type="file"]::file-selector-button {
 .viz-preview-empty-title {
   color: var(--viz-text);
   font-family: var(--viz-font-display);
-  font-size: 18px;
+  font-size: var(--viz-text-xl);
   font-weight: 650;
   letter-spacing: -0.025em;
 }
@@ -948,7 +1088,7 @@ input[type="file"]::file-selector-button {
 .viz-preview-empty-copy {
   max-width: 38ch;
   margin: 8px auto 0;
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   line-height: 1.65;
   text-wrap: pretty;
 }
@@ -1040,7 +1180,7 @@ input[type="file"]::file-selector-button {
 }
 
 .viz-runtime-notice-eyebrow {
-  font: 650 9px/1 var(--viz-font-mono);
+  font: 650 var(--viz-text-2xs)/1 var(--viz-font-mono);
   color: var(--viz-muted);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1061,7 +1201,7 @@ input[type="file"]::file-selector-button {
   max-width: 50ch;
   margin-top: 10px;
   color: var(--viz-muted);
-  font-size: 13px;
+  font-size: var(--viz-text-sm);
   line-height: 1.7;
   text-wrap: pretty;
 }
@@ -1088,13 +1228,13 @@ input[type="file"]::file-selector-button {
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  z-index: 2;
+  z-index: var(--viz-z-overlay);
 }
 
 .viz-auth-banner-inner {
   max-width: 420px;
   padding: 16px 18px;
-  border-radius: 8px;
+  border-radius: var(--viz-radius-md);
   border: 1px solid rgba(217, 119, 6, 0.25);
   background: rgba(255, 251, 235, 0.92);
   backdrop-filter: blur(12px);
@@ -1102,7 +1242,7 @@ input[type="file"]::file-selector-button {
 }
 
 .viz-auth-title {
-  font-size: 15px;
+  font-size: var(--viz-text-md);
   font-weight: 600;
   color: var(--viz-amber);
 }
@@ -1110,7 +1250,7 @@ input[type="file"]::file-selector-button {
 .viz-auth-detail,
 .viz-auth-reasons {
   margin-top: 8px;
-  font-size: 13px;
+  font-size: var(--viz-text-sm);
   color: var(--viz-muted);
   line-height: 1.5;
 }
@@ -1119,6 +1259,10 @@ input[type="file"]::file-selector-button {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.viz-panel-section + .viz-panel-section {
+  border-top: 1px solid var(--viz-border);
 }
 
 .viz-panel-section.blocks {
@@ -1130,10 +1274,6 @@ input[type="file"]::file-selector-button {
   min-height: 160px;
 }
 
-.viz-panel-section.json {
-  border-top: 1px solid var(--viz-border);
-}
-
 .viz-elements-wrap {
   max-height: 220px;
   overflow: auto;
@@ -1142,7 +1282,7 @@ input[type="file"]::file-selector-button {
 .viz-elements-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--viz-text-2xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1175,13 +1315,13 @@ input[type="file"]::file-selector-button {
 }
 
 .viz-el-actions {
-  color: var(--viz-subtle);
+  color: var(--viz-muted);
 }
 
 .viz-empty-cell,
 .viz-empty-note {
   color: var(--viz-muted);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   padding: 8px 0;
 }
 
@@ -1194,7 +1334,7 @@ input[type="file"]::file-selector-button {
 .viz-block-card {
   background: var(--viz-card);
   border: 1px solid var(--viz-border);
-  border-radius: 8px;
+  border-radius: var(--viz-radius-md);
   padding: 10px;
 }
 
@@ -1206,7 +1346,7 @@ input[type="file"]::file-selector-button {
 }
 
 .viz-block-badge {
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--viz-blue);
@@ -1223,7 +1363,7 @@ input[type="file"]::file-selector-button {
 
 .viz-el-pill {
   font-family: Consolas, monospace;
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   padding: 2px 6px;
   border-radius: 4px;
   background: rgba(13, 148, 136, 0.08);
@@ -1232,7 +1372,7 @@ input[type="file"]::file-selector-button {
 
 .viz-block-text {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   line-height: 1.45;
   color: var(--viz-muted);
 }
@@ -1242,9 +1382,9 @@ input[type="file"]::file-selector-button {
   overflow: auto;
   padding: 10px 12px;
   font-family: var(--viz-font-mono);
-  font-size: 11px;
-  background: #111827;
-  color: #d1d5db;
+  font-size: var(--viz-text-2xs);
+  background: var(--viz-terminal-bg);
+  color: var(--viz-terminal-text);
 }
 
 .viz-console.empty {
@@ -1256,7 +1396,7 @@ input[type="file"]::file-selector-button {
 
 .viz-console-empty {
   width: min(230px, 100%);
-  color: #8d99aa;
+  color: var(--viz-terminal-dim);
   text-align: center;
 }
 
@@ -1269,7 +1409,7 @@ input[type="file"]::file-selector-button {
   height: 34px;
   margin: 0 auto 12px;
   border: 1px solid rgba(148, 163, 184, 0.16);
-  border-radius: 10px;
+  border-radius: var(--viz-radius-lg);
   background: rgba(148, 163, 184, 0.06);
 }
 
@@ -1277,7 +1417,7 @@ input[type="file"]::file-selector-button {
   width: 5px;
   height: 5px;
   border-radius: 2px;
-  background: #5f7188;
+  background: var(--viz-terminal-mark);
 }
 
 .viz-console-empty-mark span:nth-child(2) {
@@ -1289,16 +1429,16 @@ input[type="file"]::file-selector-button {
 }
 
 .viz-console-empty-title {
-  color: #c3ccd8;
+  color: var(--viz-terminal-title);
   font-family: var(--viz-font-display);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
 
 .viz-console-empty-copy {
   margin-top: 7px;
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   line-height: 1.6;
   text-wrap: pretty;
 }
@@ -1309,11 +1449,11 @@ input[type="file"]::file-selector-button {
 }
 
 .viz-console-line.muted {
-  color: #6b7280;
+  color: var(--viz-terminal-muted);
 }
 
 .viz-line-time {
-  color: #6b7280;
+  color: var(--viz-terminal-muted);
   margin-right: 6px;
 }
 
@@ -1323,15 +1463,15 @@ input[type="file"]::file-selector-button {
 }
 
 .viz-line-tag.call {
-  color: #34d399;
+  color: var(--viz-terminal-ok);
 }
 
 .viz-line-tag.warn {
-  color: #fbbf24;
+  color: var(--viz-terminal-warn);
 }
 
 .viz-line-tag.info {
-  color: #60a5fa;
+  color: var(--viz-terminal-info);
 }
 
 .viz-agent-json {
@@ -1342,7 +1482,7 @@ input[type="file"]::file-selector-button {
   border: none;
   background: transparent;
   color: var(--viz-muted);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   cursor: pointer;
   padding: 0;
 }
@@ -1351,11 +1491,11 @@ input[type="file"]::file-selector-button {
   margin-top: 8px;
   max-height: 140px;
   overflow: auto;
-  background: #111827;
-  color: #d1d5db;
-  border-radius: 6px;
+  background: var(--viz-terminal-bg);
+  color: var(--viz-terminal-text);
+  border-radius: var(--viz-radius-xs);
   padding: 10px;
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   font-family: var(--viz-font-mono);
 }
 
@@ -1366,13 +1506,13 @@ input[type="file"]::file-selector-button {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 50;
+  z-index: var(--viz-z-toast);
 }
 
 .viz-toast {
   padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: var(--viz-radius-md);
+  font-size: var(--viz-text-sm);
   box-shadow: var(--viz-shadow);
   max-width: 360px;
 }
@@ -1460,7 +1600,7 @@ textarea:focus-visible {
   .viz-column-left,
   .viz-column-right {
     position: absolute;
-    z-index: 30;
+    z-index: var(--viz-z-drawer);
     inset-block: 0;
     width: var(--viz-drawer-width);
     min-width: 0;
@@ -1480,7 +1620,7 @@ textarea:focus-visible {
 
   .viz-drawer-backdrop {
     position: absolute;
-    z-index: 20;
+    z-index: var(--viz-z-backdrop);
     inset-block: 0;
     display: block;
     height: 100%;

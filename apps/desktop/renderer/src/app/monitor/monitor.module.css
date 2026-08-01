@@ -18,15 +18,15 @@
 
 .skipLink {
   position: fixed;
-  z-index: 100;
+  z-index: var(--viz-z-skip);
   top: 8px;
   left: 10px;
   padding: 8px 11px;
   border: 1px solid var(--viz-border-active);
-  border-radius: 7px;
+  border-radius: var(--viz-radius-sm);
   background: var(--viz-card-strong);
   color: var(--viz-text);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   font-weight: 650;
   box-shadow: var(--viz-shadow);
   transform: translateY(calc(-100% - 16px));
@@ -39,7 +39,7 @@
 
 .header {
   position: relative;
-  z-index: 10;
+  z-index: var(--viz-z-header);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -60,43 +60,16 @@
 }
 
 .logo {
-  position: relative;
   width: 29px;
   height: 29px;
   flex: 0 0 29px;
-  overflow: hidden;
-  border: 1px solid rgba(14, 95, 88, 0.32);
-  border-radius: 9px;
-  background: var(--viz-accent);
-  box-shadow: 0 7px 18px rgba(14, 95, 88, 0.19);
-}
-
-.logo span {
-  position: absolute;
-  display: block;
-  border: 1px solid rgba(255, 255, 255, 0.92);
-  border-radius: 50%;
-}
-
-.logo span:first-child {
-  width: 15px;
-  height: 15px;
-  top: 5px;
-  left: 5px;
-}
-
-.logo span:last-child {
-  width: 10px;
-  height: 10px;
-  right: -2px;
-  bottom: -2px;
-  background: rgba(255, 255, 255, 0.94);
+  color: var(--viz-accent);
 }
 
 .brandTitle {
   margin: 0;
   font-family: var(--viz-font-display);
-  font-size: 17px;
+  font-size: var(--viz-text-xl);
   font-weight: 650;
   line-height: 1.1;
   letter-spacing: -0.035em;
@@ -109,7 +82,7 @@
   overflow: hidden;
   color: var(--viz-muted);
   font-family: var(--viz-font-mono);
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -130,11 +103,11 @@
   min-height: 28px;
   padding: 4px 9px;
   border: 1px solid var(--monitor-line);
-  border-radius: 7px;
+  border-radius: var(--viz-radius-sm);
   background: rgba(255, 255, 255, 0.62);
   color: var(--viz-muted);
   font-family: var(--viz-font-mono);
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
@@ -182,10 +155,10 @@
   min-height: 32px;
   padding: 0 12px;
   border: 1px solid var(--monitor-line);
-  border-radius: 8px;
+  border-radius: var(--viz-radius-md);
   background: rgba(255, 255, 255, 0.7);
   color: var(--viz-text);
-  font: 600 12px/1 var(--viz-font);
+  font: 600 var(--viz-text-xs)/1 var(--viz-font);
   white-space: nowrap;
   cursor: pointer;
   transition: border-color 160ms ease, background 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 120ms ease;
@@ -310,7 +283,7 @@
   margin: 0;
   color: var(--viz-text);
   font-family: var(--viz-font-display);
-  font-size: 12px;
+  font-size: var(--viz-text-xs);
   font-weight: 650;
   letter-spacing: -0.015em;
 }
@@ -322,7 +295,7 @@
   border: 1px solid var(--monitor-line);
   background: rgba(255, 255, 255, 0.62);
   color: var(--viz-muted);
-  font: 600 16px/1 var(--viz-font);
+  font: 600 var(--viz-text-lg)/1 var(--viz-font);
   cursor: pointer;
   transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 120ms ease;
 }
@@ -330,15 +303,15 @@
 .collapseButton {
   width: 27px;
   height: 27px;
-  border-radius: 7px;
+  border-radius: var(--viz-radius-sm);
 }
 
 .restoreButton {
   width: 25px;
   height: 25px;
   flex: 0 0 25px;
-  border-radius: 7px;
-  font-size: 15px;
+  border-radius: var(--viz-radius-sm);
+  font-size: var(--viz-text-md);
 }
 
 .cards {
@@ -356,7 +329,7 @@
   min-width: 0;
   padding: 11px;
   border: 1px solid rgba(34, 39, 39, 0.09);
-  border-radius: 10px;
+  border-radius: var(--viz-radius-lg);
   background: rgba(255, 255, 255, 0.56);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
 }
@@ -365,7 +338,7 @@
   margin: 0 0 9px;
   color: var(--viz-text);
   font-family: var(--viz-font-display);
-  font-size: 11px;
+  font-size: var(--viz-text-2xs);
   font-weight: 700;
   letter-spacing: 0.01em;
 }
@@ -377,7 +350,7 @@
   align-items: start;
   gap: 8px;
   padding: 3px 0;
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   line-height: 1.42;
 }
 
@@ -402,7 +375,7 @@
   overflow: hidden;
   display: grid;
   grid-template-rows: 43px minmax(0, 1fr) 32px;
-  background: #1d2523;
+  background: var(--viz-surface-dark);
 }
 
 .surfaceHeader {
@@ -433,7 +406,7 @@
   overflow: hidden;
   color: var(--viz-muted);
   font-family: var(--viz-font-mono);
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -449,7 +422,7 @@
     linear-gradient(rgba(225, 234, 230, 0.032) 1px, transparent 1px),
     linear-gradient(90deg, rgba(225, 234, 230, 0.032) 1px, transparent 1px),
     radial-gradient(circle at 50% 30%, rgba(80, 111, 102, 0.2), transparent 42%),
-    #1d2523;
+    var(--viz-surface-dark);
   background-size: 24px 24px, 24px 24px, auto, auto;
 }
 
@@ -462,7 +435,7 @@
   display: grid;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
+  border-radius: var(--viz-radius-lg);
   background: #fff;
   box-shadow: 0 20px 58px rgba(9, 17, 15, 0.38);
 }
@@ -506,18 +479,18 @@
 
 .readonlyBadge {
   position: absolute;
-  z-index: 2;
+  z-index: var(--viz-z-overlay);
   top: 20px;
   left: 20px;
   max-width: calc(100% - 40px);
   overflow: hidden;
   padding: 6px 9px;
   border: 1px solid rgba(226, 235, 231, 0.12);
-  border-radius: 7px;
+  border-radius: var(--viz-radius-sm);
   background: rgba(20, 31, 28, 0.78);
   color: #d7e1dd;
   font-family: var(--viz-font-mono);
-  font-size: 9px;
+  font-size: var(--viz-text-2xs);
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -533,12 +506,12 @@
 .emptySurface {
   grid-area: 1 / 1;
   width: min(390px, calc(100% - 40px));
-  color: #c4cfcb;
+  color: var(--viz-on-dark-soft);
   padding: 28px 26px 31px;
   text-align: center;
   border: 1px solid rgba(224, 234, 230, 0.1);
-  border-radius: 14px;
-  background: rgba(28, 39, 36, 0.66);
+  border-radius: var(--viz-radius-xl);
+  background: var(--viz-surface-dark-card);
   box-shadow: 0 18px 48px rgba(9, 17, 15, 0.16), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   backdrop-filter: blur(8px);
 }
@@ -557,7 +530,7 @@
   place-content: center;
   gap: 4px;
   border: 1px solid rgba(82, 184, 170, 0.24);
-  border-radius: 14px;
+  border-radius: var(--viz-radius-xl);
   background: rgba(35, 142, 130, 0.12);
 }
 
@@ -589,7 +562,7 @@
   margin-bottom: 8px;
   color: #78afa7;
   font-family: var(--viz-font-mono);
-  font-size: 9px;
+  font-size: var(--viz-text-2xs);
   font-weight: 700;
   letter-spacing: 0.14em;
 }
@@ -599,9 +572,9 @@
 }
 
 .emptyTitle {
-  color: #edf3f0;
+  color: var(--viz-on-dark);
   font-family: var(--viz-font-display);
-  font-size: 17px;
+  font-size: var(--viz-text-xl);
   font-weight: 650;
   letter-spacing: -0.025em;
   text-wrap: balance;
@@ -610,8 +583,8 @@
 .emptyCopy {
   max-width: 36ch;
   margin: 8px auto 0;
-  color: #aebcb7;
-  font-size: 11px;
+  color: var(--viz-on-dark-muted);
+  font-size: var(--viz-text-2xs);
   line-height: 1.65;
   overflow-wrap: anywhere;
   text-wrap: pretty;
@@ -628,7 +601,7 @@
   background: rgba(250, 249, 244, 0.94);
   color: var(--viz-muted);
   font-family: var(--viz-font-mono);
-  font-size: 9px;
+  font-size: var(--viz-text-2xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -670,7 +643,7 @@
 
 .eventTitle {
   color: var(--viz-text);
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   font-weight: 650;
   line-height: 1.4;
 }
@@ -680,7 +653,7 @@
   overflow-wrap: anywhere;
   color: var(--viz-muted);
   font-family: var(--viz-font-mono);
-  font-size: 9px;
+  font-size: var(--viz-text-2xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -689,7 +662,7 @@
   align-items: flex-start;
   gap: 8px;
   color: var(--viz-muted);
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   line-height: 1.55;
 }
 
@@ -714,7 +687,7 @@
 }
 
 .errorCopy {
-  font-size: 10px;
+  font-size: var(--viz-text-2xs);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -769,7 +742,7 @@
 
   .sidebar {
     position: absolute;
-    z-index: 30;
+    z-index: var(--viz-z-drawer);
     inset-block: 0;
     width: min(310px, calc(100vw - 44px));
     background: var(--viz-bg);
@@ -789,7 +762,7 @@
 
   .drawerBackdrop {
     position: absolute;
-    z-index: 20;
+    z-index: var(--viz-z-backdrop);
     inset: 0;
     display: block;
     width: 100%;
@@ -826,7 +799,7 @@
   }
 
   .brandTitle {
-    font-size: 15px;
+    font-size: var(--viz-text-md);
   }
 
   .headerActions {

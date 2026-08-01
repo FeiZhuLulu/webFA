@@ -463,7 +463,7 @@ export function ProfileBootstrapPanel({
   }
 
   return (
-    <div className="viz-column-content" data-ui="profile-bootstrap-panel" style={{ paddingTop: 0 }}>
+    <div className="viz-column-content viz-column-content-tight-top" data-ui="profile-bootstrap-panel">
       <div className="viz-control-stack">
         <label className="viz-management-field">
           <span>维护 Profile</span>
@@ -491,11 +491,11 @@ export function ProfileBootstrapPanel({
             accept=".json,.txt,.cookies"
             disabled={disabled || busy || !selectedProfile}
             onChange={(event) => void selectFile(event.target.files?.[0] ?? null)}
-            style={{ width: "100%", fontSize: 12 }}
+            className="viz-file-input"
           />
         </label>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div className="viz-grid-2col">
           <button
             type="button"
             className="viz-btn"
@@ -514,24 +514,15 @@ export function ProfileBootstrapPanel({
           </button>
         </div>
 
-        <div style={{ fontSize: 11, opacity: 0.72, lineHeight: 1.45 }}>
+        <div className="viz-field-note">
           支持常见 Cookie JSON 与 Netscape cookies.txt。文件内容不会进入 Agent State、Monitor、SafetyReceipt 或日志返回。
           导入前目标 Profile 必须没有活动 Session。
         </div>
       </div>
 
       {preview && (
-        <div
-          style={{
-            border: "1px solid rgba(127,127,127,.28)",
-            borderRadius: 8,
-            padding: 9,
-            marginTop: 10,
-            fontSize: 11,
-            lineHeight: 1.5,
-          }}
-        >
-          <div style={{ fontWeight: 650, marginBottom: 4 }}>Cookie 导入预览</div>
+        <div className="viz-preview-card">
+          <div className="viz-preview-card-title">Cookie 导入预览</div>
           <div>
             {preview.source_format} · 接受 {preview.accepted_count}/{preview.total_entries} · 拒绝 {preview.rejected_count}
           </div>
@@ -542,17 +533,17 @@ export function ProfileBootstrapPanel({
             会话 Cookie {preview.session_count} · 持久 Cookie {preview.persistent_count}
           </div>
           {preview.domains.length > 0 && (
-            <div style={{ marginTop: 5, opacity: 0.78, overflowWrap: "anywhere" }}>
+            <div className="viz-preview-card-meta">
               {preview.domains.slice(0, 12).join(" · ")}
               {preview.domains.length > 12 ? ` · +${preview.domains.length - 12}` : ""}
             </div>
           )}
           {preview.warnings.length > 0 && (
-            <div style={{ marginTop: 5, opacity: 0.78 }}>
+            <div className="viz-preview-card-meta">
               {preview.warnings.map((warning) => `${warningLabel(warning.code)} ×${warning.count}`).join("；")}
             </div>
           )}
-          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <div className="viz-preview-card-actions">
             <button
               type="button"
               className="viz-btn viz-btn-primary"
@@ -573,8 +564,8 @@ export function ProfileBootstrapPanel({
         </div>
       )}
 
-      <div style={{ borderTop: "1px solid rgba(127,127,127,.22)", marginTop: 14, paddingTop: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8 }}>Clone Profile</div>
+      <div className="viz-subsection">
+        <div className="viz-subsection-title">Clone Profile</div>
         <div className="viz-control-stack">
           <label className="viz-management-field">
             <span>新 Profile 别名</span>
@@ -598,7 +589,7 @@ export function ProfileBootstrapPanel({
               disabled={disabled || busy || clonePreview === null}
             />
           </label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div className="viz-grid-2col">
             <button
               type="button"
               className="viz-btn viz-btn-primary"
@@ -616,29 +607,20 @@ export function ProfileBootstrapPanel({
               关闭源会话
             </button>
           </div>
-          <div style={{ fontSize: 11, opacity: 0.72, lineHeight: 1.45 }}>
+          <div className="viz-field-note">
             Clone 会复制源 Profile 的浏览器身份与网站存储，但不会继承 Agent bindings、允许 Origin、Safety policy 或 Financial policy。
           </div>
         </div>
       </div>
 
       {clonePreview && (
-        <div
-          style={{
-            border: "1px solid rgba(127,127,127,.28)",
-            borderRadius: 8,
-            padding: 9,
-            marginTop: 10,
-            fontSize: 11,
-            lineHeight: 1.5,
-          }}
-        >
-          <div style={{ fontWeight: 650, marginBottom: 4 }}>Profile Clone 预览</div>
+        <div className="viz-preview-card">
+          <div className="viz-preview-card-title">Profile Clone 预览</div>
           <div>源：{clonePreview.source_agent_alias} · v{clonePreview.source_profile_version}</div>
           <div>
             文件 {clonePreview.file_count} · {formatBytes(clonePreview.total_bytes)} · 排除运行时项 {clonePreview.excluded_count}
           </div>
-          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <div className="viz-preview-card-actions">
             <button
               type="button"
               className="viz-btn viz-btn-primary"
@@ -659,15 +641,15 @@ export function ProfileBootstrapPanel({
         </div>
       )}
 
-      <div style={{ borderTop: "1px solid rgba(127,127,127,.22)", marginTop: 14, paddingTop: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8 }}>Encrypted Profile Bundle</div>
-        <div style={{ fontSize: 11, opacity: 0.72, lineHeight: 1.45, marginBottom: 9 }}>
+      <div className="viz-subsection">
+        <div className="viz-subsection-title">Encrypted Profile Bundle</div>
+        <div className="viz-field-note viz-field-note-spaced">
           `.webfa-profile` 使用 Scrypt + AES-256-GCM 加密经筛选的网站身份状态。它不包含密码、自动填充、历史、书签、标签页或扩展；恢复只创建新 Profile，也不恢复 Agent 或 Safety/Financial policy 绑定。
         </div>
 
         <div className="viz-control-stack">
-          <div style={{ fontSize: 11, fontWeight: 650 }}>Export selected Profile</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div className="viz-subsection-compact-title">Export selected Profile</div>
+          <div className="viz-grid-2col">
             <button
               type="button"
               className="viz-btn viz-btn-primary"
@@ -695,22 +677,13 @@ export function ProfileBootstrapPanel({
         </div>
 
         {bundleExportPreview && (
-          <div
-            style={{
-              border: "1px solid rgba(127,127,127,.28)",
-              borderRadius: 8,
-              padding: 9,
-              marginTop: 9,
-              fontSize: 11,
-              lineHeight: 1.5,
-            }}
-          >
-            <div style={{ fontWeight: 650, marginBottom: 4 }}>Bundle 导出预览</div>
+          <div className="viz-preview-card">
+            <div className="viz-preview-card-title">Bundle 导出预览</div>
             <div>
               {bundleExportPreview.source_display_name} · {bundleExportPreview.file_count} 个文件 · {formatBytes(bundleExportPreview.total_bytes)}
             </div>
             <div>排除运行时项 {bundleExportPreview.excluded_count} · {bundleExportPreview.suggested_filename}</div>
-            <label className="viz-management-field" style={{ marginTop: 8 }}>
+            <label className="viz-management-field viz-field-mt">
               <span>Bundle 加密口令</span>
               <input
                 className="viz-input"
@@ -723,7 +696,7 @@ export function ProfileBootstrapPanel({
                 disabled={busy}
               />
             </label>
-            <label className="viz-management-field" style={{ marginTop: 7 }}>
+            <label className="viz-management-field viz-field-mt-sm">
               <span>确认加密口令</span>
               <input
                 className="viz-input"
@@ -736,7 +709,7 @@ export function ProfileBootstrapPanel({
                 disabled={busy}
               />
             </label>
-            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <div className="viz-preview-card-actions">
               <button
                 type="button"
                 className="viz-btn viz-btn-primary"
@@ -761,10 +734,10 @@ export function ProfileBootstrapPanel({
           </div>
         )}
 
-        <div style={{ borderTop: "1px solid rgba(127,127,127,.16)", marginTop: 12, paddingTop: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 650, marginBottom: 7 }}>Restore encrypted Bundle</div>
+        <div className="viz-subsection-compact">
+          <div className="viz-subsection-compact-title">Restore encrypted Bundle</div>
           {!desktopBundleAvailable && (
-            <label className="viz-management-field" style={{ marginBottom: 8 }}>
+            <label className="viz-management-field viz-field-mb">
               <span>加密 Bundle 文件</span>
               <input
                 id="webfa-profile-bundle-file"
@@ -777,7 +750,7 @@ export function ProfileBootstrapPanel({
                   setBundleRestoreFile(selected);
                   setBundleRestoreFileName(selected?.name ?? "");
                 }}
-                style={{ width: "100%", fontSize: 12 }}
+                className="viz-file-input"
               />
             </label>
           )}
@@ -796,7 +769,7 @@ export function ProfileBootstrapPanel({
           </label>
           <button
             type="button"
-            className="viz-btn viz-btn-primary"
+            className="viz-btn viz-btn-primary viz-field-mt-sm"
             disabled={
               disabled ||
               busy ||
@@ -805,24 +778,14 @@ export function ProfileBootstrapPanel({
               (!desktopBundleAvailable && !bundleRestoreFile)
             }
             onClick={() => void createBundleRestorePreview()}
-            style={{ marginTop: 7 }}
           >
             {desktopBundleAvailable ? "选择并认证 Bundle" : "认证 Bundle"}
           </button>
         </div>
 
         {bundleRestorePreview && (
-          <div
-            style={{
-              border: "1px solid rgba(127,127,127,.28)",
-              borderRadius: 8,
-              padding: 9,
-              marginTop: 9,
-              fontSize: 11,
-              lineHeight: 1.5,
-            }}
-          >
-            <div style={{ fontWeight: 650, marginBottom: 4 }}>Bundle 恢复预览</div>
+          <div className="viz-preview-card">
+            <div className="viz-preview-card-title">Bundle 恢复预览</div>
             <div>{bundleRestoreFileName || "Encrypted Bundle"}</div>
             <div>
               来源：{bundleRestorePreview.source_display_name} · {bundleRestorePreview.source_agent_alias} · {bundleRestorePreview.source_bootstrap_source}
@@ -830,13 +793,13 @@ export function ProfileBootstrapPanel({
             <div>
               格式 v{bundleRestorePreview.bundle_format_version} · {bundleRestorePreview.file_count} 个文件 · {formatBytes(bundleRestorePreview.total_bytes)}
             </div>
-            <div style={{ marginTop: 5, opacity: 0.82 }}>
+            <div className="viz-preview-card-meta">
               {bundleRestorePreview.source_platform} → {bundleRestorePreview.current_platform}
             </div>
-            <div style={{ marginTop: 5, opacity: 0.82 }}>
+            <div className="viz-preview-card-meta">
               {bundleRestorePreview.compatibility_warning}
             </div>
-            <label className="viz-management-field" style={{ marginTop: 8 }}>
+            <label className="viz-management-field viz-field-mt">
               <span>新 Profile 别名</span>
               <input
                 className="viz-input"
@@ -847,7 +810,7 @@ export function ProfileBootstrapPanel({
                 disabled={busy}
               />
             </label>
-            <label className="viz-management-field" style={{ marginTop: 7 }}>
+            <label className="viz-management-field viz-field-mt-sm">
               <span>显示名称</span>
               <input
                 className="viz-input"
@@ -858,7 +821,7 @@ export function ProfileBootstrapPanel({
                 disabled={busy}
               />
             </label>
-            <label className="viz-management-field" style={{ marginTop: 7 }}>
+            <label className="viz-management-field viz-field-mt-sm">
               <span>再次确认 Bundle 口令</span>
               <input
                 className="viz-input"
@@ -871,7 +834,7 @@ export function ProfileBootstrapPanel({
                 disabled={busy}
               />
             </label>
-            <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <div className="viz-preview-card-actions">
               <button
                 type="button"
                 className="viz-btn viz-btn-primary"

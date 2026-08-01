@@ -25,6 +25,8 @@ For the current product and release state, read these sources in order:
    implementation-closure handoff for live policy revocation, protected control
    Session authority, payment preflight, and Safety UI behavior; independent
    Grok acceptance passed for the open-source Runtime baseline.
+8. `docs/reports/PRE_P13_BASELINE_FREEZE_24.md` — current UI/brand baseline,
+   source/wheel re-verification, and the handoff boundary before P13 design.
 
 The P10, P11, and P12 design documents define their complete target models.
 Their final-acceptance reports record implementation coverage at acceptance
