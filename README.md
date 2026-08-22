@@ -1,6 +1,30 @@
-# WebFA
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/webfa-mark-light.svg">
+    <img src="docs/assets/webfa-mark.svg" width="42" height="42" valign="middle" alt="">
+  </picture>
+  WebFA
+</h1>
 
-**语言 / Language**：中文 | [English](https://github.com/FeiZhuLulu/webFA/blob/main/README.en.md)
+<p align="center"><strong>给 Agent 一套原生的互联网运行时</strong></p>
+<p align="center">让 Agent 作为一等互联网用户，感知、操作并验证真实网页</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-green.svg?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12+"></a>
+  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-5%20tools-informational.svg?style=for-the-badge" alt="MCP 5 tools"></a>
+  <img src="https://img.shields.io/badge/Status-Developer%20Preview-yellow.svg?style=for-the-badge" alt="Developer Preview">
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="README.en.md">English</a> ·
+  <a href="#工作原理">工作原理</a> ·
+  <a href="#安全边界">安全边界</a> ·
+  <a href="#文档">文档</a>
+</p>
+
+---
 
 WebFA 是一个本地运行的 **agent-native browser runtime**：给 agent 一套原生的网页访问接口，让 agent 像真实互联网用户一样浏览、操作和验证网页。
 
@@ -10,9 +34,21 @@ agent -> webfa.open_url -> webfa.observe -> webfa.act -> webfa.observe
 
 Agent 负责决策，WebFA 负责执行：打开真实网页、在隔离 Profile 中维护网站登录身份、返回结构化页面状态、执行语义化网页操作。人类预览 UI 不是产品目标；仓库里仍有遗留 Desktop / Monitor 代码，不作为能力宣传。
 
-WebFA 不是：传统浏览器加自动化、站点 API wrapper 的集合、内置智能体的桌面应用。
-
 当前状态：**Developer Preview**，API 和行为仍可能变化。
+
+## 为什么需要 WebFA？
+
+Agent 已经能写代码、改文档、做决策；但要它像真人一样使用互联网，常见两条路都会走偏：
+
+| 常见做法 | 结果 |
+| --- | --- |
+| 传统浏览器 + 自动化 | Agent 面对 DOM、selector、坐标和 CDP，页面一变就碎 |
+| 站点专用 API / wrapper | 不是通用上网，也不是真实网页用户 |
+| 以人类浏览器 UI 为中心 | Agent 依赖给人看的界面，而不是自己的运行时 |
+
+WebFA 把引擎、Chrome UI、DOM、selector、CDP 留在实现层，把 **网页对象、语义操作、结构化状态** 交给 Agent。
+
+WebFA **不是**：传统浏览器加自动化、站点 API wrapper 的集合、内置智能体的桌面应用。
 
 ## 工作原理
 
@@ -20,6 +56,15 @@ Agent 面对的是**网页对象**，不是 DOM：
 
 ```text
 真实网页 -> WebObjectCompiler -> WebState（WebObjects / Capabilities）-> Agent 语义操作
+```
+
+```mermaid
+flowchart LR
+  Agent -->|MCP| Runtime[WebFA Runtime]
+  Runtime --> Page[真实网页]
+  Runtime --> State[WebState]
+  State --> Agent
+  Agent -->|act| Runtime
 ```
 
 `webfa.observe` 返回结构化的 `WebState`：可操作的网页对象、对象状态与关系、可用操作、文档版本和变更集。`webfa.act` 只接受对象声明的语义操作（如 `open`、`set_value`、`submit`、`choose`）。DOM、selector、坐标、鼠标键盘事件、CDP 都是 Runtime 内部实现，不进入公共协议。完整设计见 `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`。
@@ -60,15 +105,28 @@ webfa login --url https://example.com/login
 
 ## 能力一览
 
-- 5 个 MCP 工具：`open_url`、`observe`、`act`、`get_tabs`、`switch_tab`，不多不少。
-- Managed Chromium runtime，每个 Profile 独立的浏览器身份目录，不依赖 Playwright。
-- 多 Profile 并发；同一 Profile 同时只允许一个可写 Session。
-- Profile Bootstrap：人工登录、Cookie 导入、加密 `.webfa-profile` 身份包的导出与恢复。
-- 高风险操作受 SafetyContext、Runtime 证据和安全回执约束；超出已配置自治边界时，才触发精确作用域、默认单次使用的 Step-up 人工确认。
+| 能力 | 说明 |
+| --- | --- |
+| 5 个 MCP 工具 | `open_url`、`observe`、`act`、`get_tabs`、`switch_tab`，不多不少 |
+| Managed Chromium | 每个 Profile 独立的浏览器身份目录，不依赖 Playwright |
+| 多 Profile | 不同 Profile 可并发；同一 Profile 同时只允许一个可写 Session |
+| Profile Bootstrap | 人工登录、Cookie 导入、加密 `.webfa-profile` 身份包的导出与恢复 |
+| 安全回执 | 高风险操作受 SafetyContext、Runtime 证据约束；超出自治边界才触发精确作用域、默认单次使用的 Step-up |
 
 ## 安全边界
 
-默认不向 agent 暴露：cookies、localStorage/sessionStorage 值、token 与 authorization header、密码值、完整 DOM/HTML、selector/XPath/evaluate 逃生口、raw CDP。详见 `docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md`。
+默认不向 agent 暴露：
+
+| 不暴露 | 原因 |
+| --- | --- |
+| cookies / localStorage / sessionStorage | 登录凭据不属于 Agent 协议 |
+| token 与 authorization header | 避免把身份材料交给模型 |
+| 密码值 | Agent 不负责输入密钥 |
+| 完整 DOM / HTML | Agent 使用 WebState，不是原始页面源码 |
+| selector / XPath / evaluate | 没有逃生口去操作实现细节 |
+| raw CDP | 浏览器协议不进入公共契约 |
+
+详见 `docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md`。
 
 ## 当前限制
 
@@ -104,4 +162,4 @@ npm run typecheck:electron
 
 ## License
 
-MIT，见 `LICENSE`。
+MIT，见 [`LICENSE`](LICENSE)。
