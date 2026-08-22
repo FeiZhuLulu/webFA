@@ -6,159 +6,110 @@
   WebFA
 </h1>
 
-<p align="center"><strong>An internet runtime built for agents</strong></p>
-<p align="center">Let an agent use the real web as a first-class internet user</p>
+<p align="center"><strong>Give your AI agent a real way onto the internet</strong></p>
+<p align="center">It runs on your machine: open real pages, see what can be done, act, and check the result</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.12+-green.svg?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12+"></a>
-  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-5%20tools-informational.svg?style=for-the-badge" alt="MCP 5 tools"></a>
   <img src="https://img.shields.io/badge/Status-Developer%20Preview-yellow.svg?style=for-the-badge" alt="Developer Preview">
 </p>
 
 <p align="center">
+  <a href="#why-webfa">Why</a> ·
   <a href="#quick-start">Quick Start</a> ·
-  <a href="README.md">中文</a> ·
-  <a href="#how-it-works">How It Works</a> ·
-  <a href="#safety-boundary">Safety</a> ·
-  <a href="#documentation">Docs</a>
+  <a href="#what-it-can-do">What it can do</a> ·
+  <a href="README.md">中文</a>
 </p>
 
 ---
 
-WebFA is a local **agent-native browser runtime**: it gives agents a native interface to the web, so they can browse, act on, and verify real websites as first-class internet users.
+WebFA runs on your computer. Your agent uses it to work with real websites: open a page, see what is available, take an action, and check what changed.
+
+The agent decides. WebFA does the work.
 
 ```text
-agent -> webfa.open_url -> webfa.observe -> webfa.act -> webfa.observe
+open → observe → act → observe again
 ```
 
-The agent makes the decisions; WebFA does the work: opening real pages, keeping website login identities in isolated Profiles, returning structured page state, and executing semantic web-object operations. Human preview UI is not a product goal. Leftover Desktop / Monitor code remains in the tree and is not advertised as a capability.
-
-Status: **Developer Preview**. APIs and behavior may change.
+This is a **Developer Preview**. The interface may still change.
 
 ## Why WebFA?
 
-Agents can already write code, edit documents, and make decisions. Using the real internet as a person would is where the usual paths break down:
+Agents can already write code, edit documents, and make calls. Asking them to use the web like a person usually goes one of two ways — both miss:
 
 | Common approach | What you actually get |
 | --- | --- |
-| Traditional browser + automation | The agent sees DOM, selectors, coordinates, and CDP — brittle when pages change |
-| Site-specific APIs / wrappers | Not general web access, and not a real web user |
-| Human browser UI at the center | The agent depends on a UI built for people, not its own runtime |
+| Wrap a browser with automation | The agent hunts for button positions and page structure. One redesign and it breaks |
+| Wrap each site in a custom API | That is not using the internet. That is calling the few sites you wired up |
+| Drive a browser built for humans | The agent orbits a human UI instead of having its own way onto the web |
 
-WebFA keeps the engine, Chrome UI, DOM, selectors, and CDP as implementation details. Agents get **web objects, semantic operations, and structured state**.
+So it is not a regular browser with automation bolted on, not a pile of per-site APIs, and not a desktop browser with an AI built in.
 
-WebFA is **not**: a traditional browser with automation attached, a collection of site-specific API wrappers, or a desktop app with a built-in agent.
+It opens real pages and tells the agent what is there and what can be done. Your agent decides. WebFA goes and does it.
 
-## How It Works
+## What it can do
 
-Agents work with **web objects**, not the DOM:
+- Open real websites in a local browser
+- See buttons, fields, and links, and whether they can be used right now
+- Fill in, choose, submit, and open
+- List and switch tabs
+- Keep different accounts apart
+- Leave passwords, CAPTCHAs, and two-factor checks to a person
 
-```text
-real web page -> WebObjectCompiler -> WebState (WebObjects / Capabilities) -> Agent semantic operations
-```
-
-```mermaid
-flowchart LR
-  Agent -->|MCP| Runtime[WebFA Runtime]
-  Runtime --> Page[Real web page]
-  Runtime --> State[WebState]
-  State --> Agent
-  Agent -->|act| Runtime
-```
-
-`webfa.observe` returns a structured `WebState`: operable web objects, their state and relations, available operations, document revisions, and change sets. `webfa.act` accepts only the semantic operations declared by objects (e.g. `open`, `set_value`, `submit`, `choose`). DOM, selectors, coordinates, mouse/keyboard events, and CDP are internal Runtime details and never enter the public protocol. Full design: `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`.
+The agent has five actions: open a page, observe, act, list tabs, switch tabs.
 
 ## Quick Start
 
-Requirements: Python 3.12+, with Chrome or Edge installed locally.
+You need Python 3.12+ and Chrome or Edge installed locally.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -e ".[dev]"
-webfa doctor        # local self-test
+webfa doctor
 ```
 
-Generate an MCP config for your agent:
+Generate a config for your agent:
 
 ```powershell
 webfa mcp-config --agent-id <your-agent-name>
 ```
 
-Once the agent connects over MCP stdio, `webfa-mcp` automatically reuses or starts the local Runtime (default `http://127.0.0.1:8787`) — no manual process management. Each agent should use a distinct `WEBFA_AGENT_ID`; different Profiles can be used concurrently by different agents.
+After the agent connects, the local service starts on its own. Give each agent its own name. Different accounts can be used at the same time.
 
-Integration guides: [opencode](docs/agent-integrations/opencode.md) · [Kimi Code](docs/agent-integrations/kimi-code.md) · [Claude Code](docs/agent-integrations/claude-code.md) · [Codex](docs/agent-integrations/codex.md)
+[OpenCode](docs/agent-integrations/opencode.md) · [Kimi Code](docs/agent-integrations/kimi-code.md) · [Claude Code](docs/agent-integrations/claude-code.md) · [Codex](docs/agent-integrations/codex.md)
 
-## Login & Human Takeover
+## Sign in
 
-Agents should not type passwords, verification codes, or 2FA codes. Preload login state with the CLI. When a page requires human authentication, Runtime stops at the mechanical safety boundary instead of depending on a human preview UI to finish the task.
-
-Preload login:
+Do not let the agent type passwords, CAPTCHA codes, or two-factor codes. Prepare login yourself:
 
 ```powershell
 webfa login github
 webfa login --url https://example.com/login
 ```
 
-High-risk authentication still requires a human on the real page; the agent then calls `observe` again. Human preview UI / Session Monitor is not a product goal.
+If a site needs a person to confirm, stop, finish that step yourself, then let the agent look at the page again.
 
-## Capabilities
+## What the agent does not get
 
-| Capability | Detail |
-| --- | --- |
-| Exactly 5 MCP tools | `open_url`, `observe`, `act`, `get_tabs`, `switch_tab` |
-| Managed Chromium | Isolated browser identity directory per Profile; no Playwright dependency |
-| Multi-Profile | Concurrent different-Profile sessions; at most one writable Session per Profile |
-| Profile Bootstrap | Human login, cookie import, and export/restore of encrypted `.webfa-profile` identity bundles |
-| Safety receipts | High-risk operations are constrained by SafetyContext and Runtime evidence; exact-scope, single-use-by-default Step-up only when autonomy is exceeded |
+By default the agent does not receive login cookies, local storage, tokens, passwords, or the full page HTML. It also cannot drive the page through selectors or the browser debug channel.
 
-## Safety Boundary
+## What it will not do
 
-Never exposed to agents by default:
-
-| Not exposed | Why |
-| --- | --- |
-| cookies / localStorage / sessionStorage | Login credentials are not part of the agent protocol |
-| tokens and authorization headers | Identity material stays out of the model |
-| password values | Agents do not enter secrets |
-| full DOM / HTML | Agents use WebState, not raw page source |
-| selector / XPath / evaluate | No escape hatch into implementation details |
-| raw CDP | The browser protocol is not a public contract |
-
-See `docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md`.
-
-## Current Limits
-
-- One writable Session per Profile at a time (different Profiles run concurrently).
-- No bypassing of anti-bot, CAPTCHA, risk-control, or platform security systems.
-- `open_url` and link opening have navigation semantics; if a site abuses GET navigation to perform an external write, Runtime cannot infer that business side effect from protocol semantics alone.
-- Active Sessions and task execution state do not survive a Runtime restart; durable task resume is not planned as a named phase.
-- Human preview UI is not a product goal. Leftover Desktop / Monitor code is developer residue, not a full browser, and contains no built-in agent.
+- It will not bypass CAPTCHAs, bot checks, or site risk controls
+- One account can only be written to from one place at a time
+- Work in progress does not continue after you quit
 
 ## Development
 
 ```powershell
-python -m pytest -q          # Python tests
-npm install                  # optional: human control surface (Renderer + Electron)
-npm run dev                  # start Visualizer, default http://127.0.0.1:8788
-npm run typecheck:renderer
-npm run typecheck:electron
+python -m pytest -q
 ```
 
-Common environment variables: see `.env.example`. Source runs store data in `%APPDATA%\WebFA` by default.
+See `.env.example` for environment variables. Runtime data defaults to `%APPDATA%\WebFA`.
 
-## Documentation
-
-- Roadmap: `docs/browser-runtime-roadmap.md`
-- Object Model design: `docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`
-- Safety Contract design: `docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md`
-- Multi-Session / Multi-Profile design: `docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`
-- Desktop distribution architecture: `docs/DESKTOP_DISTRIBUTION_ARCHITECTURE.md`
-- Open-source Runtime readiness: `docs/OPEN_SOURCE_READINESS.md`
-- Candidate release gates: `RELEASE_CHECKLIST.md`
-- Current baseline: `docs/reports/CURRENT_BASELINE.md`
-- Historical reports guide: `docs/reports/README.md` (old reports are point-in-time engineering evidence only)
+The [roadmap](docs/browser-runtime-roadmap.md) is the place for what comes next.
 
 ## License
 
