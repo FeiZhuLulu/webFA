@@ -31,8 +31,10 @@ if (!chromeExecutable || !fs.existsSync(chromeExecutable)) {
 
 const masterSvg = fs.readFileSync(markSvgPath, "utf8");
 const requiredGeometry = [
-  'd="M 19.05 9.43 A 7.5 7.5 0 1 1 15.17 5.20"',
-  'cx="19.34" cy="5.25" r="2.6"',
+  'd="M24 30.5 L29.5 36 L24 41.5"',
+  'd="M33.5 41.5 H39.5"',
+  "#33D6FF",
+  "#0A0E14",
 ];
 if (!requiredGeometry.every((fragment) => masterSvg.includes(fragment))) {
   throw new Error("Master mark geometry changed; update the rasterizer contract before generating assets");
@@ -93,8 +95,12 @@ class CdpClient {
     });
   }
 
-  async evaluate(expression) {
-    const result = await this.send("Runtime.evaluate", { expression, returnByValue: true });
+  async evaluate(expression, awaitPromise = false) {
+    const result = await this.send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise,
+    });
     if (result.exceptionDetails) throw new Error(`Evaluation failed: ${result.exceptionDetails.text}`);
     return result.result?.value;
   }
@@ -127,46 +133,31 @@ async function waitForPageTarget(port, timeoutMs = 15_000) {
   throw new Error("Timed out waiting for a Chrome page target");
 }
 
-// 徽标（teal 渐变 squircle + 白色品牌标）在 canvas 上按 size 栅格化，
-// 返回非预乘 RGBA（base64）与 PNG data URL。品牌标几何与 packaging/webfa-mark.svg 一致：
-// 开放环圆心 (12,12) r=7.5 缺口朝向右上，节点 (19.34,5.25) r=2.6，stroke 2.4 round cap。
-function renderExpression(size) {
+// 按 packaging/webfa-mark.svg 原样栅格化：暗底圆角视口 + 提示符。
+// 路径 M24 30.5 L29.5 36 L24 41.5 / M33.5 41.5 H39.5，色值 #0A0E14 / #33D6FF。
+function renderExpression(size, svgDataUrl) {
   return `(() => {
     const size = ${size};
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    const gradient = ctx.createLinearGradient(size * 0.1, 0, size * 0.9, size);
-    gradient.addColorStop(0, "#1a7f76");
-    gradient.addColorStop(1, "#0e5f58");
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.roundRect(0, 0, size, size, size * 0.225);
-    ctx.fill();
-    const markSize = Math.round(size * 0.67);
-    const offset = (size - markSize) / 2;
-    ctx.save();
-    ctx.translate(offset, offset);
-    ctx.scale(markSize / 24, markSize / 24);
-    ctx.strokeStyle = "#ffffff";
-    ctx.fillStyle = "#ffffff";
-    ctx.lineWidth = 2.4;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.arc(12, 12, 7.5, Math.atan2(9.43 - 12, 19.05 - 12), Math.atan2(5.20 - 12, 15.17 - 12), false);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(19.34, 5.25, 2.6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    const rgba = ctx.getImageData(0, 0, size, size).data;
-    let binary = "";
-    const chunk = 0x8000;
-    for (let i = 0; i < rgba.length; i += chunk) {
-      binary += String.fromCharCode(...rgba.subarray(i, i + chunk));
-    }
-    return { rgba: btoa(binary), png: canvas.toDataURL("image/png") };
+    const src = ${JSON.stringify(svgDataUrl)};
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, size, size);
+        const rgba = ctx.getImageData(0, 0, size, size).data;
+        let binary = "";
+        const chunk = 0x8000;
+        for (let i = 0; i < rgba.length; i += chunk) {
+          binary += String.fromCharCode(...rgba.subarray(i, i + chunk));
+        }
+        resolve({ rgba: btoa(binary), png: canvas.toDataURL("image/png") });
+      };
+      img.onerror = () => reject(new Error("Failed to rasterize brand mark"));
+      img.src = src;
+    });
   })()`;
 }
 
@@ -238,9 +229,10 @@ async function run() {
     client = new CdpClient(await waitForPageTarget(Number(portText)));
     await client.connect();
 
+    const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(masterSvg)}`;
     const frames = [];
     for (const size of ICO_SIZES) {
-      const rendered = await client.evaluate(renderExpression(size));
+      const rendered = await client.evaluate(renderExpression(size, svgDataUrl), true);
       const rgba = Buffer.from(rendered.rgba, "base64");
       const data = size === 256
         ? Buffer.from(rendered.png.split(",")[1], "base64")
@@ -249,7 +241,7 @@ async function run() {
     }
     fs.writeFileSync(icoPath, buildIco(frames));
 
-    const appIcon = await client.evaluate(renderExpression(512));
+    const appIcon = await client.evaluate(renderExpression(512, svgDataUrl), true);
     fs.writeFileSync(appIconPath, Buffer.from(appIcon.png.split(",")[1], "base64"));
   } finally {
     client?.close();

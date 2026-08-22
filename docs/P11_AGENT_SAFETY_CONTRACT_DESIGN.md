@@ -1,6 +1,6 @@
 # P11 Agent Safety Contract & Hard Boundaries
 
-Status: historical design draft; P11.0-P11.10 implementation is complete. See docs/p11plan.md and docs/reports/P11_10_STEP_UP_AUDIT_FINAL_ACCEPTANCE_REPORT.md.
+Status: historical design draft; P11.0-P11.10 implementation is complete. See docs/p11plan.md and docs/reports/CURRENT_BASELINE.md.
 
 Working name:
 
@@ -288,7 +288,7 @@ Agents reference protected resources by opaque IDs. They never receive underlyin
 
 ### 4.6 SafetyReceiptStore
 
-Records important safety events and final operations. P11 defines the receipt schema; P13 will make long-duration traces and resume durable.
+Records important safety events and final operations. P11 defines the receipt schema. Receipts remain session-local; durable resume is not a product phase.
 
 ---
 
@@ -1383,7 +1383,7 @@ P11 does not:
 - bypass authentication, payment verification, CAPTCHA, or platform risk controls;
 - expose payment or identity secrets;
 - replace P12 multi-profile isolation;
-- replace P13 durable task tracing;
+- provide durable task resume;
 - introduce site-specific transaction APIs.
 
 ---

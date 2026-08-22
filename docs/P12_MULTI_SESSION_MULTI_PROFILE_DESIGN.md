@@ -25,10 +25,7 @@ Implementation status:
 
 Reports:
 
-- `docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md`
-- `docs/reports/P12_4_6_MULTI_SESSION_ROUTING_MONITOR_REPORT.md`
-- `docs/reports/P12_7_P11_AUTHORITY_RESCOPING_SECURITY_REVIEW.md`
-- `docs/reports/P12_8_CORE_FINAL_ACCEPTANCE_MAINTENANCE_REVIEW.md`
+- `docs/reports/CURRENT_BASELINE.md`
 
 P12 建立 WebFA 的多互联网身份与多任务运行模型。它不是给传统浏览器增加“多开”功能，也不是把当前单例 Runtime 简单改成一个字典。P12 的目标是让 Agent 能够在多个彼此隔离、可持久化、可授权、可监控的互联网身份环境中独立工作，同时保持 WebFA 的 Agent 原生接口、安全契约和五工具公共表面。
 
@@ -177,7 +174,7 @@ P12 Core 包含：
 
 P12 Core 不包含：
 
-- P13 Durable Trace / Resume；
+- 耐久任务恢复 / Durable Trace / Resume；
 - 浏览器进程崩溃后的页面级任务恢复；
 - 多设备或远程 WebFA 集群；
 - 云端 Profile 同步；
@@ -404,7 +401,7 @@ BrowserSession
 - 一个 Session 可拥有多个 Tab；
 - Session 关闭后不能重新进入 `running`；
 - 同一 Profile 再次启动时创建新 Session 和新 runtime generation；
-- P13 之前不承诺恢复旧 Session 的页面、ObjectRegistry 或任务进度。
+- 不承诺恢复旧 Session 的页面、ObjectRegistry 或任务进度。
 
 ### 7.2 Session persistence
 
@@ -416,7 +413,7 @@ Runtime 启动时，数据库中遗留的 `starting`、`running` 或 `stopping` 
 interrupted
 ```
 
-P13 才定义是否以及如何恢复。
+当前产品不定义任务恢复。Durable resume 已废弃，不是独立阶段。
 
 ---
 
@@ -1079,7 +1076,7 @@ P12 持久化 Session 元数据和审计终态，不持久化足以恢复以下�
 - Monitor connection；
 - Step-up continuation。
 
-这些属于 P13 或安全上应 fail closed 的短期状态。
+这些属于安全上应 fail closed 的短期状态，不是可恢复任务。
 
 ---
 
@@ -1411,10 +1408,7 @@ Bundle passphrases are supplied only through the protected local request header.
 Implemented report:
 
 ```text
-docs/reports/PROFILE_BOOTSTRAP_COOKIE_IMPORT_REPORT.md
-docs/reports/PROFILE_BOOTSTRAP_CLONE_REPORT.md
-docs/reports/PROFILE_BOOTSTRAP_BUNDLE_REPORT.md
-docs/reports/PROFILE_BOOTSTRAP_ADVERSARIAL_REVIEW.md
+docs/reports/CURRENT_BASELINE.md
 ```
 
 ---

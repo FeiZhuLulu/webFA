@@ -1,6 +1,6 @@
 # WebFA P11 详细实施方案
 
-Status: complete; P11.0-P11.10 implemented and accepted
+Status: complete; P11.0-P11.10 implemented and accepted. Intermediate phase reports were archived to the workspace `备份/2026-08-22-reports-archive/`; current acceptance is `docs/reports/CURRENT_BASELINE.md`.
 
 Phase name:
 
@@ -1462,7 +1462,7 @@ P11 不做：
 - 绕过认证、支付验证、CAPTCHA 或平台风控；
 - 向 Agent 暴露支付/身份秘密；
 - 替代 P12 多 Profile；
-- 替代 P13 持久 Trace；
+- 提供耐久任务恢复；
 - 站点专用事务 API wrapper。
 
 ---
@@ -1494,7 +1494,7 @@ P11 不做：
 - `packages/schemas/web.py`；
 - `tests/unit/test_safety_schemas.py`。
 
-阶段报告：`docs/reports/P11_1_SCHEMA_FOUNDATION_REPORT.md`。
+阶段报告（已归档）：`备份/2026-08-22-reports-archive/P11_1_SCHEMA_FOUNDATION_REPORT.md`。
 
 新增完整 Schema：
 
@@ -1528,7 +1528,7 @@ P11 不做：
 - `packages/webfa-core/browser/safety_templates.py`；
 - `tests/unit/test_safety_templates.py`。
 
-阶段报告：`docs/reports/P11_2_TEMPLATE_CONTRACT_REPORT.md`。
+阶段报告（已归档）：`备份/2026-08-22-reports-archive/P11_2_TEMPLATE_CONTRACT_REPORT.md`。
 
 实现：
 
@@ -1560,7 +1560,7 @@ P11 不做：
 - `tests/integration/test_web_object_api.py`；
 - `tests/integration/test_mcp_stdio_browser.py`。
 
-阶段报告：`docs/reports/P11_3_SAFETY_CONTEXT_HANDSHAKE_REPORT.md`。
+阶段报告（已归档）：`备份/2026-08-22-reports-archive/P11_3_SAFETY_CONTEXT_HANDSHAKE_REPORT.md`。
 
 实现：
 
@@ -1581,7 +1581,7 @@ P11 不做：
 
 状态：完成。
 
-实施报告：`docs/reports/P11_4_RUNTIME_EVIDENCE_REPORT.md`
+实施报告（已归档）：`备份/2026-08-22-reports-archive/P11_4_RUNTIME_EVIDENCE_REPORT.md`
 
 实现：
 
@@ -1601,7 +1601,7 @@ P11 不做：
 
 状态：完成。
 
-实施报告：`docs/reports/P11_5_CREDENTIAL_TAKEOVER_REPORT.md`
+实施报告（已归档）：`备份/2026-08-22-reports-archive/P11_5_CREDENTIAL_TAKEOVER_REPORT.md`
 
 实现：
 
@@ -1619,7 +1619,7 @@ P11 不做：
 
 状态：完成。
 
-实施报告：`docs/reports/P11_6_LOCAL_RESOURCE_BROKER_REPORT.md`
+实施报告（已归档）：`备份/2026-08-22-reports-archive/P11_6_LOCAL_RESOURCE_BROKER_REPORT.md`
 
 实现：
 

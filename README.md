@@ -8,7 +8,7 @@ WebFA 是一个本地运行的 **agent-native browser runtime**：给 agent 一�
 agent -> webfa.open_url -> webfa.observe -> webfa.act -> webfa.observe
 ```
 
-Agent 负责决策，WebFA 负责执行：打开真实网页、在隔离 Profile 中维护网站登录身份、返回结构化页面状态、执行语义化网页操作。人类 UI（Control Center / Session Monitor）只是监控、审批和接管面，不是产品主体。
+Agent 负责决策，WebFA 负责执行：打开真实网页、在隔离 Profile 中维护网站登录身份、返回结构化页面状态、执行语义化网页操作。人类预览 UI 不是产品目标；仓库里仍有遗留 Desktop / Monitor 代码，不作为能力宣传。
 
 WebFA 不是：传统浏览器加自动化、站点 API wrapper 的集合、内置智能体的桌面应用。
 
@@ -47,14 +47,16 @@ Agent 通过 MCP stdio 连接后，`webfa-mcp` 会自动复用或启动本地 Ru
 
 ## 登录与人工接管
 
-Agent 不应该输入密码、验证码或 2FA。当页面进入登录、扫码或授权流程时，用户在 Session Monitor 中取得限时人工控制租约，直接在 Agent 正在使用的同一个页面上完成操作，然后归还控制权。Agent 之后重新 `observe` 再继续。
+Agent 不应该输入密码、验证码或 2FA。登录态用 CLI 预置；当页面需要人类认证时，Runtime 停在机械安全边界上，而不是依赖一套人类预览 UI 来完成任务。
 
-也可以用 CLI 预置登录态：
+预置登录：
 
 ```powershell
 webfa login github
 webfa login --url https://example.com/login
 ```
+
+高风险认证仍要求人类在真实页面上完成，然后 Agent 重新 `observe`。人类预览 UI / Session Monitor 不是产品目标。
 
 ## 能力一览
 
@@ -63,7 +65,6 @@ webfa login --url https://example.com/login
 - 多 Profile 并发；同一 Profile 同时只允许一个可写 Session。
 - Profile Bootstrap：人工登录、Cookie 导入、加密 `.webfa-profile` 身份包的导出与恢复。
 - 高风险操作受 SafetyContext、Runtime 证据和安全回执约束；超出已配置自治边界时，才触发精确作用域、默认单次使用的 Step-up 人工确认。
-- 可选的 Runtime Manager 桌面应用：监控 Agent/Session、审批、接管、生成 MCP 配置。
 
 ## 安全边界
 
@@ -74,8 +75,8 @@ webfa login --url https://example.com/login
 - 同一 Profile 同时只有一个可写 Session（不同 Profile 可并发）。
 - 不绕过反爬、验证码、风控或平台安全系统。
 - `open_url` 和链接打开属于导航语义；如果网站滥用 GET 导航产生外部写入，Runtime 无法仅凭协议确定该业务副作用。
-- 活跃 Session 和任务执行状态不跨 Runtime 重启保留（Durable Resume 属暂缓的 P13）。
-- Runtime Manager 是监控和接管面，不是完整桌面浏览器，也不包含内置 Agent。
+- 活跃 Session 和任务执行状态不跨 Runtime 重启保留；没有耐久任务恢复，也不再作为独立阶段规划。
+- 人类预览 UI 不是产品目标。仓库里的 Desktop / Monitor 是遗留开发者面，不是完整浏览器，也不包含内置 Agent。
 
 ## 开发
 
@@ -95,10 +96,10 @@ npm run typecheck:electron
 - Object Model 设计：`docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md`
 - 安全契约设计：`docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md`
 - 多 Session / 多 Profile 设计：`docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md`
-- 桌面分发架构：`docs/DESKTOP_DISTRIBUTION_ARCHITECTURE.md`
+- 遗留桌面分发说明（不是产品目标）：`docs/DESKTOP_DISTRIBUTION_ARCHITECTURE.md`
 - 开源 Runtime 就绪状态：`docs/OPEN_SOURCE_READINESS.md`
 - 候选发布门禁：`RELEASE_CHECKLIST.md`
-- 当前阶段与证据矩阵：`docs/reports/PRE_P13_COMPLETION_EVIDENCE_MATRIX_21.md`
+- 当前基线：`docs/reports/CURRENT_BASELINE.md`
 - 历史报告阅读须知：`docs/reports/README.md`（旧报告只代表当时的工程证据）
 
 ## License

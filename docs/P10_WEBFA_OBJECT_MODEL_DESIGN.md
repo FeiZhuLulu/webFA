@@ -786,7 +786,7 @@ P11 Real Task Safety consumes capability effects, object origins, content trust,
 
 P12 Multi Session / Multi Profile consumes session ids, isolated ObjectRegistries, profile binding, and leases.
 
-P13 Durable Trace / Resume consumes revisions, object versions, ChangeSets, semantic operations, and structured results.
+A later durable-resume phase was considered and is now abandoned. Revisions, object versions, ChangeSets, and structured results remain in-session evidence only.
 
 ## Decision
 

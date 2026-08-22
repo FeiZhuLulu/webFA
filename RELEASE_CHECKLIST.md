@@ -1,10 +1,9 @@
 # WebFA Release Checklist
 
-Use this checklist for WebFA Runtime source/wheel candidates and, separately,
-for the optional Windows Runtime Manager preview. It covers P1-P12, Post-Core
-Profile Bootstrap, and the existing lightweight Desktop control plane. P13
-Durable Trace / Resume is explicitly deferred and must not be implied by any
-release claim.
+Use this checklist for WebFA Runtime source/wheel candidates. It covers P1-P12
+and Post-Core Profile Bootstrap. Human preview UI / Desktop is leftover
+developer residue, not a product goal. Durable task resume is abandoned and
+must not be implied by any release claim.
 
 Checkboxes in **Implemented baseline** describe repository capabilities that
 already exist. Candidate gates apply only to the artifact being published: an
@@ -16,21 +15,20 @@ a new candidate passed.
 
 - [x] P10 WebFA Object Model, P11 Agent Safety Contract, P12 Multi Session /
   Multi Profile Core, and Post-Core Profile Bootstrap are implemented.
-- [x] The product remains an agent-native internet Runtime; Desktop is an
-  optional local Runtime host and human management surface, not a browser and
+- [x] The product remains an agent-native internet Runtime, not a browser and
   not an Agent. External Agent clients own their MCP connections and decide
-  what work to perform.
+  what work to perform. Human preview UI is not a product goal.
 - [x] Multiple persistent Profiles can run concurrently, while one persistent
   Profile has at most one active writable Session and one exclusive Agent
   Session lease.
 - [x] Runtime restart preserves Profile browser storage but invalidates active
   Sessions, Profile/Monitor grants, leases, Step-up state, and other in-memory
   authority. Stale active Session records become `interrupted`.
-- [x] P13 Durable Trace / Resume is deferred; no release material promises task
+- [x] Durable task resume is abandoned; no release material promises task
   replay, page restoration, or resumable execution.
-- [x] The pre-P13 UI/brand baseline and source/wheel re-verification are
-  recorded in `docs/reports/PRE_P13_BASELINE_FREEZE_24.md`; this does not mark a
-  formal Windows Desktop release.
+- [x] The 2026-08-02 source/wheel baseline is recorded in
+  `docs/reports/CURRENT_BASELINE.md`; this does not mark a formal Windows
+  Desktop release, and human preview UI is not a product goal.
 - [ ] Before a formal Windows Desktop release only, close its distribution
   blockers: stable public `appId`, true
   upgrade from a real previous supported installer, clean standard-user and
@@ -387,4 +385,5 @@ release baseline.
   public docs, and checksums all identify the same immutable release.
 - [ ] Release notes state developer-preview limits, loopback-only trust model,
   unknown GET/navigation side-effect boundary, supported platform/browser
-  prerequisites, Profile data compatibility, and that P13 remains deferred.
+  prerequisites, Profile data compatibility, and that durable task resume is
+  not a product claim.

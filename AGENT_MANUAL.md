@@ -713,7 +713,7 @@ deny
 
 Receipts record the Agent, Profile, Origin, semantic operation, P10 effect, safety dimensions, decision, document revisions, an irreversible hash of the authority source reference, step-up reference, result, and timestamp. They never contain raw authority text, passwords, cookies, tokens, full card data, CVV, OTP, wallet tokens, or local absolute paths.
 
-The current receipt and step-up stores are session-local and bounded. The Visualizer Safety Center displays recent receipts and pending/approved step-up requests. Durable restoration belongs to P13.
+The current receipt and step-up stores are session-local and bounded. Durable restoration is not a current product capability.
 
 ## Visualizer control-plane boundary
 

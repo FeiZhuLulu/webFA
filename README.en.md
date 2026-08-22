@@ -8,7 +8,7 @@ WebFA is a local **agent-native browser runtime**: it gives agents a native inte
 agent -> webfa.open_url -> webfa.observe -> webfa.act -> webfa.observe
 ```
 
-The agent makes the decisions; WebFA does the work: opening real pages, keeping website login identities in isolated Profiles, returning structured page state, and executing semantic web-object operations. The human UI (Control Center / Session Monitor) is a monitoring, approval, and takeover surface — not the product itself.
+The agent makes the decisions; WebFA does the work: opening real pages, keeping website login identities in isolated Profiles, returning structured page state, and executing semantic web-object operations. Human preview UI is not a product goal. Leftover Desktop / Monitor code remains in the tree and is not advertised as a capability.
 
 WebFA is not: a traditional browser with automation attached, a collection of site-specific API wrappers, or a desktop app with a built-in agent.
 
@@ -47,14 +47,16 @@ Integration guides: [opencode](docs/agent-integrations/opencode.md) · [Kimi Cod
 
 ## Login & Human Takeover
 
-Agents should not type passwords, verification codes, or 2FA codes. When a page enters a login, QR-code, or authorization flow, the user acquires a time-bounded human-control lease in the Session Monitor and operates the very same page the agent is using, then hands control back. The agent calls `observe` again before continuing.
+Agents should not type passwords, verification codes, or 2FA codes. Preload login state with the CLI. When a page requires human authentication, Runtime stops at the mechanical safety boundary instead of depending on a human preview UI to finish the task.
 
-You can also preload login state via CLI:
+Preload login:
 
 ```powershell
 webfa login github
 webfa login --url https://example.com/login
 ```
+
+High-risk authentication still requires a human on the real page; the agent then calls `observe` again. Human preview UI / Session Monitor is not a product goal.
 
 ## Capabilities
 
@@ -63,7 +65,6 @@ webfa login --url https://example.com/login
 - Concurrent multi-Profile sessions; at most one writable Session per Profile at a time.
 - Profile Bootstrap: human login, cookie import, and export/restore of encrypted `.webfa-profile` identity bundles.
 - High-risk operations are constrained by SafetyContext, Runtime evidence, and safety receipts; exact-scope, single-use-by-default human Step-up is required only when an operation exceeds the configured autonomy boundary.
-- Optional Runtime Manager desktop app: monitor Agents/Sessions, approve, take over, generate MCP configs.
 
 ## Safety Boundary
 
@@ -74,8 +75,8 @@ Never exposed to agents by default: cookies, localStorage/sessionStorage values,
 - One writable Session per Profile at a time (different Profiles run concurrently).
 - No bypassing of anti-bot, CAPTCHA, risk-control, or platform security systems.
 - `open_url` and link opening have navigation semantics; if a site abuses GET navigation to perform an external write, Runtime cannot infer that business side effect from protocol semantics alone.
-- Active Sessions and task execution state do not survive a Runtime restart (durable resume is the deferred P13 phase).
-- The Runtime Manager is a monitoring and takeover surface, not a full desktop browser, and contains no built-in agent.
+- Active Sessions and task execution state do not survive a Runtime restart; durable task resume is not planned as a named phase.
+- Human preview UI is not a product goal. Leftover Desktop / Monitor code is developer residue, not a full browser, and contains no built-in agent.
 
 ## Development
 
@@ -98,7 +99,7 @@ Common environment variables: see `.env.example`. Source runs store data in `%AP
 - Desktop distribution architecture: `docs/DESKTOP_DISTRIBUTION_ARCHITECTURE.md`
 - Open-source Runtime readiness: `docs/OPEN_SOURCE_READINESS.md`
 - Candidate release gates: `RELEASE_CHECKLIST.md`
-- Current phase and evidence matrix: `docs/reports/PRE_P13_COMPLETION_EVIDENCE_MATRIX_21.md`
+- Current baseline: `docs/reports/CURRENT_BASELINE.md`
 - Historical reports guide: `docs/reports/README.md` (old reports are point-in-time engineering evidence only)
 
 ## License

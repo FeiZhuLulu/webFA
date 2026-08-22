@@ -1,8 +1,8 @@
 """Ephemeral Runtime process identity used for local ownership handshakes.
 
 The instance identifier is intentionally not an authorization secret and is not
-durable state.  It changes when a new Runtime process starts and has no P13
-trace/resume semantics.
+durable state.  It changes when a new Runtime process starts and has no
+durable trace/resume semantics.
 """
 
 from __future__ import annotations

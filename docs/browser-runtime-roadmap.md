@@ -232,8 +232,8 @@ P11
   verification takeover, Runtime-observed totals, autonomous saved-method payment,
   and approved over-autonomy payment scope escalation. At P11 acceptance, P12
   Multi Session / Multi Profile was the next phase; it is complete below.
-  Detailed historical plan: docs/p11plan.md. Final acceptance:
-  docs/reports/P11_FINAL_ACCEPTANCE_REPORT.md. The earlier design draft remains at
+  Detailed historical plan: docs/p11plan.md. Current baseline:
+  docs/reports/CURRENT_BASELINE.md. The earlier design draft remains at
   docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md for design history.
 
 UI-1B
@@ -250,11 +250,8 @@ UI-1B
   Agent writes pause, protected observe remains available, and release,
   disconnect, revoke, or expiry restores Runtime control. The duplicate-page
   Electron AuthSurface is permanently retired. No Agent REST or MCP capability
-  was added. Frozen design: docs/ui/UI1B_MONITOR_PROJECTION_ARCHITECTURE.md.
-  Phase 4-5 report: docs/reports/UI1B_MONITOR_PROJECTION_PHASE_4_5_REPORT.md.
-  Phase 6 report: docs/reports/UI1B_HUMAN_CONTROL_PHASE_6_REPORT.md.
-  Post-implementation maintenance review:
-  docs/reports/UI1B_PHASE_6_MAINTENANCE_REVIEW.md.
+  was added.   Frozen design: docs/ui/UI1B_MONITOR_PROJECTION_ARCHITECTURE.md.
+  Current baseline: docs/reports/CURRENT_BASELINE.md.
 
 P12
   Multi Session / Multi Profile.
@@ -285,11 +282,8 @@ P12
   Cookie, localStorage, IndexedDB, and Service Worker registration, and the
   legacy manual-login helper now uses the canonical Profile path and process
   lock. P12 Core is accepted.
-  Frozen design: docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md. Reports:
-  docs/reports/P12_1_3_PROFILE_SESSION_FOUNDATION_REPORT.md,
-  docs/reports/P12_4_6_MULTI_SESSION_ROUTING_MONITOR_REPORT.md,
-  docs/reports/P12_7_P11_AUTHORITY_RESCOPING_SECURITY_REVIEW.md, and
-  docs/reports/P12_8_CORE_FINAL_ACCEPTANCE_MAINTENANCE_REVIEW.md.
+  Frozen design: docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md. Current baseline:
+  docs/reports/CURRENT_BASELINE.md.
 
 Profile Bootstrap
   Post-Core protected Profile identity provisioning is complete. Cookie import
@@ -306,25 +300,15 @@ Profile Bootstrap
   native desktop stream save/open, and a fresh target authorization envelope.
   Restore reports browser-storage-only compatibility and never claims login
   recovery. None of these features enters MCP, WebState, Monitor, receipts, or
-  Agent authority. Reports:
-  docs/reports/PROFILE_BOOTSTRAP_COOKIE_IMPORT_REPORT.md,
-  docs/reports/PROFILE_BOOTSTRAP_CLONE_REPORT.md,
-  docs/reports/PROFILE_BOOTSTRAP_BUNDLE_REPORT.md, and
-  docs/reports/PROFILE_BOOTSTRAP_ADVERSARIAL_REVIEW.md.
+  Agent authority. Current baseline:
+  docs/reports/CURRENT_BASELINE.md.
 
-P13
-  Durable Trace / Resume.
-  Persist semantic operations, WebState revisions, object versions, ChangeSets,
-  takeover and approval events, and bounded artifacts so interrupted agent tasks
-  can be inspected and resumed.
-
-Current sequencing note (2026-08-02)
-  The pre-P13 source/UI/brand baseline is frozen and re-verified in
-  `docs/reports/PRE_P13_BASELINE_FREEZE_24.md`. P13 remains defined future
-  scope, but implementation must wait for a complete Durable Trace / Resume
-  target architecture covering durable objects, lifecycle, authority
-  reacquisition, uncertain web effects, retention, migration, and acceptance
-  criteria.
+Current sequencing note (2026-08-22)
+  The source Runtime baseline is recorded in
+  `docs/reports/CURRENT_BASELINE.md`. The former Durable Trace / Resume
+  phase is abandoned. Human preview UI is not a product goal. Next work stays
+  on the Agent-native internet Runtime: real-page perception, semantic
+  action, and result verification.
 
 Long term
   Keep mature web engines such as Chromium/Blink/V8 as implementation details.

@@ -1,14 +1,14 @@
 # Open Source Readiness
 
-Status: P1-P12 and Post-Core Profile Bootstrap are implemented; the pre-P13
+Status: P1-P12 and Post-Core Profile Bootstrap are implemented. The
 open-source Runtime baseline passed independent Grok acceptance on 2026-07-19,
-and the post-acceptance UI/brand changes were re-verified with source-external
-wheel and 12-state UI evidence on 2026-08-02. The evidence is recorded in
-`docs/reports/PRE_P13_BASELINE_FREEZE_24.md`; it becomes an immutable repository
-baseline only when the containing commit is reviewed. This is not a public
-release certificate. The optional lightweight Desktop remains a developer
-preview and further distribution work is paused. P13 Durable Trace / Resume is
-explicitly deferred.
+and the 2026-08-02 source freeze was re-verified with source-external wheel
+evidence. The evidence is recorded in `docs/reports/CURRENT_BASELINE.md`; it
+becomes an immutable repository baseline only when the containing commit is
+reviewed. This is not a public release certificate. Human preview UI is not a
+product goal. Leftover Desktop code is developer residue; further Desktop
+distribution work is paused. The former Durable Trace / Resume phase is
+abandoned.
 
 This document separates source-code readiness from a formal signed Windows
 binary release. The repository can be reviewed and built as a developer preview,
@@ -25,15 +25,15 @@ Public material must describe WebFA as:
 - a multi-Profile, multi-Session system in which each persistent Profile owns an
   isolated Chromium identity and at most one active writable Session;
 - a system with connection-scoped Profile Grants, exclusive Session Leases,
-  generation-bound authority, and separately protected human monitoring/control;
+  and generation-bound authority;
 - a developer preview with no anti-bot bypass and no guarantee of safe
   unattended high-risk account activity;
 - a system whose persistent Profile state survives restart but whose active
   Session task/authority state does not.
 
-P13 must remain described as deferred future scope. No README, package metadata,
-release note, screenshot, or demo may imply durable task replay, page restoration,
-or resumable execution.
+No README, package metadata, release note, screenshot, or demo may imply
+durable task replay, page restoration, or resumable execution. Do not describe
+human preview UI or Desktop Monitor as a product capability.
 
 ## Public entry points and protocol
 

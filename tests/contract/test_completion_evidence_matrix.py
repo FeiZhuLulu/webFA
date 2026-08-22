@@ -14,12 +14,7 @@ CURRENT_EVIDENCE = (
     "docs/P10_WEBFA_OBJECT_MODEL_DESIGN.md",
     "docs/P11_AGENT_SAFETY_CONTRACT_DESIGN.md",
     "docs/P12_MULTI_SESSION_MULTI_PROFILE_DESIGN.md",
-    "docs/reports/P10_FINAL_ACCEPTANCE_REPORT.md",
-    "docs/reports/P11_FINAL_ACCEPTANCE_REPORT.md",
-    "docs/reports/P12_8_CORE_FINAL_ACCEPTANCE_MAINTENANCE_REVIEW.md",
-    "docs/reports/PROFILE_BOOTSTRAP_ADVERSARIAL_REVIEW.md",
-    "docs/reports/UI1B_PHASE_6_MAINTENANCE_REVIEW.md",
-    "docs/reports/PRE_P13_COMPLETION_EVIDENCE_MATRIX_21.md",
+    "docs/reports/CURRENT_BASELINE.md",
 )
 
 
@@ -57,18 +52,19 @@ def test_report_index_defines_point_in_time_authority() -> None:
     assert "point-in-time engineering evidence" in index
     assert "older passing report is not a release certificate" in index
     assert "P1–P3 transaction-gateway evidence" in index
-    assert "lightweight Runtime Manager" in index
+    assert "Human preview UI is not a product goal" in index
 
 
 def test_matrix_preserves_product_and_phase_boundaries() -> None:
-    matrix = _read("docs/reports/PRE_P13_COMPLETION_EVIDENCE_MATRIX_21.md")
+    matrix = _read("docs/reports/CURRENT_BASELINE.md")
     assert "P1–P3 are completed\nhistorical transaction-gateway work" in matrix
-    assert "P13 Durable Trace / Resume is not implemented" in matrix
+    assert "The former Durable Trace / Resume phase is abandoned" in matrix
+    assert "Human preview UI" in matrix
     assert "no planner, memory, model, task loop, or Agent orchestration" in matrix
     assert "Source/wheel developer-preview baseline is distinct" in matrix
 
 
-def test_public_status_consistently_defers_p13() -> None:
+def test_public_status_abandons_durable_resume_and_human_preview_ui() -> None:
     for path in (
         "README.md",
         "README.en.md",
@@ -77,8 +73,10 @@ def test_public_status_consistently_defers_p13() -> None:
         "docs/OPEN_SOURCE_READINESS.md",
     ):
         text = _read(path)
-        assert "P13" in text
-        assert "defer" in text.lower() or "暂缓" in text
+        assert "P13" not in text
+        lowered = text.lower()
+        assert "abandoned" in lowered or "不是产品目标" in text or "not a product goal" in lowered
+        assert "durable" in lowered or "耐久" in text
 
 
 def test_historical_roadmap_cannot_claim_an_active_old_phase() -> None:

@@ -20,7 +20,7 @@ The production distribution must preserve the same public product model as sourc
 - the Desktop owns only the Runtime child it started, its protected control token, the packaged Renderer, and Monitor windows;
 - BrowserHost processes remain Runtime-owned descendants and must be closed before Runtime exit;
 - Session Monitor projects the same BrowserHost page and may forward local input only while its exact Session-scoped HumanControlLease is active; the duplicate-page Electron AuthSurface is retired;
-- P13 Durable Trace / Resume is not part of this distribution work.
+- Human preview UI is not a product goal. Durable task resume is not part of this leftover distribution work.
 
 ## 2. Optional artifact model
 

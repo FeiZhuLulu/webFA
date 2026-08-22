@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <title>WebFA Mark — Light Surface</title>
+  <rect width="64" height="64" rx="14" fill="#EEF3F7"/>
+  <rect x="6" y="13" width="52" height="38" rx="10" fill="#0A0E14"/>
+  <rect x="12" y="18.5" width="40" height="5" rx="2.5" fill="#EEF3F7"/>
+  <rect x="12" y="27" width="40" height="18" rx="5" fill="#EEF3F7"/>
+  <path d="M24 30.5 L29.5 36 L24 41.5" stroke="#0794C7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M33.5 41.5 H39.5" stroke="#0A0E14" stroke-width="4" stroke-linecap="round"/>
+</svg>

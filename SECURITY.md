@@ -132,10 +132,10 @@ Session execution state and authority do not: Profile/Monitor grants, Agent and
 HumanControl leases, SafetyContext, Step-up, resource/payment state, and task
 progress are invalidated, and stale active Sessions become `interrupted`.
 
-P13 Durable Trace / Resume is explicitly deferred. WebFA does not currently
-promise crash-safe task replay, page restoration, or continuation of an
-in-flight external write. After a crash or ambiguous network/browser failure,
-inspect the real website state before retrying to avoid duplicate effects.
+Durable task resume is abandoned. WebFA does not promise crash-safe task
+replay, page restoration, or continuation of an in-flight external write.
+After a crash or ambiguous network/browser failure, inspect the real website
+state before retrying to avoid duplicate effects.
 
 ## Additional developer-preview limitations
 

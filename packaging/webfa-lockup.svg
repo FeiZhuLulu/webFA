@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 96" fill="none">
+  <title>WebFA Lockup</title>
+  <rect width="360" height="96" rx="20" fill="#0A0E14"/>
+  <g transform="translate(8 20) scale(0.875)">
+    <rect x="6" y="13" width="52" height="38" rx="10" fill="#FFFFFF"/>
+    <rect x="12" y="18.5" width="40" height="5" rx="2.5" fill="#0A0E14"/>
+    <rect x="12" y="27" width="40" height="18" rx="5" fill="#0A0E14"/>
+    <path d="M24 30.5 L29.5 36 L24 41.5" stroke="#33D6FF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M33.5 41.5 H39.5" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <text x="88" y="62" font-family="'Segoe UI', -apple-system, 'PingFang SC', sans-serif" font-size="44" font-weight="650" letter-spacing="1" fill="#FFFFFF">Web<tspan fill="#33D6FF">FA</tspan></text>
+</svg>
